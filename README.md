@@ -14,7 +14,7 @@ nvm use          # Node version from .nvmrc
 npm install
 npm run doctor   # checks Node, git, gh, Docker, Android SDK/Java/adb and a connected phone, with fix hints
 ```
-With Claude Code in this repo, say "set up this PC" and the `runtracker` project skill (`.claude/skills/runtracker`) does this for you. It also helps you pick up open work and wrap up when switching PCs.
+With Claude Code in this repo, say "set up this PC" and the `startup-runtracker` project skill (`.claude/skills/startup-runtracker`) does this for you. It also helps you pick up open work and wrap up when switching PCs.
 
 ## Develop
 ```sh

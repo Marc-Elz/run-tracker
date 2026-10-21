@@ -1,5 +1,5 @@
 ---
-name: runtracker
+name: startup-runtracker
 description: Set up, resume and wrap up work on the Run Tracker project on whichever PC I'm on (Windows or Linux). Use when I say "set up this PC", "get me started", "where was I", "what's next", "pick up work", "wrap up" or "I'm switching PCs" in the run-tracker repo.
 ---
 
