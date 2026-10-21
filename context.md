@@ -46,5 +46,10 @@ Sharing runs to Strava should be as easy as possible.
 - Units/locale (km, min/km) – assume metric.
 
 ## Environment
-- Windows 11, dev folder `C:\Users\Marc-E\Documents\projects\run-tracker`
-- Needs Node.js and Android Studio (for building/running on device).
+- Dev machines: Windows 11 PCs and a Linux home dev PC. **Docker Desktop is installed on all of them.**
+- Needs Node.js and Android Studio (for building/running on device) on whichever machine builds the APK.
+- Docker usage plan:
+  - Good fit: self-hosted backing services for later phases (routing engine such as Valhalla/GraphHopper/OSRM, Overpass/OSM extract, any small API), via `docker-compose.yml` so the setup is identical on every PC.
+  - Web dev server (Vite) can run in a container too, but is optional.
+  - Android builds / on-device debugging: prefer native Android Studio + adb. USB device passthrough into containers is awkward on Windows (Docker Desktop/WSL2) and fine on Linux, so don't rely on Docker for device testing.
+- Keep everything cross-platform: no Windows-only paths or scripts (use npm scripts, forward slashes, LF line endings via `.gitattributes`).
