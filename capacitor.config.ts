@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'nl.marcelzinga.runtracker',
+  appId: 'com.runtracker.app',
   appName: 'Run Tracker',
   webDir: 'dist'
 };

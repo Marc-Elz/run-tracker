@@ -1,4 +1,4 @@
-package nl.marcelzinga.runtracker;
+package com.runtracker.app;
 
 import com.getcapacitor.BridgeActivity;
 
