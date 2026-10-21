@@ -5,7 +5,7 @@ description: Set up, resume and wrap up work on the Run Tracker project on which
 
 # Run Tracker: setup, pick up, wrap up
 
-Solo project, several PCs (Windows 11 and a Linux home PC, Docker Desktop on all of them). Goals, decisions and the issue plan are in `context.md`; read it first. Issues live on GitHub (`gh issue list`), not in a file.
+Solo project, several PCs (Windows 11 and a Linux home PC, Docker Desktop on all of them). `CLAUDE.md` (already loaded) has the commands and workflow rules; `context.md` has the background and decisions, so read it when the task needs the why. Issues live on GitHub (`gh issue list`), not in a file.
 
 ## Set up this PC
 1. `git status` and `git branch --show-current`. If this is a fresh clone, `git fetch --all`.
