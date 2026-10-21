@@ -16,7 +16,8 @@
     "format": "prettier --write --experimental-cli src/",
     "android:sync": "npm run build-only && cap sync android",
     "android:open": "cap open android",
-    "android:run": "npm run android:sync && cap run android"
+    "android:run": "npm run android:sync && cap run android",
+    "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
     "@capacitor-community/keep-awake": "^8.0.1",
@@ -53,6 +54,6 @@
     "vue-tsc": "^3.3.11"
   },
   "engines": {
-    "node": "^22.18.0 || >=24.12.0"
+    "node": "^20.19.0 || >=22.12.0"
   }
 }
