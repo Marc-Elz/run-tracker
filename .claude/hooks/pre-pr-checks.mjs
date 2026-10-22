@@ -5,7 +5,8 @@ import { spawnSync } from 'node:child_process'
 let input = ''
 for await (const chunk of process.stdin) input += chunk
 
-const command = JSON.parse(input).tool_input?.command ?? ''
+const { tool_input: toolInput, cwd: sessionCwd } = JSON.parse(input)
+const command = toolInput?.command ?? ''
 // Only when `gh pr create` is run, not when it merely appears in a string.
 if (!/(^|[;&|]\s*)gh\s+pr\s+create\b/m.test(command)) process.exit(0)
 
@@ -18,7 +19,8 @@ const checks = [
   ['unit tests', 'npx vitest run'],
 ]
 
-const cwd = process.env.CLAUDE_PROJECT_DIR ?? process.cwd()
+// Check the tree the PR comes from: in a worktree session that is the session cwd, not the project dir.
+const cwd = sessionCwd ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd()
 for (const [name, cmd] of checks) {
   const result = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8' })
   if (result.status !== 0) {
