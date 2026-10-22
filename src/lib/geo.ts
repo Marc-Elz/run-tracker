@@ -5,6 +5,10 @@ export interface TrackPoint {
   timestamp: number
   /** Horizontal accuracy in metres, when known */
   accuracy?: number
+  /** Metres above the WGS84 ellipsoid, when known */
+  altitude?: number
+  /** Metres per second as reported by the GPS, when known */
+  speed?: number
 }
 
 const EARTH_RADIUS_M = 6371008.8

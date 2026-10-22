@@ -16,6 +16,8 @@ export const useRunStore = defineStore('run', () => {
   const points = computed(() => segments.value.flat())
   // Fixes of the current segment that passed the filters; feeds the current pace
   const segmentAccepted = ref<TrackPoint[]>([])
+  // False until the current segment has a usable fix: the screen shows "Acquiring GPS"
+  const hasFix = computed(() => segmentAccepted.value.length > 0)
   const distanceM = ref(0)
   const movingMs = ref(0)
 
@@ -121,6 +123,7 @@ export const useRunStore = defineStore('run', () => {
     status,
     segments,
     points,
+    hasFix,
     distanceM,
     elapsedMs,
     movingMs,
