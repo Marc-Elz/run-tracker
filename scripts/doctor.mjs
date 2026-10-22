@@ -81,29 +81,37 @@ add(
 )
 
 // ---- Java ----
-const javaCandidates = [
-  process.env.JAVA_HOME && join(process.env.JAVA_HOME, 'bin', isWin ? 'java.exe' : 'java'),
+// Gradle uses JAVA_HOME, else the java on PATH. It needs a full JDK (javac, not just a JRE) at the
+// version android/app/capacitor.build.gradle compiles to.
+const javaMin = 21
+const exe = isWin ? '.exe' : ''
+const javaHome = process.env.JAVA_HOME
+const javac = javaHome ? join(javaHome, 'bin', `javac${exe}`) : 'javac'
+const javacOut =
+  javaHome && !existsSync(javac)
+    ? null
+    : run(isWin && javaHome ? `"${javac}"` : javac, ['-version'])
+const [, v1, v2] = javacOut?.match(/javac (\d+)(?:\.(\d+))?/) ?? []
+const javaMajor = v1 === '1' ? Number(v2) : Number(v1) // Java 8 reports 1.8
+const studioJbr = [
   isWin &&
-    join(
-      process.env.ProgramFiles ?? 'C:\\Program Files',
-      'Android',
-      'Android Studio',
-      'jbr',
-      'bin',
-      'java.exe',
-    ),
-  !isWin && !isMac && '/opt/android-studio/jbr/bin/java',
-  !isWin && !isMac && join(home, 'android-studio', 'jbr', 'bin', 'java'),
-  isMac && '/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java',
-].filter(Boolean)
-const javaPath = javaCandidates.find((p) => existsSync(p))
-const javaOnPath = run('java', ['-version'])
+    join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Android', 'Android Studio', 'jbr'),
+  !isWin && !isMac && '/opt/android-studio/jbr',
+  !isWin && !isMac && join(home, 'android-studio', 'jbr'),
+  isMac && '/Applications/Android Studio.app/Contents/jbr/Contents/Home',
+]
+  .filter(Boolean)
+  .find((p) => existsSync(join(p, 'bin', `javac${exe}`)))
 add(
   'device',
   'Java (JDK)',
-  !!(javaPath || javaOnPath),
-  javaPath ?? (javaOnPath ? firstLine(javaOnPath) : 'not found'),
-  'Installed together with Android Studio; or set JAVA_HOME to a JDK 17+',
+  javaMajor >= javaMin,
+  javacOut
+    ? `${firstLine(javacOut)}${javaHome ? ` (JAVA_HOME=${javaHome})` : ' (PATH)'}`
+    : javaHome
+      ? `no javac in JAVA_HOME=${javaHome} (a JRE, not a JDK?)`
+      : 'no javac on PATH',
+  `Need a JDK ${javaMin}+ with javac. ${studioJbr ? `Set JAVA_HOME to Android Studio's JDK: ${studioJbr}` : hint('Install Android Studio (it includes a JDK) and set JAVA_HOME to its jbr folder', `Install a JDK ${javaMin} (e.g. \`sudo pacman -S jdk${javaMin}-openjdk\`, \`sudo apt install openjdk-${javaMin}-jdk\`) or set JAVA_HOME to Android Studio's jbr folder`)}`,
 )
 
 // ---- Android SDK ----
