@@ -25,3 +25,14 @@ Background, decisions and open questions: `context.md` (read it when a task need
 - Native behaviour (background GPS, keep-awake, battery optimisation) can only be verified on the real phone. Say plainly in the PR when something was not tried on a device.
 - Don't commit secrets. The Strava client secret handling is an open decision (#12).
 - App id is `com.runtracker.app`; keep personal names out of the repo.
+
+## Skill settings
+Read by the `plan-feature`, `wireframe` and `fix-bug` skills and the `plan-reviewer` agent (copied from the coding-harness repo; improve them there).
+- Tracker: GitHub Issues, `gh issue view <n> --comments`.
+- Plans, wireframes and bug write-ups go in a comment on the issue (`gh issue comment <n> --body-file <file>`), not in committed files. Draft the file in the scratchpad.
+- Default branch `main`; branch naming as in Workflow.
+- Checks: `npm run type-check`, `npm run lint`, `npx vitest run`. A hook runs them before `gh pr create` and blocks the PR on failure.
+- Device-only: background GPS, keep-awake, permission prompts, battery optimisation, anything under `android/`. In the browser, approximate GPS with `src/lib/simulateGps.ts`; on the phone, read `adb logcat`.
+- Planning hazards: Android permissions and manifest changes; Samsung battery optimisation killing the app mid-run (no lost run data); foreground-service notification; GPS noise, gaps and accuracy; no network while running; storage migrations once SQLite lands (#5); secrets (#12).
+- UI target: Android phone, portrait, 360–412 px wide, dark mode. Run screens must be readable at a glance while running: large numbers, one-thumb reach, big touch targets, high contrast in sunlight.
+- Reviewer: spawn `plan-reviewer` only for large issues, e.g. background GPS (#3), SQLite (#5), Strava OAuth (#13), street coverage (#28).
