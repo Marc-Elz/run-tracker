@@ -28,6 +28,7 @@ Background, decisions and open questions: `context.md` (read it when a task need
 
 ## Skill settings
 Read by the `plan-feature`, `wireframe` and `fix-bug` skills and the `plan-reviewer` agent (copied from the coding-harness repo; improve them there).
+- Keep the skills, hooks and agents aimed at run-tracker development and token-lean: project facts go in this section, not in the skill files; short skill descriptions; small changes get no plan; reviewer agents only where a skill says; rules that must always run go in a hook, not a skill.
 - Tracker: GitHub Issues, `gh issue view <n> --comments`.
 - Plans, wireframes and bug write-ups go in a comment on the issue (`gh issue comment <n> --body-file <file>`), not in committed files. Draft the file in the scratchpad.
 - Default branch `main`; branch naming as in Workflow.
