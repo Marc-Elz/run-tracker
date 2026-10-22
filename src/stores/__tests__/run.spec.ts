@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useRunStore } from '../run'
+import { summarizeTrack } from '@/lib/runStats'
 
 // ~0.001 degrees of latitude is ~111 m
 const at = (t: number, latOffset: number) => ({ lat: 52 + latOffset, lon: 4, timestamp: t })
@@ -31,9 +32,46 @@ describe('run store', () => {
     const run = useRunStore()
     run.start(0)
     run.addPoint(at(1000, 0))
-    run.addPoint(at(2000, 0.001))
+    run.addPoint(at(31_000, 0.001))
     expect(run.distanceM).toBeGreaterThan(105)
     expect(run.distanceM).toBeLessThan(115)
+  })
+
+  it('stores filtered fixes but leaves them out of distance and moving time', () => {
+    const run = useRunStore()
+    run.start(0)
+    run.addPoint(at(1000, 0))
+    run.addPoint({ ...at(16_000, 0.0005), accuracy: 60 }) // inaccurate
+    run.addPoint(at(17_000, 0.05)) // jump of ~5.5 km
+    run.addPoint(at(31_000, 0.001))
+    expect(run.points).toHaveLength(4)
+    expect(run.distanceM).toBeCloseTo(111, -1)
+    expect(run.movingMs).toBe(30_000)
+  })
+
+  it('reports moving time and moving pace apart from elapsed time and pace', () => {
+    const run = useRunStore()
+    run.start(0)
+    run.addPoint(at(0, 0))
+    run.addPoint(at(30_000, 0.001)) // ~111 m in 30 s
+    run.addPoint(at(150_000, 0.0011)) // ~11 m in 2 min: waiting at a crossing
+    run.addPoint(at(180_000, 0.0021))
+    run.tick(180_000)
+    expect(run.elapsedMs).toBe(180_000)
+    expect(run.movingMs).toBe(60_000)
+    expect(run.averagePaceSecPerKm).toBeCloseTo(180 / 0.2335, -1)
+    expect(run.averageMovingPaceSecPerKm).toBeCloseTo(60 / 0.2335, -1)
+  })
+
+  it('matches summarizeTrack on the stored segments', () => {
+    const run = useRunStore()
+    run.start(0)
+    for (let i = 0; i <= 5; i++) run.addPoint(at(i * 30_000, i * 0.001))
+    run.pause(160_000)
+    run.resume(200_000)
+    for (let i = 0; i <= 5; i++) run.addPoint(at(200_000 + i * 30_000, 0.02 + i * 0.001))
+    expect(run.segments).toHaveLength(2)
+    expect(summarizeTrack(run.segments)).toEqual({ distanceM: run.distanceM, movingMs: run.movingMs })
   })
 
   it('ignores points when not running', () => {
