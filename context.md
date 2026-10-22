@@ -17,14 +17,6 @@ Sharing runs to Strava should be as easy as possible.
 - **Keep screen on:** `@capacitor-community/keep-awake` while a run is active.
 - **Home server:** an old laptop (Linux + Docker) will host the routing engine, optional run sync and possibly a Strava token proxy. Needs remote access while out running (Tailscale / Cloudflare Tunnel preferred over open ports). See #26.
 
-## Workflow
-- Work is tracked in **GitHub Issues** (no TASKS.md). Types via labels: `feature`, `task`, `bug`; areas: `tracking`, `strava`, `maps`, `infra`; `decision` = needs a decision before work can start.
-- Milestones = the phases below.
-- Every issue is done on its own branch (`feat/<n>-slug`, `task/<n>-slug`, `docs/slug`) and merged through a PR containing `Closes #<n>`, even though this is a solo project.
-- No CI on GitHub (decided). Checks run locally: `npm run type-check`, `npm run lint`, `npm run test:unit`. GitHub Free cannot enforce branch protection on private repos, so the PR habit is voluntary.
-- Issue and PR templates live in `.github/`.
-- Stacked PRs are fine when one issue needs another's code: base the PR on the other branch and merge in order.
-
 ## Known risks
 - Samsung battery optimisation kills background apps. Need to prompt the user to exempt the app and test on the real device.
 - Background location permission needs clear UX (and Play Store review if ever published).
@@ -47,19 +39,16 @@ Sharing runs to Strava should be as easy as possible.
 - Routing/loop generation: OpenRouteService, GraphHopper or Valhalla (round-trip routes by distance), weighted towards unrun segments.
 - Services run via Docker Compose on the home server (#27).
 
-## Phases and issues
-1. **Phase 1 – MVP:** record a run (GPS, distance, pace, time), show on map, save locally in SQLite, export GPX.
-   - #2 Vue + Capacitor scaffold, #3 background GPS, #4 live run screen, #5 SQLite storage, #6 run summary map, #7 GPX export, #10 settings/permissions screen, #11 bottom navigation
-2. **Phase 2 – Strava:** OAuth + upload after a run (CityStrides follows via Strava).
-   - #12 secret-handling decision, #13 OAuth login, #14 upload a run, #15 upload status/retry, #16 auto-upload and details, #17 verify CityStrides
-3. **Phase 3 – History:** run list, detail, heatmap, stats, backup, optional sync.
-   - #18 history list, #19 run detail, #20 rename/delete, #21 heatmap, #22 totals/stats, #23 backup/restore file, #24 automatic sync to home server (optional extra)
-4. **Phase 4 – Smart features:** street coverage via map-matching, then route suggestions favouring new streets.
-   - #25 map-matching spike, #26 home server setup, #27 Docker Compose for routing/OSM, #28 street coverage computation, #29 coverage view decision, #30 round-trip suggestions, #31 favour unrun streets, #32 follow a route during a run
+## Phases
+Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-Elz/run-tracker/milestones (the issue list is the source of truth, not this file).
+1. **Phase 1 - MVP:** record a run (GPS, distance, pace, time), show on map, save locally in SQLite, export GPX.
+2. **Phase 2 - Strava:** OAuth + upload after a run (CityStrides follows via Strava).
+3. **Phase 3 - History:** run list, detail, heatmap, stats, backup, optional sync to the home server.
+4. **Phase 4 - Smart features:** home server + routing services, street coverage via map-matching, then route suggestions favouring new streets.
 
 ## Decisions
 - Vue 3 + Capacitor for the app; native fallback only for tracking if needed.
-- GitHub Issues + branches + PRs, no CI.
+- GitHub Issues + branches + PRs, no CI (workflow rules are in `CLAUDE.md`).
 - Old laptop as home server; automatic sync to it is a nice-to-have, manual backup file comes first (#23).
 - Units are metric (km, min/km).
 
