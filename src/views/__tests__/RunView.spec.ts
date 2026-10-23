@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import type { TrackPoint } from '@/lib/geo'
-import { GpsError } from '@/lib/gps'
+import { GpsError, startGps } from '@/lib/gps'
+import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
+import { useRunStore } from '@/stores/run'
 import RunView from '../RunView.vue'
 
 vi.mock('@capacitor-community/keep-awake', () => ({
@@ -103,5 +105,75 @@ describe('RunView', () => {
 
     expect(wrapper.attributes('data-status')).toBe('running')
     expect(wrapper.text()).toContain('Location is off')
+  })
+
+  it('deletes the run when location is refused before the first fix', async () => {
+    const repo = createMemoryRunRepository()
+    useRunStore().useRepository(repo)
+    const wrapper = mount(RunView)
+    await start(wrapper)
+    gps.onError!(new GpsError('denied', 'User denied location permission'))
+    await flushPromises()
+    expect(await repo.findUnfinished()).toEqual([])
+  })
+
+  it('asks before discarding a finished run', async () => {
+    const repo = createMemoryRunRepository()
+    const run = useRunStore()
+    run.useRepository(repo)
+    const wrapper = mount(RunView)
+    await start(wrapper)
+    gps.onPoint!({ lat: 52, lon: 4, timestamp: Date.now(), accuracy: 5 })
+    const id = run.runId!
+    await button(wrapper, 'Pause')!.trigger('click')
+    await button(wrapper, 'Stop')!.trigger('click')
+
+    await button(wrapper, 'Discard')!.trigger('click')
+    expect(wrapper.text()).toContain('Delete this run')
+    await button(wrapper, 'Keep')!.trigger('click')
+    expect(wrapper.attributes('data-status')).toBe('finished')
+
+    await button(wrapper, 'Discard')!.trigger('click')
+    await button(wrapper, 'Delete')!.trigger('click')
+    expect(wrapper.attributes('data-status')).toBe('idle')
+    expect(await repo.loadPoints(id)).toEqual([])
+  })
+
+  it('shows a recovered run and starts GPS on Resume', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun({
+      id: 'r1',
+      status: 'running',
+      startedAt: 0,
+      finishedAt: null,
+      elapsedMs: 0,
+      segment: 0,
+      segmentStartedAt: 0,
+      movingMs: 0,
+      distanceM: 0,
+    })
+    await repo.addPoint('r1', 0, { lat: 52, lon: 4, timestamp: 1000, accuracy: 5 })
+    const run = useRunStore()
+    run.useRepository(repo)
+    await run.recover()
+
+    const wrapper = mount(RunView)
+    expect(wrapper.attributes('data-status')).toBe('paused')
+    expect(wrapper.text()).toContain('Run recovered')
+    expect(startGps).not.toHaveBeenCalled()
+
+    await button(wrapper, 'Resume')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.attributes('data-status')).toBe('running')
+    expect(startGps).toHaveBeenCalledOnce()
+    expect(wrapper.text()).not.toContain('Run recovered')
+  })
+
+  it('warns when the run is not being saved', async () => {
+    const run = useRunStore()
+    const wrapper = mount(RunView)
+    run.saveError = true
+    await flushPromises()
+    expect(wrapper.text()).toContain('Not saving')
   })
 })
