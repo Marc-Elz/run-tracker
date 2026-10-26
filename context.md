@@ -5,6 +5,13 @@ A run-tracking mobile app for my Samsung (Android) phone. Core: record runs with
 Longer-term: view routes/streets I've run, and get suggested routes so I don't repeat the same ones.
 Sharing runs to Strava should be as easy as possible.
 
+## Purpose
+Personal-use app that doubles as a portfolio project; the source will be shared with potential employers. So the process is part of the deliverable, not only the code:
+- Work is organised as issues, plans, PRs and tests, and stays readable on GitHub (issues have acceptance criteria and a "verify" method per item; PRs say what was and was not tried on a device).
+- Every decision is tracked: a `decision` issue while open, then recorded under Decisions below with the why.
+- I should be able to explain every part of the code. Prefer simple, conventional solutions I understand over clever ones; no code I couldn't defend in an interview.
+- Code follows common standards: strict TypeScript, lint and type-check clean, logic in pure tested functions, small modules, conventional naming, no secrets in the repo.
+
 ## Tech decisions
 - **Frontend:** Vue 3 (+ TypeScript, Vite)
 - **Mobile wrapper:** Capacitor (native Android shell around the Vue app). Alternatives considered: Ionic Vue, Quasar, NativeScript-Vue.
@@ -19,7 +26,7 @@ Sharing runs to Strava should be as easy as possible.
 
 ## Known risks
 - Samsung battery optimisation kills background apps. Need to prompt the user to exempt the app and test on the real device.
-- Background location permission needs clear UX (and Play Store review if ever published).
+- Background location permission needs clear UX (a Play Store review would apply only if the app were ever published, which is not planned).
 
 ## Integrations
 ### Strava
@@ -45,19 +52,24 @@ Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-
 2. **Phase 2 - Strava:** OAuth + upload after a run (CityStrides follows via Strava).
 3. **Phase 3 - History:** run list, detail, heatmap, stats, backup, optional sync to the home server.
 4. **Phase 4 - Smart features:** home server + routing services, street coverage via map-matching, then route suggestions favouring new streets.
+5. **Phase 5 - Training programs:** scheduled workouts and planned vs. done tracking.
 
 ## Decisions
 - Vue 3 + Capacitor for the app; native fallback only for tracking if needed.
 - GitHub Issues + branches + PRs, no CI (workflow rules are in `CLAUDE.md`).
 - Old laptop as home server; automatic sync to it is a nice-to-have, manual backup file comes first (#23).
 - Units are metric (km, min/km).
+- Personal use only, never published on the Play Store (decided 2026-10-26). The generic app id stays, and the Play Store review concerns for background location and the Strava brand guidelines do not apply. Revisit only if that changes.
+- Location permission is "while using" only: the foreground service keeps GPS running with the screen off, so "Allow all the time" is not requested (#3).
+- Plugins in use: `@capacitor-community/background-geolocation`, `@capacitor-community/sqlite`, `@capacitor-community/keep-awake`, `@capacitor/share` and `@capacitor/filesystem` (GPX export). The paid Transistorsoft plugin was not needed so far; the long screen-off run test (#3) is what would change that.
+- Raw GPS fixes are stored unfiltered; filtering happens at read time in pure functions (#38), so the rules can change without losing data.
+- Phase 1 is code-complete; the remaining boxes need device checks (#3, #5, #7, #10).
 
 ## Pending decisions
 - **Strava client secret** (#12): proxy on home server vs. embedded secret vs. serverless function. To be decided later; only blocks #13.
 - **In-app street coverage view** (#29): skip / minimal / full. Decide after #17 and #25.
 
 ## Open questions
-- Publish on the Play Store eventually, or personal use only?
 - App name?
 
 ## Environment
