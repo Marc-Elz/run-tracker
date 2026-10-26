@@ -181,7 +181,9 @@ onBeforeUnmount(endGps)
 <style scoped>
 .run {
   box-sizing: border-box;
-  min-height: 100dvh;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
