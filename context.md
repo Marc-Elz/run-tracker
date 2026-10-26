@@ -49,6 +49,7 @@ Personal-use app that doubles as a portfolio project; the source will be shared 
 ## Phases
 Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-Elz/run-tracker/milestones (the issue list is the source of truth, not this file).
 1. **Phase 1 - MVP:** record a run (GPS, distance, pace, time), show on map, save locally in SQLite, export GPX.
+1.5. **Phase 1.5 - Run experience:** make a run nicer to do, starting with audio cues (#61).
 2. **Phase 2 - Strava:** OAuth + upload after a run (CityStrides follows via Strava).
 3. **Phase 3 - History:** run list, detail, heatmap, stats, backup, optional sync to the home server.
 4. **Phase 4 - Smart features:** home server + routing services, street coverage via map-matching, then route suggestions favouring new streets.
@@ -63,6 +64,9 @@ Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-
 - Location permission is "while using" only: the foreground service keeps GPS running with the screen off, so "Allow all the time" is not requested (#3).
 - Plugins in use: `@capacitor-community/background-geolocation`, `@capacitor-community/sqlite`, `@capacitor-community/keep-awake`, `@capacitor/share` and `@capacitor/filesystem` (GPX export). The paid Transistorsoft plugin was not needed so far; the long screen-off run test (#3) is what would change that.
 - Raw GPS fixes are stored unfiltered; filtering happens at read time in pure functions (#38), so the rules can change without losing data.
+- Phase numbers and names stay as they are, and Phase 1.5 - Run experience was added for #61 (decided 2026-10-26). The number is not the work order: History (Phase 3) is built before Strava (Phase 2), see the next line.
+- Priorities after Phase 1 (decided 2026-10-26): the primary goal is to record a run, see it in the app's history and export it to Strava. Order: close Phase 1 with one device pass and the outdoor run, then History (#18, #19, #20), then Strava (#12 first, then #13 to #16), then the rest of Phase 3 (backup #23 before the heatmap and stats). Audio cues (#61, Phase 1.5) are wanted and get planned once the Phase 1 gate is closed. Phase 4 is lower priority: it is where the app gets more interesting, but it starts only after the map-matching spike (#25) and the #29 decision. Phase 5 is parked.
+- No shoe or gear tracking. Strava offers it as an optional field, but I don't use it.
 - Phase 1 is code-complete; the remaining boxes need device checks (#3, #5, #7, #10).
 
 ## Pending decisions
