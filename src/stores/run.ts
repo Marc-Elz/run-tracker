@@ -246,6 +246,7 @@ export const useRunStore = defineStore('run', () => {
   return {
     status,
     runId,
+    startedAt,
     recovered,
     saveError,
     segments,

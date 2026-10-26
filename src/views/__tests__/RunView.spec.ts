@@ -33,6 +33,11 @@ vi.mock('@/lib/gps', async (importOriginal) => ({
   openAppSettings: vi.fn<() => Promise<void>>(async () => {}),
 }))
 
+const share = vi.hoisted(() => ({
+  shareGpx: vi.fn<(fileName: string, xml: string) => Promise<void>>(async () => {}),
+}))
+vi.mock('@/lib/shareRun', () => share)
+
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>
   wrapper.findAll('button').find((b) => b.text() === label)
 
@@ -115,6 +120,29 @@ describe('RunView', () => {
     gps.onError!(new GpsError('denied', 'User denied location permission'))
     await flushPromises()
     expect(await repo.findUnfinished()).toEqual([])
+  })
+
+  it('exports the finished run as GPX, and says so when that fails', async () => {
+    const wrapper = mount(RunView)
+    await start(wrapper)
+    expect(button(wrapper, 'Export GPX')).toBeUndefined() // only once the run is finished
+    gps.onPoint!({ lat: 52, lon: 4, timestamp: Date.now(), accuracy: 5 })
+    await button(wrapper, 'Pause')!.trigger('click')
+    expect(button(wrapper, 'Export GPX')).toBeUndefined()
+    await button(wrapper, 'Stop')!.trigger('click')
+
+    await button(wrapper, 'Export GPX')!.trigger('click')
+    await flushPromises()
+    expect(share.shareGpx).toHaveBeenCalledOnce()
+    const [fileName, xml] = share.shareGpx.mock.calls[0]!
+    expect(fileName).toMatch(/^run-\d{4}-\d{2}-\d{2}-\d{4}\.gpx$/)
+    expect(xml).toContain('<trkpt lat="52.0000000" lon="4.0000000">')
+    expect(wrapper.text()).not.toContain('Could not export')
+
+    share.shareGpx.mockRejectedValueOnce(new Error('disk full'))
+    await button(wrapper, 'Export GPX')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Could not export the run')
   })
 
   it('asks before discarding a finished run', async () => {

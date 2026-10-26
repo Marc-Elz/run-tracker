@@ -6,10 +6,14 @@ import { useKeepAwake } from '@/composables/useKeepAwake'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatPace } from '@/lib/format'
+import { buildGpx, gpxFileName } from '@/lib/gpx'
+import { shareGpx } from '@/lib/shareRun'
 
 const run = useRunStore()
 const {
   status,
+  segments,
+  startedAt,
   hasFix,
   recovered,
   saveError,
@@ -27,6 +31,8 @@ const starting = ref(false)
 const gpsFailure = ref<GpsFailure | null>(null)
 const batteryHint = ref(false)
 const confirmingDiscard = ref(false)
+const exporting = ref(false)
+const exportFailed = ref(false)
 let stopGps: (() => void) | null = null
 
 function endGps() {
@@ -81,6 +87,20 @@ function onResume() {
   )
 }
 
+async function onExport() {
+  if (exporting.value || startedAt.value === null) return
+  exporting.value = true
+  exportFailed.value = false
+  try {
+    await shareGpx(gpxFileName(startedAt.value), buildGpx(startedAt.value, segments.value))
+  } catch (err) {
+    console.warn('GPX export failed', err)
+    exportFailed.value = true
+  } finally {
+    exporting.value = false
+  }
+}
+
 function onDiscard() {
   confirmingDiscard.value = false
   run.discard()
@@ -90,6 +110,7 @@ function onDiscard() {
 watch(status, (s) => {
   if (s === 'finished' || s === 'idle') endGps()
   confirmingDiscard.value = false
+  exportFailed.value = false
 })
 onBeforeUnmount(endGps)
 </script>
@@ -135,6 +156,8 @@ onBeforeUnmount(endGps)
       Not saving: this run may be lost if the app closes.
     </p>
 
+    <p v-if="exportFailed" class="notice notice--warn" role="alert">Could not export the run.</p>
+
     <p v-if="confirmingDiscard" class="notice">Delete this run and its GPS track?</p>
 
     <p v-if="batteryHint && status !== 'finished'" class="notice">
@@ -167,6 +190,9 @@ onBeforeUnmount(endGps)
       </template>
 
       <template v-else>
+        <button class="btn btn--secondary btn--wide" :disabled="exporting" @click="onExport()">
+          Export GPX
+        </button>
         <button class="btn btn--secondary" @click="confirmingDiscard = true">Discard</button>
         <button class="btn btn--primary" @click="run.reset()">Done</button>
       </template>
@@ -234,6 +260,7 @@ onBeforeUnmount(endGps)
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
 }
 
@@ -245,6 +272,12 @@ onBeforeUnmount(endGps)
   font-size: 1.4rem;
   font-weight: 700;
   color: #fff;
+}
+
+.btn--wide {
+  flex-basis: 100%;
+  min-height: 3.5rem;
+  font-size: 1.1rem;
 }
 
 .btn--primary {

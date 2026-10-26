@@ -56,6 +56,18 @@ export function summarizeTrack(segments: TrackPoint[][]): RunTotals {
   return totals
 }
 
+/** The points of one segment that `summarizeTrack` counts, in order. */
+export function acceptedPoints(segment: TrackPoint[]): TrackPoint[] {
+  const used: TrackPoint[] = []
+  let anchor: TrackPoint | null = null
+  for (const point of segment) {
+    if (!step(anchor, point).accepted) continue
+    used.push(point)
+    anchor = point
+  }
+  return used
+}
+
 /** Seconds per km, or null when the distance is too short to mean anything. */
 export function paceSecPerKm(
   ms: number,
