@@ -46,6 +46,15 @@ public class RunPowerPlugin extends Plugin {
         startActivityForResult(call, intent, "batteryDialogClosed");
     }
 
+    /** Opens the system battery optimisation list, where the exemption can be removed again. */
+    @PluginMethod
+    public void openBatterySettings(PluginCall call) {
+        Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(intent);
+        call.resolve();
+    }
+
     @ActivityCallback
     private void batteryDialogClosed(PluginCall call, ActivityResult result) {
         call.resolve(batteryResult());
