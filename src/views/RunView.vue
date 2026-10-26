@@ -180,6 +180,7 @@ onBeforeUnmount(endGps)
 
 <style scoped>
 .run {
+  box-sizing: border-box;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -287,6 +288,36 @@ onBeforeUnmount(endGps)
 
 .notice p {
   margin: 0;
+}
+
+/* Short screens (small phones, large font scale): tighten so the controls stay in view */
+@media (max-height: 640px) {
+  .run {
+    gap: 1rem;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .stats {
+    gap: 1rem;
+  }
+
+  .stat__value {
+    font-size: clamp(2.75rem, min(22vw, 13vh), 6.5rem);
+  }
+
+  .stat__value--small {
+    font-size: clamp(1.75rem, min(11vw, 7vh), 3.5rem);
+  }
+
+  .stat__label {
+    margin-top: 0.2rem;
+    font-size: 0.8rem;
+  }
+
+  .btn {
+    min-height: 4rem;
+  }
 }
 
 .btn:disabled {
