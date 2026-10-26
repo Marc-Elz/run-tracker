@@ -17,6 +17,7 @@ Background, decisions and open questions: `context.md` (read it when a task need
 - Leave PRs open for me to merge. Squash merge is the default. Never push to `main` directly.
 - No CI on purpose; checks run locally.
 - Prefer not to stack PRs. If one issue needs another's code, base it on that branch, say so in the PR, and expect to merge `main` into it after the first PR is squash-merged.
+- Keep checkboxes honest. When I report a device result or a PR is merged, update the issue's boxes, its plan comment and the PR text in the same turn. Tick only what was actually verified (a unit test, Playwright or a device run, say which), and leave a short "To call this done" note on the issue for anything still open.
 - Issue labels: `feature`, `task`, `bug`; areas `tracking`, `strava`, `maps`, `infra`; `decision` means a choice is needed before work can start. Don't start an issue that depends on an undecided `decision` issue.
 - Commits end with the Co-Authored-By line given by the harness.
 
