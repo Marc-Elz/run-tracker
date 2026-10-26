@@ -2,6 +2,8 @@
 
 Run-tracking Android app (Samsung phone): Vue 3 + TypeScript + Vite wrapped in Capacitor. Solo project, developed on several PCs (Windows 11 and Linux, Docker Desktop on all).
 
+Personal-use app and portfolio project (source shared with employers): the issue/plan/PR/test trail and tracked decisions are part of the deliverable, and I must be able to explain all the code. See "Purpose" in `context.md`.
+
 Background, decisions and open questions: `context.md` (read it when a task needs the why, not every time). Work items: GitHub Issues and milestones, not a file.
 
 ## Commands
