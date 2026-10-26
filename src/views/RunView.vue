@@ -8,8 +8,16 @@ import { ensureBatteryExemption, ensureNotifications } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatPace } from '@/lib/format'
 
 const run = useRunStore()
-const { status, hasFix, distanceM, elapsedMs, averagePaceSecPerKm, currentPaceSecPerKm } =
-  storeToRefs(run)
+const {
+  status,
+  hasFix,
+  recovered,
+  saveError,
+  distanceM,
+  elapsedMs,
+  averagePaceSecPerKm,
+  currentPaceSecPerKm,
+} = storeToRefs(run)
 
 useKeepAwake(computed(() => status.value === 'running' || status.value === 'paused'))
 
@@ -18,6 +26,7 @@ const simulate = ref(isDev)
 const starting = ref(false)
 const gpsFailure = ref<GpsFailure | null>(null)
 const batteryHint = ref(false)
+const confirmingDiscard = ref(false)
 let stopGps: (() => void) | null = null
 
 function endGps() {
@@ -29,31 +38,58 @@ function onGpsError(err: Error) {
   if (!(err instanceof GpsError)) return // transient; the run carries on
   endGps()
   gpsFailure.value = err.failure
-  // Refused right at the start: back to the start screen. Mid-run: keep what was recorded.
-  if (run.points.length === 0) run.reset()
+  // Refused right at the start: delete the empty run, so it doesn't come back as recovered.
+  // Mid-run: keep what was recorded.
+  if (run.points.length === 0) run.discard()
 }
 
-async function onStart() {
-  if (starting.value || status.value !== 'idle') return
+/**
+ * Ask for the permissions, move the run on (start or resume), then start GPS. The clock
+ * starts on the tap; fixes come in once GPS has a signal ("Acquiring GPS").
+ */
+async function beginTracking(advance: () => void, undo: () => void) {
   starting.value = true
   gpsFailure.value = null
   try {
     await ensureNotifications()
     batteryHint.value = !(await ensureBatteryExemption())
-    // The clock starts on the tap; fixes come in once GPS has a signal ("Acquiring GPS")
-    run.start()
+    advance()
     stopGps = await startGps(run.addPoint, onGpsError, { simulate: isDev && simulate.value })
   } catch (err) {
     console.warn('GPS could not start', err)
-    run.reset()
+    undo()
   } finally {
     starting.value = false
   }
 }
 
+function onStart() {
+  if (starting.value || status.value !== 'idle') return
+  return beginTracking(
+    () => run.start(),
+    () => run.discard(),
+  )
+}
+
+function onResume() {
+  if (starting.value || status.value !== 'paused') return
+  // GPS stays on while paused, except after a recovered run: nothing started it yet
+  if (stopGps) return run.resume()
+  return beginTracking(
+    () => run.resume(),
+    () => (run.points.length === 0 ? run.discard() : run.pause()),
+  )
+}
+
+function onDiscard() {
+  confirmingDiscard.value = false
+  run.discard()
+}
+
 // GPS stays on while paused (the store ignores those fixes) and stops with the run
 watch(status, (s) => {
   if (s === 'finished' || s === 'idle') endGps()
+  confirmingDiscard.value = false
 })
 onBeforeUnmount(endGps)
 </script>
@@ -91,6 +127,16 @@ onBeforeUnmount(endGps)
       <p v-else>Location is off. Turn it on in quick settings, then tap Start.</p>
     </section>
 
+    <p v-if="recovered && status === 'paused'" class="notice">
+      Run recovered after the app was closed. Resume to carry on, or Stop to save it.
+    </p>
+
+    <p v-if="saveError" class="notice notice--warn" role="alert">
+      Not saving: this run may be lost if the app closes.
+    </p>
+
+    <p v-if="confirmingDiscard" class="notice">Delete this run and its GPS track?</p>
+
     <p v-if="batteryHint && status !== 'finished'" class="notice">
       Battery optimisation is on, so Android may stop the run. On Samsung: Settings › Battery ›
       Background usage limits › Never sleeping apps, add Run Tracker.
@@ -111,11 +157,19 @@ onBeforeUnmount(endGps)
       </button>
 
       <template v-else-if="status === 'paused'">
-        <button class="btn btn--primary" @click="run.resume()">Resume</button>
+        <button class="btn btn--primary" :disabled="starting" @click="onResume()">Resume</button>
         <button class="btn btn--danger" @click="run.stop()">Stop</button>
       </template>
 
-      <button v-else class="btn btn--primary" @click="run.reset()">Done</button>
+      <template v-else-if="confirmingDiscard">
+        <button class="btn btn--secondary" @click="confirmingDiscard = false">Keep</button>
+        <button class="btn btn--danger" @click="onDiscard()">Delete</button>
+      </template>
+
+      <template v-else>
+        <button class="btn btn--secondary" @click="confirmingDiscard = true">Discard</button>
+        <button class="btn btn--primary" @click="run.reset()">Done</button>
+      </template>
     </section>
 
     <label v-if="status === 'idle' && isDev" class="dev">
@@ -224,6 +278,11 @@ onBeforeUnmount(endGps)
   background: #2a2f36;
   font-size: 1rem;
   line-height: 1.4;
+}
+
+.notice--warn {
+  background: #5c3a12;
+  color: #ffe2b8;
 }
 
 .notice p {
