@@ -21,6 +21,7 @@ Background, decisions and open questions: `context.md` (read it when a task need
 - Prefer not to stack PRs. If one issue needs another's code, base it on that branch, say so in the PR, and expect to merge `main` into it after the first PR is squash-merged.
 - Keep checkboxes honest. When I report a device result or a PR is merged, update the issue's boxes, its plan comment and the PR text in the same turn. Tick only what was actually verified (a unit test, Playwright or a device run, say which), and leave a short "To call this done" note on the issue for anything still open.
 - Issue labels: `feature`, `task`, `bug`; areas `tracking`, `strava`, `maps`, `infra`; `decision` means a choice is needed before work can start. Don't start an issue that depends on an undecided `decision` issue.
+- Record decisions as they happen. When a choice with lasting effect is made (a library, a data format, a trade-off between options), in the same turn: add **Decision / Why / Alternatives rejected** as a comment on the `decision` issue and close it (use the Decision template; open one if none exists and the choice affects more than one issue), then add one line with the issue number to `context.md` under Decisions. Small choices local to one issue go in that plan's "Decisions" line instead. If a choice is mine to make (it changes scope, cost, security or what I'd have to explain), stop and ask me with a recommendation; don't decide it silently.
 - Commits end with the Co-Authored-By line given by the harness.
 
 ## Conventions
