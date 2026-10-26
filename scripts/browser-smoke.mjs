@@ -1,5 +1,5 @@
 // Browser smoke test of the flows that only need a browser: tab bar, a run with the dev GPS
-// simulator, GPX download, Settings. Starts the dev server itself, no setup beyond
+// simulator, the run summary with its map, History, GPX download, Settings. Starts the dev server itself, no setup beyond
 // `npx playwright install chromium`. Not part of the pre-PR checks; run it when a change touches these flows.
 // Usage: npm run test:browser   (SHOTS=<dir> saves screenshots of Settings and the finished run)
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -36,7 +36,6 @@ try {
   page.on('pageerror', (e) => errors.push(String(e)))
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
   const tabBar = () => page.locator('nav').count()
-  const within = (box) => box !== null && box.y + box.height <= 740
 
   await page.goto(url)
   await page.waitForSelector('main.run')
@@ -53,7 +52,7 @@ try {
   check('no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
   if (shots) await page.screenshot({ path: join(shots, 'settings.png') })
   await page.locator('nav a', { hasText: 'History' }).click()
-  check('History placeholder renders', (await page.locator('main').innerText()).includes('Coming soon'))
+  check('History is empty before the first run', (await page.locator('main').innerText()).includes('No runs yet'))
 
   // A run with the dev GPS simulator: start, pause/resume, stop
   await page.locator('nav a', { hasText: 'Run' }).click()
@@ -71,10 +70,19 @@ try {
   await page.waitForTimeout(3000)
   await page.getByRole('button', { name: 'Pause' }).click()
   await page.getByRole('button', { name: 'Stop' }).click()
-  await page.waitForSelector('main.run[data-status="finished"]')
-  check('tab bar hidden on the finished screen', (await tabBar()) === 0)
-  check('Export GPX and Done fit at 360x740', within(await page.getByRole('button', { name: 'Export GPX' }).boundingBox()) && within(await page.getByRole('button', { name: 'Done' }).boundingBox()))
-  if (shots) await page.screenshot({ path: join(shots, 'finished.png') })
+  // Stop saves the run and opens its summary
+  await page.waitForSelector('main.summary .stats')
+  check('Stop opens the run summary', /\/run\/[0-9a-f-]{36}$/.test(page.url()), page.url())
+  check('tab bar is back on the summary', (await tabBar()) === 1)
+  const stats = await page.locator('.summary .stats').innerText()
+  check('summary shows distance, time, moving and avg pace', ['distance', 'time', 'moving', 'avg pace'].every((l) => stats.toLowerCase().includes(l)), stats.replace(/\n+/g, ' '))
+  check('summary distance is not zero', Number(await page.locator('.summary .stat__value').first().innerText()) > 0)
+  await page.waitForSelector('.route-map__canvas canvas', { timeout: 10000 })
+  check('route map renders a canvas', (await page.locator('.route-map__canvas canvas').count()) === 1)
+  const mapMessage = await page.locator('.route-map__problem').allInnerTexts()
+  console.log(`INFO map message: ${mapMessage.join(' | ') || '(none)'}`)
+  check('no horizontal scroll on the summary', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  if (shots) await page.screenshot({ path: join(shots, 'summary.png') })
 
   // GPX download
   const [download] = await Promise.all([
@@ -89,9 +97,21 @@ try {
   check('GPX has one segment per pause/resume', segments === 2, `${segments} segments, ${points} points`)
   check('GPX points have UTC times', points > 5 && !/<trkpt [^>]*><(?!ele|time)/.test(xml) && /<time>\d{4}-\d{2}-\d{2}T[\d:.]+Z<\/time>/.test(xml))
 
-  await page.getByRole('button', { name: 'Done' }).click()
-  await page.waitForSelector('nav')
-  check('tab bar is back after Done', (await tabBar()) === 1)
+  // The run is listed in History and opens from there; Delete asks first
+  await page.locator('nav a', { hasText: 'History' }).click()
+  await page.waitForSelector('.history .row')
+  check('History lists the run', (await page.locator('.history .row').count()) === 1)
+  await page.locator('.history .row').click()
+  await page.waitForSelector('main.summary .stats')
+  check('a past run opens in the summary', /\/run\//.test(page.url()))
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+  check('Delete asks for confirmation', await page.getByRole('alertdialog').isVisible())
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Keep' }).click()
+  check('Keep closes the dialog', (await page.getByRole('alertdialog').count()) === 0)
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
+  await page.waitForSelector('.history')
+  check('Delete removes the run and returns to History', (await page.locator('main').innerText()).includes('No runs yet'))
   check('no console or page errors', errors.length === 0, errors.join(' | '))
 } finally {
   await browser.close()

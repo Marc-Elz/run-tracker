@@ -123,6 +123,17 @@ export async function openSqliteRunRepository(): Promise<RunRepository> {
       )
       return (result.values ?? []).map(toRunRecord)
     },
+    async getRun(id) {
+      const result = await db.query('SELECT * FROM runs WHERE id = ?', [id])
+      const row = result.values?.[0]
+      return row ? toRunRecord(row) : null
+    },
+    async listFinished() {
+      const result = await db.query(
+        `SELECT * FROM runs WHERE status = 'finished' ORDER BY started_at DESC`,
+      )
+      return (result.values ?? []).map(toRunRecord)
+    },
     async loadPoints(runId) {
       const result = await db.query(
         `SELECT segment, timestamp, lat, lon, accuracy, altitude, speed FROM track_points

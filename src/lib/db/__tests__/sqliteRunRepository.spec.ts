@@ -117,4 +117,29 @@ describe('sqlite run repository', () => {
       distanceM: 12.5,
     })
   })
+
+  it('reads one run and the finished runs', async () => {
+    const repo = await openSqliteRunRepository()
+    const row = {
+      id: 'a',
+      status: 'finished',
+      started_at: 1,
+      finished_at: 2,
+      elapsed_ms: 1,
+      segment: 0,
+      segment_started_at: null,
+      moving_ms: 1,
+      distance_m: 10,
+    }
+    plugin.db.query.mockResolvedValueOnce({ values: [row] })
+    expect((await repo.getRun('a'))?.distanceM).toBe(10)
+    expect(plugin.db.query).toHaveBeenLastCalledWith('SELECT * FROM runs WHERE id = ?', ['a'])
+
+    plugin.db.query.mockResolvedValueOnce({ values: [] })
+    expect(await repo.getRun('b')).toBeNull()
+
+    plugin.db.query.mockResolvedValueOnce({ values: [row] })
+    expect((await repo.listFinished()).map((r) => r.id)).toEqual(['a'])
+    expect(plugin.db.query.mock.lastCall![0]).toContain(`status = 'finished'`)
+  })
 })
