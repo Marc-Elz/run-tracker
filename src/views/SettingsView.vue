@@ -42,7 +42,9 @@ onMounted(refresh)
 useAppResume(refresh)
 
 const SAMSUNG_HINT =
-  'Samsung can still stop the app. Settings › Battery › Background usage limits › Never sleeping apps, add Run Tracker.'
+  'On Samsung, also add Run Tracker under Settings › Battery › Background usage limits › Never sleeping apps.'
+// Android reports "Only this time" and "While using the app" alike, so this can't be checked
+const LOCATION_HINT = 'When asked, choose “While using the app”. “Only this time” is asked again next run.'
 
 const rows = computed<Row[]>(() => {
   const s = status.value
@@ -50,7 +52,7 @@ const rows = computed<Row[]>(() => {
     key: 'units',
     title: 'Units',
     tone: 'info',
-    text: 'Metric: km, min/km',
+    text: 'Metric (km, min/km)',
   }
   if (s === undefined) return []
   if (s === null) {
@@ -80,16 +82,18 @@ const rows = computed<Row[]>(() => {
           key: 'location',
           title: 'Location',
           tone: 'ok',
-          text: 'While using the app. This is enough: the run keeps tracking with the screen off.',
+          text: 'Allowed',
+          hint: LOCATION_HINT,
           secondary: { label: 'Revoke in settings', run: openAppSettings },
         }
       : s.location === 'unknown'
-        ? { key: 'location', title: 'Location', tone: 'unknown', text: unknownText }
+        ? { key: 'location', title: 'Location', tone: 'unknown', text: unknownText, hint: LOCATION_HINT }
         : {
             key: 'location',
             title: 'Location',
             tone: 'warn',
-            text: 'Needed to record a run.',
+            text: 'Not allowed. Needed to record a run.',
+            hint: LOCATION_HINT,
             action: permissionAction(requestLocationPermission, s.location),
           }
 
@@ -99,7 +103,7 @@ const rows = computed<Row[]>(() => {
           key: 'notifications',
           title: 'Notifications',
           tone: 'ok',
-          text: 'The "Run in progress" notification shows.',
+          text: 'Allowed',
           secondary: { label: 'Revoke in settings', run: openAppSettings },
         }
       : s.notifications === 'unknown'
@@ -108,7 +112,7 @@ const rows = computed<Row[]>(() => {
             key: 'notifications',
             title: 'Notifications',
             tone: 'warn',
-            text: 'Without it the run keeps recording, but the "Run in progress" notification is hidden.',
+            text: 'Not allowed. The run still records, but the “Run in progress” notification is hidden.',
             action: permissionAction(ensureNotifications, s.notifications),
           }
 
@@ -118,7 +122,7 @@ const rows = computed<Row[]>(() => {
           key: 'battery',
           title: 'Battery',
           tone: 'ok',
-          text: 'Not restricted by battery optimisation.',
+          text: 'Unrestricted',
           hint: SAMSUNG_HINT,
           secondary: { label: 'Change in settings', run: openBatterySettings },
         }
@@ -128,7 +132,7 @@ const rows = computed<Row[]>(() => {
             key: 'battery',
             title: 'Battery',
             tone: 'warn',
-            text: 'Battery optimisation is on, so Android may stop a run.',
+            text: 'Restricted. Android may stop a run in the background.',
             hint: SAMSUNG_HINT,
             action: { label: 'Allow', run: askBatteryExemption },
           }

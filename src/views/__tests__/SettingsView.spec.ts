@@ -50,11 +50,12 @@ describe('SettingsView', () => {
   it('says ready when everything is allowed, and still shows the Samsung hint and units', async () => {
     const wrapper = await open(allGood)
     expect(wrapper.text()).toContain('Ready to track')
-    expect(wrapper.text()).toContain('While using the app')
+    expect(wrapper.text()).toContain('Allowed')
+    expect(wrapper.text()).toContain('Only this time') // the tip: the state itself can't tell
     expect(wrapper.text()).not.toContain('all the time')
     expect(button(wrapper, 'Allow')).toBeUndefined() // nothing to fix, only the revoke links
     expect(wrapper.text()).toContain('Never sleeping apps')
-    expect(wrapper.text()).toContain('Metric: km, min/km')
+    expect(wrapper.text()).toContain('Metric (km, min/km)')
   })
 
   it('offers Allow for a permission that can still be asked, and Open settings once refused', async () => {
@@ -129,6 +130,6 @@ describe('SettingsView', () => {
     const wrapper = await open(null)
     expect(wrapper.text()).toContain('Only available on the phone')
     expect(wrapper.findAll('button')).toHaveLength(0)
-    expect(wrapper.text()).toContain('Metric: km, min/km')
+    expect(wrapper.text()).toContain('Metric (km, min/km)')
   })
 })
