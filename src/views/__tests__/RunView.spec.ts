@@ -33,10 +33,8 @@ vi.mock('@/lib/gps', async (importOriginal) => ({
   openAppSettings: vi.fn<() => Promise<void>>(async () => {}),
 }))
 
-const share = vi.hoisted(() => ({
-  shareGpx: vi.fn<(fileName: string, xml: string) => Promise<void>>(async () => {}),
-}))
-vi.mock('@/lib/shareRun', () => share)
+const nav = vi.hoisted(() => ({ push: vi.fn<(to: unknown) => Promise<void>>(async () => {}) }))
+vi.mock('vue-router', () => ({ useRouter: () => nav }))
 
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>
   wrapper.findAll('button').find((b) => b.text() === label)
@@ -68,12 +66,13 @@ describe('RunView', () => {
     expect(wrapper.attributes('data-status')).toBe('running')
 
     await button(wrapper, 'Pause')!.trigger('click')
+    const id = useRunStore().runId
     await button(wrapper, 'Stop')!.trigger('click')
-    expect(wrapper.attributes('data-status')).toBe('finished')
+    await flushPromises()
     expect(gps.stop).toHaveBeenCalledOnce()
-
-    await button(wrapper, 'Done')!.trigger('click')
+    // The run is saved and cleared, and its summary opens
     expect(wrapper.attributes('data-status')).toBe('idle')
+    expect(nav.push).toHaveBeenCalledWith({ name: 'run-summary', params: { id } })
   })
 
   it('shows "Acquiring GPS" until the first usable fix', async () => {
@@ -122,30 +121,7 @@ describe('RunView', () => {
     expect(await repo.findUnfinished()).toEqual([])
   })
 
-  it('exports the finished run as GPX, and says so when that fails', async () => {
-    const wrapper = mount(RunView)
-    await start(wrapper)
-    expect(button(wrapper, 'Export GPX')).toBeUndefined() // only once the run is finished
-    gps.onPoint!({ lat: 52, lon: 4, timestamp: Date.now(), accuracy: 5 })
-    await button(wrapper, 'Pause')!.trigger('click')
-    expect(button(wrapper, 'Export GPX')).toBeUndefined()
-    await button(wrapper, 'Stop')!.trigger('click')
-
-    await button(wrapper, 'Export GPX')!.trigger('click')
-    await flushPromises()
-    expect(share.shareGpx).toHaveBeenCalledOnce()
-    const [fileName, xml] = share.shareGpx.mock.calls[0]!
-    expect(fileName).toMatch(/^run-\d{4}-\d{2}-\d{2}-\d{4}\.gpx$/)
-    expect(xml).toContain('<trkpt lat="52.0000000" lon="4.0000000">')
-    expect(wrapper.text()).not.toContain('Could not export')
-
-    share.shareGpx.mockRejectedValueOnce(new Error('disk full'))
-    await button(wrapper, 'Export GPX')!.trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).toContain('Could not export the run')
-  })
-
-  it('asks before discarding a finished run', async () => {
+  it('saves the run on Stop before opening its summary', async () => {
     const repo = createMemoryRunRepository()
     const run = useRunStore()
     run.useRepository(repo)
@@ -155,16 +131,26 @@ describe('RunView', () => {
     const id = run.runId!
     await button(wrapper, 'Pause')!.trigger('click')
     await button(wrapper, 'Stop')!.trigger('click')
+    await flushPromises()
 
-    await button(wrapper, 'Discard')!.trigger('click')
-    expect(wrapper.text()).toContain('Delete this run')
-    await button(wrapper, 'Keep')!.trigger('click')
-    expect(wrapper.attributes('data-status')).toBe('finished')
+    expect((await repo.getRun(id))?.status).toBe('finished')
+    expect(await repo.loadPoints(id)).toHaveLength(1)
+  })
 
-    await button(wrapper, 'Discard')!.trigger('click')
-    await button(wrapper, 'Delete')!.trigger('click')
-    expect(wrapper.attributes('data-status')).toBe('idle')
-    expect(await repo.loadPoints(id)).toEqual([])
+  it('stays on the run screen, paused, when saving on Stop fails', async () => {
+    const repo = createMemoryRunRepository()
+    const run = useRunStore()
+    run.useRepository({ ...repo, updateRun: vi.fn<() => Promise<void>>().mockRejectedValue(new Error('disk full')) })
+    const wrapper = mount(RunView)
+    await start(wrapper)
+    await button(wrapper, 'Pause')!.trigger('click')
+    await button(wrapper, 'Stop')!.trigger('click')
+    await flushPromises()
+
+    expect(nav.push).not.toHaveBeenCalled()
+    expect(wrapper.attributes('data-status')).toBe('paused')
+    expect(wrapper.text()).toContain('Not saving')
+    expect(button(wrapper, 'Stop')).toBeDefined() // can try again
   })
 
   it('shows a recovered run and starts GPS on Resume', async () => {

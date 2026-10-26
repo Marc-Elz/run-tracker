@@ -30,6 +30,16 @@ export function createMemoryRunRepository(): RunRepository {
         .sort((a, b) => b.startedAt - a.startedAt)
         .map((r) => ({ ...r }))
     },
+    async getRun(id) {
+      const run = runs.get(id)
+      return run ? { ...run } : null
+    },
+    async listFinished() {
+      return [...runs.values()]
+        .filter((r) => r.status === 'finished')
+        .sort((a, b) => b.startedAt - a.startedAt)
+        .map((r) => ({ ...r }))
+    },
     async loadPoints(runId) {
       return (points.get(runId) ?? []).map((p) => ({ ...p }))
     },

@@ -9,6 +9,12 @@ describe('router', () => {
     await router.push('/')
   })
 
+  it('opens a run summary by id', async () => {
+    await router.push('/run/abc')
+    expect(router.currentRoute.value.name).toBe('run-summary')
+    expect(router.currentRoute.value.params.id).toBe('abc')
+  })
+
   it('has Run, History and Settings routes', async () => {
     for (const name of ['run', 'history', 'settings']) {
       await router.push({ name })

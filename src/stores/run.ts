@@ -2,7 +2,8 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { TrackPoint } from '@/lib/geo'
 import { paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/runStats'
-import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runRepository'
+import { toSegments } from '@/lib/runSummary'
+import type { RunRecord, RunRepository } from '@/lib/db/runRepository'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
@@ -10,16 +11,6 @@ export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
 /** Window used for the "current pace" figure */
 const CURRENT_PACE_WINDOW_MS = 20_000
 const MIN_CURRENT_PACE_DISTANCE_M = 5
-
-/** Saved points back into segments; `segment` is the last index opened, so empty segments survive */
-function toSegments(points: StoredPoint[], segment: number): TrackPoint[][] {
-  const segments: TrackPoint[][] = Array.from({ length: segment + 1 }, () => [])
-  for (const { segment: index, ...point } of points) {
-    while (segments.length <= index) segments.push([])
-    segments[index]!.push(point)
-  }
-  return segments
-}
 
 /** Running time of a saved run: banked time plus the open segment up to its last fix */
 function savedElapsedMs(run: RunRecord, segments: TrackPoint[][]): number {
@@ -165,6 +156,33 @@ export const useRunStore = defineStore('run', () => {
     saveRun()
   }
 
+  /**
+   * Stop the run and save it, then clear the store. Resolves with the run id to open, or null when
+   * the save failed: the run goes back to paused, so Stop can be tried again and nothing is lost.
+   */
+  async function finish(t: number = Date.now()): Promise<string | null> {
+    stop(t)
+    if (status.value !== 'finished') return null
+    const id = runId.value!
+    try {
+      await repo.updateRun(record())
+    } catch (err) {
+      console.warn('[db] write failed', err)
+      saveError.value = true
+      status.value = 'paused'
+      finishedAt.value = null
+      return null
+    }
+    reset()
+    return id
+  }
+
+  /** Saved runs, for the summary and History screens. */
+  const getRun = (id: string) => repo.getRun(id)
+  const listFinished = () => repo.listFinished()
+  const loadPoints = (id: string) => repo.loadPoints(id)
+  const deleteRun = (id: string) => repo.deleteRun(id)
+
   /** Clear the finished run and return to the start screen. */
   function reset() {
     stopTimer()
@@ -262,6 +280,11 @@ export const useRunStore = defineStore('run', () => {
     pause,
     resume,
     stop,
+    finish,
+    getRun,
+    listFinished,
+    loadPoints,
+    deleteRun,
     reset,
     discard,
     recover,

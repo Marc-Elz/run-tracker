@@ -33,6 +33,10 @@ export interface RunRepository {
   deleteRun(id: string): Promise<void>
   /** Runs that never got to Stop, newest first */
   findUnfinished(): Promise<RunRecord[]>
+  /** One run, or null when there is none with this id */
+  getRun(id: string): Promise<RunRecord | null>
+  /** Finished runs, newest first */
+  listFinished(): Promise<RunRecord[]>
   /** Points of a run in recording order */
   loadPoints(runId: string): Promise<StoredPoint[]>
 }
@@ -51,6 +55,8 @@ export function serialized(repo: RunRepository): RunRepository {
     addPoint: (runId, segment, point) => enqueue(() => repo.addPoint(runId, segment, point)),
     deleteRun: (id) => enqueue(() => repo.deleteRun(id)),
     findUnfinished: () => enqueue(() => repo.findUnfinished()),
+    getRun: (id) => enqueue(() => repo.getRun(id)),
+    listFinished: () => enqueue(() => repo.listFinished()),
     loadPoints: (runId) => enqueue(() => repo.loadPoints(runId)),
   }
 }
@@ -66,6 +72,8 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     addPoint: fail,
     deleteRun: fail,
     findUnfinished: fail,
+    getRun: fail,
+    listFinished: fail,
     loadPoints: fail,
   }
 }

@@ -38,6 +38,16 @@ describe('memory run repository', () => {
     expect((await repo.findUnfinished()).map((r) => r.id)).toEqual(['new', 'old'])
   })
 
+  it('gets one run, or null, and lists finished runs newest first', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun(runRecord('old', 0, 'finished'))
+    await repo.createRun(runRecord('active', 5))
+    await repo.createRun(runRecord('new', 10, 'finished'))
+    expect((await repo.getRun('old'))?.id).toBe('old')
+    expect(await repo.getRun('nope')).toBeNull()
+    expect((await repo.listFinished()).map((r) => r.id)).toEqual(['new', 'old'])
+  })
+
   it('deletes a run with its points', async () => {
     const repo = createMemoryRunRepository()
     await repo.createRun(runRecord('a', 0))
@@ -79,5 +89,7 @@ describe('unavailable repository', () => {
     const repo = unavailableRunRepository(new Error('no plugin'))
     await expect(repo.createRun(runRecord('a', 0))).rejects.toThrow('Database unavailable')
     await expect(repo.findUnfinished()).rejects.toThrow('Database unavailable')
+    await expect(repo.getRun('a')).rejects.toThrow('Database unavailable')
+    await expect(repo.listFinished()).rejects.toThrow('Database unavailable')
   })
 })
