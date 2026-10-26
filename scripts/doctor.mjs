@@ -201,6 +201,16 @@ if (docker) {
   )
 }
 
+// ---- map key ----
+const envLocal = existsSync(join(root, '.env.local')) ? readFileSync(join(root, '.env.local'), 'utf8') : ''
+add(
+  'device',
+  'MapTiler key',
+  /^VITE_MAPTILER_KEY=\S+/m.test(envLocal),
+  'VITE_MAPTILER_KEY in .env.local',
+  'Copy .env.example to .env.local and add a free key from cloud.maptiler.com (the run map shows "Map unavailable" without it)',
+)
+
 // ---- report ----
 const icon = { true: '\u2713', false: '\u2717' }
 const labels = {

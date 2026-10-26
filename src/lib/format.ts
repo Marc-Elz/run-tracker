@@ -22,3 +22,17 @@ export function formatPace(secPerKm: number | null): string {
 export function formatDistanceKm(meters: number): string {
   return (meters / 1000).toFixed(2)
 }
+
+/** Epoch ms -> "Mon 26 Oct" in the phone's time zone. */
+export function formatRunDate(ms: number): string {
+  return new Date(ms).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+/** Epoch ms -> "07:12" (24 h) in the phone's time zone. */
+export function formatClock(ms: number): string {
+  return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+}

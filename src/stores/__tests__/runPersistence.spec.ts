@@ -68,6 +68,35 @@ describe('run store persistence', () => {
     expect(run.runId).toBeNull()
   })
 
+  it('finish saves the finished run, clears the store and returns the id to open', async () => {
+    const run = store()
+    run.start(0)
+    run.addPoint(at(0, 0))
+    run.addPoint(at(30_000, 0.001))
+    const id = run.runId
+    const opened = await run.finish(40_000)
+    expect(opened).toBe(id)
+    expect(run.status).toBe('idle')
+    const saved = await run.getRun(id!)
+    expect(saved).toMatchObject({ status: 'finished', finishedAt: 40_000, elapsedMs: 40_000 })
+    expect(saved!.distanceM).toBeGreaterThan(100)
+    expect((await run.listFinished()).map((r) => r.id)).toEqual([id])
+    expect(await run.loadPoints(id!)).toHaveLength(2)
+  })
+
+  it('finish goes back to paused and flags it when the save fails', async () => {
+    const run = store()
+    run.start(0)
+    run.addPoint(at(0, 0))
+    run.useRepository({ ...repo, updateRun: vi.fn<() => Promise<void>>().mockRejectedValue(new Error('disk full')) })
+    expect(await run.finish(10_000)).toBeNull()
+    expect(run.status).toBe('paused')
+    expect(run.saveError).toBe(true)
+    // Stop can be tried again once saving works
+    run.useRepository(repo)
+    expect(await run.finish(20_000)).not.toBeNull()
+  })
+
   it('discard deletes the run and its points', async () => {
     const run = store()
     run.start(0)

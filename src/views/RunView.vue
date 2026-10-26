@@ -1,19 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
 import { useKeepAwake } from '@/composables/useKeepAwake'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatPace } from '@/lib/format'
-import { buildGpx, gpxFileName } from '@/lib/gpx'
-import { shareGpx } from '@/lib/shareRun'
 
 const run = useRunStore()
+const router = useRouter()
 const {
   status,
-  segments,
-  startedAt,
   hasFix,
   recovered,
   saveError,
@@ -30,9 +28,7 @@ const simulate = ref(isDev)
 const starting = ref(false)
 const gpsFailure = ref<GpsFailure | null>(null)
 const batteryHint = ref(false)
-const confirmingDiscard = ref(false)
-const exporting = ref(false)
-const exportFailed = ref(false)
+const stopping = ref(false)
 let stopGps: (() => void) | null = null
 
 function endGps() {
@@ -87,30 +83,21 @@ function onResume() {
   )
 }
 
-async function onExport() {
-  if (exporting.value || startedAt.value === null) return
-  exporting.value = true
-  exportFailed.value = false
+/** Save the run, then open its summary; if saving fails the run stays here, paused, to try again. */
+async function onStop() {
+  if (stopping.value) return
+  stopping.value = true
   try {
-    await shareGpx(gpxFileName(startedAt.value), buildGpx(startedAt.value, segments.value))
-  } catch (err) {
-    console.warn('GPX export failed', err)
-    exportFailed.value = true
+    const id = await run.finish()
+    if (id !== null) await router.push({ name: 'run-summary', params: { id } })
   } finally {
-    exporting.value = false
+    stopping.value = false
   }
-}
-
-function onDiscard() {
-  confirmingDiscard.value = false
-  run.discard()
 }
 
 // GPS stays on while paused (the store ignores those fixes) and stops with the run
 watch(status, (s) => {
   if (s === 'finished' || s === 'idle') endGps()
-  confirmingDiscard.value = false
-  exportFailed.value = false
 })
 onBeforeUnmount(endGps)
 </script>
@@ -156,11 +143,7 @@ onBeforeUnmount(endGps)
       Not saving: this run may be lost if the app closes.
     </p>
 
-    <p v-if="exportFailed" class="notice notice--warn" role="alert">Could not export the run.</p>
-
-    <p v-if="confirmingDiscard" class="notice">Delete this run and its GPS track?</p>
-
-    <p v-if="batteryHint && status !== 'finished'" class="notice">
+    <p v-if="batteryHint" class="notice">
       Battery optimisation is on, so Android may stop the run. On Samsung: Settings › Battery ›
       Background usage limits › Never sleeping apps, add Run Tracker.
     </p>
@@ -181,20 +164,7 @@ onBeforeUnmount(endGps)
 
       <template v-else-if="status === 'paused'">
         <button class="btn btn--primary" :disabled="starting" @click="onResume()">Resume</button>
-        <button class="btn btn--danger" @click="run.stop()">Stop</button>
-      </template>
-
-      <template v-else-if="confirmingDiscard">
-        <button class="btn btn--secondary" @click="confirmingDiscard = false">Keep</button>
-        <button class="btn btn--danger" @click="onDiscard()">Delete</button>
-      </template>
-
-      <template v-else>
-        <button class="btn btn--secondary btn--wide" :disabled="exporting" @click="onExport()">
-          Export GPX
-        </button>
-        <button class="btn btn--secondary" @click="confirmingDiscard = true">Discard</button>
-        <button class="btn btn--primary" @click="run.reset()">Done</button>
+        <button class="btn btn--danger" :disabled="stopping" @click="onStop()">Stop</button>
       </template>
     </section>
 
@@ -272,12 +242,6 @@ onBeforeUnmount(endGps)
   font-size: 1.4rem;
   font-weight: 700;
   color: #fff;
-}
-
-.btn--wide {
-  flex-basis: 100%;
-  min-height: 3.5rem;
-  font-size: 1.1rem;
 }
 
 .btn--primary {
