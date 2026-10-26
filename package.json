@@ -17,6 +17,7 @@
     "android:sync": "npm run build-only && cap sync android",
     "android:open": "cap open android",
     "android:run": "npm run android:sync && cap run android",
+    "test:browser": "node scripts/browser-smoke.mjs",
     "doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
@@ -50,6 +51,7 @@
     "jsdom": "^30.0.1",
     "npm-run-all2": "^9.0.3",
     "oxlint": "~1.82.0",
+    "playwright": "^1.64.1",
     "prettier": "3.9.6",
     "typescript": "~6.0.0",
     "vite": "^8.2.2",
