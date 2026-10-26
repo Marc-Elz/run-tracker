@@ -7,6 +7,7 @@ Background, decisions and open questions: `context.md` (read it when a task need
 ## Commands
 - `npm run dev` web dev server (browser only; no real GPS, a dev-only GPS simulator exists)
 - `npm run type-check`, `npm run lint`, `npm run test:unit` run all three before opening a PR
+- `npm run test:browser` Playwright smoke test of the browser-only flows (tabs, simulated run, GPX download, Settings). Not part of the pre-PR checks and not run by default: use it only when a change touches those flows, or to tick a browser-only checkbox. Needs `npx playwright install chromium` once per PC. Don't reach for Playwright otherwise; unit tests and the checks above come first.
 - `npm run android:run` build, sync and launch on a connected phone (`android:sync`, `android:open` also exist)
 - `npm run doctor` checks this PC (Node, git, gh, Android SDK/Java/adb, phone, Docker)
 - New or unfamiliar PC: use the `startup-runtracker` skill
