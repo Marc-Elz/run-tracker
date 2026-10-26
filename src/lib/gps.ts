@@ -9,6 +9,13 @@ import { startGpsSimulation } from '@/lib/simulateGps'
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation')
 
+/** Capacitor adds these to every plugin that declares permissions; the plugin's types leave them out. */
+interface LocationPermissions {
+  checkPermissions(): Promise<{ location?: string }>
+  requestPermissions(): Promise<{ location?: string }>
+}
+const locationPermissions = BackgroundGeolocation as unknown as LocationPermissions
+
 /** Why GPS stopped: permission refused, or location switched off on the phone */
 export type GpsFailure = 'denied' | 'disabled'
 
@@ -118,4 +125,14 @@ export async function startGps(
 /** Open the app's settings page, where a refused location permission can be granted. */
 export function openAppSettings(): Promise<void> {
   return BackgroundGeolocation.openSettings()
+}
+
+/** Raw Capacitor state of the location permission: granted, denied, prompt or prompt-with-rationale. */
+export async function checkLocationPermission(): Promise<string | undefined> {
+  return (await locationPermissions.checkPermissions()).location
+}
+
+/** Show the system location prompt (only while the permission can still be asked for). */
+export async function requestLocationPermission(): Promise<string | undefined> {
+  return (await locationPermissions.requestPermissions()).location
 }
