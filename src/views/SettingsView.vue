@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAppResume } from '@/composables/useAppResume'
 import { openAppSettings, requestLocationPermission } from '@/lib/gps'
-import { askBatteryExemption, ensureNotifications } from '@/lib/runPower'
+import { askBatteryExemption, ensureNotifications, openBatterySettings } from '@/lib/runPower'
 import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
 
 type Tone = 'ok' | 'warn' | 'unknown' | 'info'
@@ -13,6 +13,8 @@ interface Row {
   text: string
   hint?: string
   action?: { label: string; run: () => Promise<unknown> }
+  /** Quieter button that opens the Android page where the permission can be taken away */
+  secondary?: { label: string; run: () => Promise<unknown> }
 }
 
 // undefined while loading, null in the browser
@@ -23,11 +25,11 @@ async function refresh() {
   status.value = await getTrackingStatus()
 }
 
-async function act(row: Row) {
-  if (!row.action || busy.value) return
+async function act(row: Row, button: { run: () => Promise<unknown> } | undefined) {
+  if (!button || busy.value) return
   busy.value = row.key
   try {
-    await row.action.run()
+    await button.run()
   } catch (err) {
     console.warn('Settings action failed', err)
   } finally {
@@ -79,6 +81,7 @@ const rows = computed<Row[]>(() => {
           title: 'Location',
           tone: 'ok',
           text: 'While using the app. This is enough: the run keeps tracking with the screen off.',
+          secondary: { label: 'Revoke in settings', run: openAppSettings },
         }
       : s.location === 'unknown'
         ? { key: 'location', title: 'Location', tone: 'unknown', text: unknownText }
@@ -92,7 +95,13 @@ const rows = computed<Row[]>(() => {
 
   const notifications: Row =
     s.notifications === 'granted'
-      ? { key: 'notifications', title: 'Notifications', tone: 'ok', text: 'The "Run in progress" notification shows.' }
+      ? {
+          key: 'notifications',
+          title: 'Notifications',
+          tone: 'ok',
+          text: 'The "Run in progress" notification shows.',
+          secondary: { label: 'Revoke in settings', run: openAppSettings },
+        }
       : s.notifications === 'unknown'
         ? { key: 'notifications', title: 'Notifications', tone: 'unknown', text: unknownText }
         : {
@@ -111,6 +120,7 @@ const rows = computed<Row[]>(() => {
           tone: 'ok',
           text: 'Not restricted by battery optimisation.',
           hint: SAMSUNG_HINT,
+          secondary: { label: 'Change in settings', run: openBatterySettings },
         }
       : s.battery === 'unknown'
         ? { key: 'battery', title: 'Battery', tone: 'unknown', text: unknownText, hint: SAMSUNG_HINT }
@@ -152,9 +162,17 @@ const summary = computed(() => {
         v-if="row.action"
         class="btn"
         :disabled="busy !== null"
-        @click="act(row)"
+        @click="act(row, row.action)"
       >
         {{ row.action.label }}
+      </button>
+      <button
+        v-if="row.secondary"
+        class="btn btn--quiet"
+        :disabled="busy !== null"
+        @click="act(row, row.secondary)"
+      >
+        {{ row.secondary.label }}
       </button>
       <p v-if="row.hint" class="hint">{{ row.hint }}</p>
     </section>
@@ -250,6 +268,14 @@ p {
   color: #fff;
   font-size: 1.1rem;
   font-weight: 700;
+}
+
+.btn--quiet {
+  min-height: 3rem;
+  background: transparent;
+  border: 2px solid #3b4652;
+  color: #c5ced8;
+  font-size: 1rem;
 }
 
 .btn:disabled {

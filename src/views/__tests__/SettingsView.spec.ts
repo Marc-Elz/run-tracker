@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   requestLocationPermission: vi.fn<() => Promise<string>>(async () => 'granted'),
   ensureNotifications: vi.fn<() => Promise<boolean>>(async () => true),
   askBatteryExemption: vi.fn<() => Promise<boolean>>(async () => true),
+  openBatterySettings: vi.fn<() => Promise<void>>(async () => {}),
 }))
 
 vi.mock('@/lib/trackingStatus', () => ({ getTrackingStatus: mocks.getTrackingStatus }))
@@ -21,6 +22,7 @@ vi.mock('@/lib/gps', () => ({
 vi.mock('@/lib/runPower', () => ({
   ensureNotifications: mocks.ensureNotifications,
   askBatteryExemption: mocks.askBatteryExemption,
+  openBatterySettings: mocks.openBatterySettings,
 }))
 vi.mock('@/composables/useAppResume', () => ({
   useAppResume: (cb: () => void) => {
@@ -50,7 +52,7 @@ describe('SettingsView', () => {
     expect(wrapper.text()).toContain('Ready to track')
     expect(wrapper.text()).toContain('While using the app')
     expect(wrapper.text()).not.toContain('all the time')
-    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(button(wrapper, 'Allow')).toBeUndefined() // nothing to fix, only the revoke links
     expect(wrapper.text()).toContain('Never sleeping apps')
     expect(wrapper.text()).toContain('Metric: km, min/km')
   })
@@ -100,7 +102,27 @@ describe('SettingsView', () => {
     const wrapper = await open({ ...allGood, notifications: 'unknown' })
     expect(wrapper.text()).toContain('Could not check')
     expect(wrapper.text()).toContain('Some settings could not be checked')
-    expect(wrapper.findAll('button')).toHaveLength(0)
+    // only the other rows (location, battery) have their settings link
+    expect(wrapper.findAll('button').map((b) => b.text())).toEqual([
+      'Revoke in settings',
+      'Change in settings',
+    ])
+  })
+
+  it('lets you open the system pages to revoke or change what is granted', async () => {
+    const wrapper = await open(allGood)
+    expect(wrapper.findAll('button').map((b) => b.text())).toEqual([
+      'Revoke in settings',
+      'Revoke in settings',
+      'Change in settings',
+    ])
+
+    await wrapper.findAll('button')[0]!.trigger('click')
+    await wrapper.findAll('button')[1]!.trigger('click')
+    expect(mocks.openAppSettings).toHaveBeenCalledTimes(2)
+
+    await button(wrapper, 'Change in settings')!.trigger('click')
+    expect(mocks.openBatterySettings).toHaveBeenCalledOnce()
   })
 
   it('has no buttons in the browser', async () => {

@@ -5,6 +5,7 @@ interface RunPowerPlugin {
   isIgnoringBatteryOptimizations(): Promise<{ ignoring: boolean }>
   requestIgnoreBatteryOptimizations(): Promise<{ ignoring: boolean }>
   requestNotifications(): Promise<{ granted: boolean }>
+  openBatterySettings(): Promise<void>
   /** Added by Capacitor for the `notifications` alias */
   checkPermissions(): Promise<{ notifications?: string }>
 }
@@ -47,6 +48,11 @@ export async function checkNotificationPermission(): Promise<string | undefined>
 
 export async function isBatteryExempt(): Promise<boolean> {
   return (await RunPower.isIgnoringBatteryOptimizations()).ignoring
+}
+
+/** Open the system battery optimisation list, where the exemption can be taken away again. */
+export function openBatterySettings(): Promise<void> {
+  return RunPower.openBatterySettings()
 }
 
 /** Show the system exemption dialog (every call, unlike `ensureBatteryExemption`); resolves once it closes. */
