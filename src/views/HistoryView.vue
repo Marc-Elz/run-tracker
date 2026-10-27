@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatPace,
   formatRunDate,
+  runTitle,
 } from '@/lib/format'
 import { paceSecPerKm } from '@/lib/runStats'
 import type { RunRecord } from '@/lib/db/runRepository'
@@ -48,7 +49,12 @@ onMounted(load)
     <ul v-else class="list">
       <li v-for="r in runs" :key="r.id">
         <RouterLink :to="{ name: 'run-summary', params: { id: r.id } }" class="row">
-          <span class="row__when">{{ formatRunDate(r.startedAt) }} · {{ formatClock(r.startedAt) }}</span>
+          <span class="row__head">
+            <span class="row__when" :class="{ 'row__when--named': r.name }">{{ runTitle(r) }}</span>
+            <span v-if="r.name" class="row__date">
+              {{ formatRunDate(r.startedAt) }} · {{ formatClock(r.startedAt) }}
+            </span>
+          </span>
           <span class="row__distance">{{ formatDistanceKm(r.distanceM) }} km</span>
           <span class="row__time">{{ formatDuration(r.elapsedMs) }}</span>
           <span class="row__pace">{{ formatPace(paceSecPerKm(r.elapsedMs, r.distanceM)) }} /km</span>
@@ -97,9 +103,29 @@ h1 {
   text-decoration: none;
 }
 
-.row__when {
+.row__head {
   grid-area: when;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row__when {
+  overflow: hidden;
   font-size: 0.9rem;
+  color: #9aa5b1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__when--named {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f4f6f8;
+}
+
+.row__date {
+  font-size: 0.85rem;
   color: #9aa5b1;
 }
 

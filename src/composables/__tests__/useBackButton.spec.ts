@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { useBackButton } from '../useBackButton'
+import { useBackButton, useBackInterceptor } from '../useBackButton'
 
 const native = vi.hoisted(() => ({
   isNative: true,
@@ -84,5 +84,37 @@ describe('useBackButton', () => {
     native.handler = null
     await setup(false, '/')
     expect(native.handler).toBeNull()
+  })
+
+  it('closes what a screen has open before leaving it, newest first', async () => {
+    const { router } = await setup(false, '/history')
+    const open = ref(true)
+    const onBack = vi.fn<() => void>(() => {
+      open.value = false
+    })
+    const screen = mount(
+      defineComponent({
+        setup() {
+          useBackInterceptor(open, onBack)
+        },
+        template: '<div />',
+      }),
+    )
+
+    native.handler!()
+    expect(onBack).toHaveBeenCalledTimes(1)
+    expect(router.currentRoute.value.name).toBe('history')
+
+    // Closed now, so back leaves the screen as usual
+    native.handler!()
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('run'))
+
+    // An unmounted screen no longer intercepts
+    open.value = true
+    screen.unmount()
+    await router.push('/history')
+    native.handler!()
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('run'))
+    expect(onBack).toHaveBeenCalledTimes(1)
   })
 })

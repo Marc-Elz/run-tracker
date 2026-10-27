@@ -107,6 +107,7 @@ describe('sqlite run repository', () => {
       }),
     ).toEqual({
       id: 'a',
+      name: null,
       status: 'paused',
       startedAt: 1,
       finishedAt: null,
@@ -116,6 +117,48 @@ describe('sqlite run repository', () => {
       movingMs: 8,
       distanceM: 12.5,
     })
+  })
+
+  it('reads the name column and writes a new name or clears it', async () => {
+    const row = {
+      id: 'a',
+      name: 'Morning loop',
+      status: 'finished',
+      started_at: 1,
+      finished_at: 2,
+      elapsed_ms: 1,
+      segment: 0,
+      segment_started_at: null,
+      moving_ms: 1,
+      distance_m: 10,
+    }
+    expect(toRunRecord(row).name).toBe('Morning loop')
+
+    const repo = await openSqliteRunRepository()
+    await repo.renameRun('a', 'Easy 5k')
+    expect(plugin.db.run).toHaveBeenLastCalledWith(
+      'UPDATE runs SET name = ?, updated_at = ? WHERE id = ?',
+      ['Easy 5k', expect.any(Number), 'a'],
+    )
+    await repo.renameRun('a', null)
+    expect(plugin.db.run.mock.lastCall![1]![0]).toBeNull()
+  })
+
+  it('does not touch the name when a run is updated', async () => {
+    const repo = await openSqliteRunRepository()
+    await repo.updateRun({
+      id: 'a',
+      name: null,
+      status: 'finished',
+      startedAt: 1,
+      finishedAt: 2,
+      elapsedMs: 1,
+      segment: 0,
+      segmentStartedAt: null,
+      movingMs: 1,
+      distanceM: 10,
+    })
+    expect(plugin.db.run.mock.lastCall![0]).not.toContain('name')
   })
 
   it('reads one run and the finished runs', async () => {

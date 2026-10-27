@@ -8,6 +8,8 @@ export type StoredRunStatus = 'running' | 'paused' | 'finished'
 export interface RunRecord {
   /** UUID made on the phone, so the run keeps its identity when synced later */
   id: string
+  /** The user's name for the run, null while it has none */
+  name: string | null
   status: StoredRunStatus
   startedAt: number
   finishedAt: number | null
@@ -29,6 +31,8 @@ export interface RunRepository {
   createRun(run: RunRecord): Promise<void>
   updateRun(run: RunRecord): Promise<void>
   addPoint(runId: string, segment: number, point: TrackPoint): Promise<void>
+  /** Sets or clears (null) the name; the rest of the run is untouched */
+  renameRun(id: string, name: string | null): Promise<void>
   /** Deletes the run and its points */
   deleteRun(id: string): Promise<void>
   /** Runs that never got to Stop, newest first */
@@ -53,6 +57,7 @@ export function serialized(repo: RunRepository): RunRepository {
     createRun: (run) => enqueue(() => repo.createRun(run)),
     updateRun: (run) => enqueue(() => repo.updateRun(run)),
     addPoint: (runId, segment, point) => enqueue(() => repo.addPoint(runId, segment, point)),
+    renameRun: (id, name) => enqueue(() => repo.renameRun(id, name)),
     deleteRun: (id) => enqueue(() => repo.deleteRun(id)),
     findUnfinished: () => enqueue(() => repo.findUnfinished()),
     getRun: (id) => enqueue(() => repo.getRun(id)),
@@ -70,6 +75,7 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     createRun: fail,
     updateRun: fail,
     addPoint: fail,
+    renameRun: fail,
     deleteRun: fail,
     findUnfinished: fail,
     getRun: fail,

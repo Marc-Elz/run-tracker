@@ -32,6 +32,14 @@ export function formatRunDate(ms: number): string {
   })
 }
 
+/** Longest name a run can be given */
+export const MAX_RUN_NAME_LENGTH = 60
+
+/** What a run is called in lists and headers: its name, else the date and time it started. */
+export function runTitle(run: { name: string | null; startedAt: number }): string {
+  return run.name ?? `${formatRunDate(run.startedAt)} · ${formatClock(run.startedAt)}`
+}
+
 /** Epoch ms -> "07:12" (24 h) in the phone's time zone. */
 export function formatClock(ms: number): string {
   return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })

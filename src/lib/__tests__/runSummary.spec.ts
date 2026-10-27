@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
-import { buildRunSummary, toSegments } from '../runSummary'
+import { summarizeTrack } from '../runStats'
+import { buildRunSummary, buildSplits, toSegments } from '../runSummary'
 
 const run = (over: Partial<RunRecord> = {}): RunRecord => ({
   id: 'r',
+  name: null,
   status: 'finished',
   startedAt: 0,
   finishedAt: 100_000,
@@ -29,6 +31,51 @@ describe('toSegments', () => {
     const segments = toSegments([fix(0), fix(1, 2)], 3)
     expect(segments.map((s) => s.length)).toEqual([1, 0, 1, 0])
     expect(segments[0]![0]).not.toHaveProperty('segment')
+  })
+})
+
+describe('buildSplits', () => {
+  // fix() is ~11.1 m every 2 s, so a km takes ~90 points and ~180 s (3:00 /km)
+  const track = (count: number, segment = 0, lat = 52) =>
+    Array.from({ length: count }, (_, i) => fix(i, segment, lat))
+  const splitsOf = (points: StoredPoint[], segment = 0) => buildSplits(toSegments(points, segment))
+
+  it('has none without points or for a few metres of jitter', () => {
+    expect(splitsOf([])).toEqual([])
+    expect(splitsOf(track(1))).toEqual([])
+  })
+
+  it('gives one partial split for a run under a km', () => {
+    const [only, ...rest] = splitsOf(track(31))
+    expect(rest).toEqual([])
+    expect(only).toMatchObject({ km: 1, partial: true, durationMs: 60_000 })
+    expect(only!.distanceM).toBeCloseTo(333.6, 0)
+    expect(only!.paceSecPerKm).toBeCloseTo(179.9, 0)
+  })
+
+  it('cuts whole kilometres with a partial one at the end, adding up to the total', () => {
+    const points = track(226) // ~2.5 km
+    const splits = splitsOf(points)
+    expect(splits.map((s) => [s.km, s.partial])).toEqual([
+      [1, false],
+      [2, false],
+      [3, true],
+    ])
+    expect(splits[0]!.distanceM).toBe(1000)
+    expect(splits[0]!.paceSecPerKm).toBeCloseTo(180, 0)
+    expect(splits[1]!.paceSecPerKm).toBeCloseTo(180, 0)
+    const total = splits.reduce((sum, s) => sum + s.distanceM, 0)
+    expect(total).toBeCloseTo(summarizeTrack(toSegments(points, 0)).distanceM, 3)
+  })
+
+  it('does not count a pause gap as distance or time', () => {
+    // ~555 m, a long pause somewhere else, then ~555 m more: the first km spans the gap
+    const later = track(51, 1, 53).map((p) => ({ ...p, timestamp: p.timestamp + 3_600_000 }))
+    const [first, second, ...rest] = splitsOf([...track(51), ...later], 1)
+    expect(rest).toEqual([])
+    expect(first).toMatchObject({ km: 1, partial: false })
+    expect(first!.durationMs).toBeLessThan(200_000)
+    expect(second).toMatchObject({ km: 2, partial: true })
   })
 })
 

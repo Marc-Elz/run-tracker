@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useRunStore } from '../run'
 import { summarizeTrack } from '@/lib/runStats'
+import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
+import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
 
 // ~0.001 degrees of latitude is ~111 m
 const at = (t: number, latOffset: number) => ({ lat: 52 + latOffset, lon: 4, timestamp: t })
@@ -136,6 +138,35 @@ describe('run store', () => {
     run.reset()
     expect(run.status).toBe('idle')
     expect(run.elapsedMs).toBe(0)
+  })
+
+  describe('renaming a saved run', () => {
+    async function saved() {
+      const repo = createMemoryRunRepository()
+      const run = useRunStore()
+      run.useRepository(repo)
+      run.start(0)
+      const id = await run.finish(5000)
+      return { run, repo, id: id! }
+    }
+
+    it('stores a trimmed name and returns it', async () => {
+      const { run, repo, id } = await saved()
+      expect(await run.renameRun(id, '  Morning loop ')).toBe('Morning loop')
+      expect((await repo.getRun(id))?.name).toBe('Morning loop')
+    })
+
+    it('clears the name when blank', async () => {
+      const { run, repo, id } = await saved()
+      await run.renameRun(id, 'Morning loop')
+      expect(await run.renameRun(id, '   ')).toBeNull()
+      expect((await repo.getRun(id))?.name).toBeNull()
+    })
+
+    it('cuts a name to the longest allowed', async () => {
+      const { run, id } = await saved()
+      expect(await run.renameRun(id, 'x'.repeat(100))).toHaveLength(MAX_RUN_NAME_LENGTH)
+    })
   })
 
   it('ticks the clock while running', () => {

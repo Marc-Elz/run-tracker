@@ -26,6 +26,7 @@ const RouteMap = { props: ['route'], template: '<div class="map-stub">{{ route.l
 
 const record: RunRecord = {
   id: 'r1',
+  name: null,
   status: 'finished',
   startedAt: Date.UTC(2026, 9, 26, 7, 12),
   finishedAt: Date.UTC(2026, 9, 26, 7, 40),
@@ -69,6 +70,73 @@ describe('RunSummaryView', () => {
     expect(text).toContain('00:06') // moving
     expect(text).toMatch(/\d+:\d{2}/) // pace
     expect(wrapper.find('.map-stub').text()).toBe('1')
+  })
+
+  it('lists the splits, ending with the partial km', async () => {
+    const { wrapper } = await open()
+    const rows = wrapper.findAll('.split')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('0.03 km')
+  })
+
+  it('titles an unnamed run by its date and renames it from the editor', async () => {
+    const { wrapper, repo } = await open()
+    expect(wrapper.find('.title__name').text()).toContain('·')
+    expect(wrapper.find('.title__when').exists()).toBe(false)
+
+    await button(wrapper, 'Rename')!.trigger('click')
+    expect(button(wrapper, 'Rename')).toBeUndefined()
+    await wrapper.find('.rename__input').setValue('  Morning loop ')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.rename').exists()).toBe(false)
+    expect(wrapper.find('.title__name').text()).toBe('Morning loop')
+    expect(wrapper.find('.title__when').text()).toContain('·')
+    expect((await repo.getRun('r1'))?.name).toBe('Morning loop')
+  })
+
+  it('starts the editor on the current name and clears it when saved empty', async () => {
+    const { wrapper, repo } = await open()
+    await repo.renameRun('r1', 'Morning loop')
+    await wrapper.unmount()
+    const again = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+    await flushPromises()
+    expect(again.find('.title__name').text()).toBe('Morning loop')
+
+    await button(again, 'Rename')!.trigger('click')
+    expect((again.find('.rename__input').element as HTMLInputElement).value).toBe('Morning loop')
+    await again.find('.rename__input').setValue('   ')
+    await again.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(again.find('.title__name').text()).toContain('·')
+    expect((await repo.getRun('r1'))?.name).toBeNull()
+  })
+
+  it('cancels without saving', async () => {
+    const { wrapper, repo } = await open()
+    await button(wrapper, 'Rename')!.trigger('click')
+    await wrapper.find('.rename__input').setValue('Nope')
+    await button(wrapper, 'Cancel')!.trigger('click')
+    expect(wrapper.find('.rename').exists()).toBe(false)
+    expect((await repo.getRun('r1'))?.name).toBeNull()
+  })
+
+  it('keeps the editor open and the old name when saving fails', async () => {
+    const { wrapper, repo } = await open()
+    useRunStore().useRepository({
+      ...repo,
+      renameRun: vi.fn<() => Promise<never>>().mockRejectedValue(new Error('x')),
+    })
+    await button(wrapper, 'Rename')!.trigger('click')
+    await wrapper.find('.rename__input').setValue('Morning loop')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Could not save the name')
+    expect(wrapper.find('.rename').exists()).toBe(true)
+    expect((await repo.getRun('r1'))?.name).toBeNull()
   })
 
   it('says so when the run does not exist', async () => {

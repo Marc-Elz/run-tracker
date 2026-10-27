@@ -8,6 +8,7 @@ const runRecord = (
   status: RunRecord['status'] = 'running',
 ): RunRecord => ({
   id,
+  name: null,
   status,
   startedAt,
   finishedAt: null,
@@ -46,6 +47,20 @@ describe('memory run repository', () => {
     expect((await repo.getRun('old'))?.id).toBe('old')
     expect(await repo.getRun('nope')).toBeNull()
     expect((await repo.listFinished()).map((r) => r.id)).toEqual(['new', 'old'])
+  })
+
+  it('renames a run, keeps the name through updates and clears it with null', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun(runRecord('a', 0, 'finished'))
+    await repo.renameRun('a', 'Morning loop')
+    expect((await repo.getRun('a'))?.name).toBe('Morning loop')
+
+    await repo.updateRun(runRecord('a', 0, 'finished'))
+    expect((await repo.getRun('a'))?.name).toBe('Morning loop')
+
+    await repo.renameRun('a', null)
+    expect((await repo.getRun('a'))?.name).toBeNull()
+    await expect(repo.renameRun('nope', 'x')).rejects.toThrow('not found')
   })
 
   it('deletes a run with its points', async () => {
