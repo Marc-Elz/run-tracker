@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRunStore } from '@/stores/run'
-import { formatClock, formatDistanceKm, formatDuration, formatRunDate } from '@/lib/format'
+import {
+  formatClock,
+  formatDistanceKm,
+  formatDuration,
+  formatPace,
+  formatRunDate,
+} from '@/lib/format'
+import { paceSecPerKm } from '@/lib/runStats'
 import type { RunRecord } from '@/lib/db/runRepository'
 
 const run = useRunStore()
@@ -44,6 +51,7 @@ onMounted(load)
           <span class="row__when">{{ formatRunDate(r.startedAt) }} · {{ formatClock(r.startedAt) }}</span>
           <span class="row__distance">{{ formatDistanceKm(r.distanceM) }} km</span>
           <span class="row__time">{{ formatDuration(r.elapsedMs) }}</span>
+          <span class="row__pace">{{ formatPace(paceSecPerKm(r.elapsedMs, r.distanceM)) }} /km</span>
           <span class="row__chevron" aria-hidden="true">›</span>
         </RouterLink>
       </li>
@@ -75,10 +83,10 @@ h1 {
 
 .row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   grid-template-areas:
-    'when when chevron'
-    'distance time chevron';
+    'when when when chevron'
+    'distance time pace chevron';
   align-items: center;
   column-gap: 1rem;
   min-height: 4.5rem;
@@ -105,6 +113,13 @@ h1 {
 .row__time {
   grid-area: time;
   font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.row__pace {
+  grid-area: pace;
+  font-size: 1.1rem;
+  color: #9aa5b1;
   font-variant-numeric: tabular-nums;
 }
 
