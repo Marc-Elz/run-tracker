@@ -17,6 +17,7 @@ const finished = (
   elapsedMs = 60_000,
 ): RunRecord => ({
   id,
+  name: null,
   status: 'finished',
   startedAt,
   finishedAt: startedAt + 60_000,
@@ -47,6 +48,20 @@ describe('HistoryView', () => {
     expect(rows[0]!.text()).toContain('10.40 km')
     expect(rows[0]!.text()).toContain('01:00')
     expect(rows[0]!.text()).toContain('0:06 /km')
+  })
+
+  it('shows a run by its name with the date below, else by its date', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun(finished('named', 2000, 5000))
+    await repo.createRun(finished('plain', 1000, 5000))
+    await repo.renameRun('named', 'Morning loop')
+    useRunStore().useRepository(repo)
+
+    const [named, plain] = (await mountView()).findAll('.row')
+    expect(named!.find('.row__when').text()).toBe('Morning loop')
+    expect(named!.find('.row__date').text()).toContain('·')
+    expect(plain!.find('.row__when').text()).toContain('·')
+    expect(plain!.find('.row__date').exists()).toBe(false)
   })
 
   it('shows a placeholder pace for a run too short to have one', async () => {

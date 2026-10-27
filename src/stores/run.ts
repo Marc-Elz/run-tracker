@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import type { TrackPoint } from '@/lib/geo'
 import { paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/runStats'
 import { toSegments } from '@/lib/runSummary'
+import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
 import type { RunRecord, RunRepository } from '@/lib/db/runRepository'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 
@@ -70,6 +71,8 @@ export const useRunStore = defineStore('run', () => {
   function record(): RunRecord {
     return {
       id: runId.value!,
+      // Set by renameRun after the run is saved; never written back by updateRun
+      name: null,
       status:
         status.value === 'finished' ? 'finished' : status.value === 'paused' ? 'paused' : 'running',
       startedAt: startedAt.value!,
@@ -183,6 +186,13 @@ export const useRunStore = defineStore('run', () => {
   const loadPoints = (id: string) => repo.loadPoints(id)
   const deleteRun = (id: string) => repo.deleteRun(id)
 
+  /** Name a saved run; blank clears the name. Resolves with the name as stored. */
+  async function renameRun(id: string, name: string): Promise<string | null> {
+    const stored = name.trim().slice(0, MAX_RUN_NAME_LENGTH) || null
+    await repo.renameRun(id, stored)
+    return stored
+  }
+
   /** Clear the finished run and return to the start screen. */
   function reset() {
     stopTimer()
@@ -285,6 +295,7 @@ export const useRunStore = defineStore('run', () => {
     listFinished,
     loadPoints,
     deleteRun,
+    renameRun,
     reset,
     discard,
     recover,

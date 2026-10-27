@@ -157,6 +157,7 @@ describe('RunView', () => {
     const repo = createMemoryRunRepository()
     await repo.createRun({
       id: 'r1',
+      name: null,
       status: 'running',
       startedAt: 0,
       finishedAt: null,

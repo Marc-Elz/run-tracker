@@ -13,12 +13,18 @@ export function createMemoryRunRepository(): RunRepository {
     },
     async updateRun(run) {
       if (!runs.has(run.id)) throw new Error(`Run ${run.id} not found`)
-      runs.set(run.id, { ...run })
+      // The name is changed only by renameRun, as in SQLite
+      runs.set(run.id, { ...run, name: runs.get(run.id)!.name })
     },
     async addPoint(runId, segment, point) {
       const list = points.get(runId)
       if (!list) throw new Error(`Run ${runId} not found`)
       list.push({ ...point, segment })
+    },
+    async renameRun(id, name) {
+      const run = runs.get(id)
+      if (!run) throw new Error(`Run ${id} not found`)
+      run.name = name
     },
     async deleteRun(id) {
       runs.delete(id)

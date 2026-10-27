@@ -13,6 +13,7 @@ const optional = (value: unknown): number | undefined =>
 export function toRunRecord(row: Row): RunRecord {
   return {
     id: String(row.id),
+    name: row.name === null || row.name === undefined ? null : String(row.name),
     status: row.status as StoredRunStatus,
     startedAt: Number(row.started_at),
     finishedAt: optional(row.finished_at) ?? null,
@@ -112,6 +113,9 @@ export async function openSqliteRunRepository(): Promise<RunRepository> {
           p.speed ?? null,
         ],
       )
+    },
+    async renameRun(id, name) {
+      await db.run('UPDATE runs SET name = ?, updated_at = ? WHERE id = ?', [name, Date.now(), id])
     },
     async deleteRun(id) {
       // Points go with it (ON DELETE CASCADE; the plugin turns foreign keys on)
