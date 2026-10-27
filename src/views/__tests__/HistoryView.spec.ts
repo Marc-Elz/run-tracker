@@ -4,16 +4,23 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import type { RunRecord } from '@/lib/db/runRepository'
 import { useRunStore } from '@/stores/run'
+import { buildRunSummary } from '@/lib/runSummary'
+import { formatPace } from '@/lib/format'
 import HistoryView from '../HistoryView.vue'
 
 const link = { props: ['to'], template: '<a class="row" :data-id="to.params.id"><slot /></a>' }
 
-const finished = (id: string, startedAt: number, distanceM: number): RunRecord => ({
+const finished = (
+  id: string,
+  startedAt: number,
+  distanceM: number,
+  elapsedMs = 60_000,
+): RunRecord => ({
   id,
   status: 'finished',
   startedAt,
   finishedAt: startedAt + 60_000,
-  elapsedMs: 60_000,
+  elapsedMs,
   segment: 0,
   segmentStartedAt: null,
   movingMs: 60_000,
@@ -39,6 +46,26 @@ describe('HistoryView', () => {
     expect(rows.map((r) => r.attributes('data-id'))).toEqual(['new', 'old'])
     expect(rows[0]!.text()).toContain('10.40 km')
     expect(rows[0]!.text()).toContain('01:00')
+    expect(rows[0]!.text()).toContain('0:06 /km')
+  })
+
+  it('shows a placeholder pace for a run too short to have one', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun(finished('short', 1000, 0))
+    useRunStore().useRepository(repo)
+
+    expect((await mountView()).find('.row').text()).toContain('--:-- /km')
+  })
+
+  it('shows the same pace as the run summary', async () => {
+    const run = finished('a', 1000, 5000, 1_650_000)
+    const repo = createMemoryRunRepository()
+    await repo.createRun(run)
+    useRunStore().useRepository(repo)
+
+    const expected = formatPace(buildRunSummary(run, []).avgPaceSecPerKm)
+    expect(expected).toBe('5:30')
+    expect((await mountView()).find('.row').text()).toContain(`${expected} /km`)
   })
 
   it('shows an empty state', async () => {
