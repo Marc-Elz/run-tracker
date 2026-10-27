@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRunStore } from '@/stores/run'
 import {
   formatClock,
@@ -9,6 +9,7 @@ import {
   formatRunDate,
   runTitle,
 } from '@/lib/format'
+import { summarizeRuns } from '@/lib/historyStats'
 import { paceSecPerKm } from '@/lib/runStats'
 import type { RunRecord } from '@/lib/db/runRepository'
 
@@ -16,6 +17,12 @@ const run = useRunStore()
 const runs = ref<RunRecord[]>([])
 const loading = ref(true)
 const failed = ref(false)
+const stats = computed(() => summarizeRuns(runs.value, Date.now()))
+const periods = computed(() => [
+  { label: 'This week', totals: stats.value.week },
+  { label: 'This month', totals: stats.value.month },
+  { label: 'All time', totals: stats.value.all },
+])
 
 async function load() {
   loading.value = true
@@ -46,22 +53,43 @@ onMounted(load)
       No runs yet. Record one on the Run tab.
     </p>
 
-    <ul v-else class="list">
-      <li v-for="r in runs" :key="r.id">
-        <RouterLink :to="{ name: 'run-summary', params: { id: r.id } }" class="row">
-          <span class="row__head">
-            <span class="row__when" :class="{ 'row__when--named': r.name }">{{ runTitle(r) }}</span>
-            <span v-if="r.name" class="row__date">
-              {{ formatRunDate(r.startedAt) }} · {{ formatClock(r.startedAt) }}
-            </span>
+    <template v-else>
+      <section v-if="runs.length > 0" class="stats" aria-label="Totals">
+        <div v-for="p in periods" :key="p.label" class="stats__period">
+          <span class="stats__label">{{ p.label }}</span>
+          <span class="stats__distance">{{ formatDistanceKm(p.totals.distanceM) }} km</span>
+          <span class="stats__detail">
+            {{ formatDuration(p.totals.elapsedMs) }} · {{ p.totals.count }}
+            {{ p.totals.count === 1 ? 'run' : 'runs' }}
           </span>
-          <span class="row__distance">{{ formatDistanceKm(r.distanceM) }} km</span>
-          <span class="row__time">{{ formatDuration(r.elapsedMs) }}</span>
-          <span class="row__pace">{{ formatPace(paceSecPerKm(r.elapsedMs, r.distanceM)) }} /km</span>
-          <span class="row__chevron" aria-hidden="true">›</span>
-        </RouterLink>
-      </li>
-    </ul>
+        </div>
+        <p class="stats__records">
+          Longest {{ formatDistanceKm(stats.longestM) }} km · Best pace
+          {{ formatPace(stats.bestPaceSecPerKm) }} /km
+        </p>
+      </section>
+
+      <ul class="list">
+        <li v-for="r in runs" :key="r.id">
+          <RouterLink :to="{ name: 'run-summary', params: { id: r.id } }" class="row">
+            <span class="row__head">
+              <span class="row__when" :class="{ 'row__when--named': r.name }">{{
+                runTitle(r)
+              }}</span>
+              <span v-if="r.name" class="row__date">
+                {{ formatRunDate(r.startedAt) }} · {{ formatClock(r.startedAt) }}
+              </span>
+            </span>
+            <span class="row__distance">{{ formatDistanceKm(r.distanceM) }} km</span>
+            <span class="row__time">{{ formatDuration(r.elapsedMs) }}</span>
+            <span class="row__pace"
+              >{{ formatPace(paceSecPerKm(r.elapsedMs, r.distanceM)) }} /km</span
+            >
+            <span class="row__chevron" aria-hidden="true">›</span>
+          </RouterLink>
+        </li>
+      </ul>
+    </template>
   </main>
 </template>
 
@@ -79,6 +107,44 @@ onMounted(load)
 
 h1 {
   margin: 0 1.5rem 1rem;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin: 0 1.5rem 1rem;
+}
+
+.stats__period {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.stats__label {
+  font-size: 0.8rem;
+  color: #9aa5b1;
+}
+
+.stats__distance {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats__detail {
+  font-size: 0.8rem;
+  color: #9aa5b1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats__records {
+  grid-column: 1 / -1;
+  margin: 0.5rem 0 0;
+  color: #9aa5b1;
+  font-variant-numeric: tabular-nums;
 }
 
 .list {

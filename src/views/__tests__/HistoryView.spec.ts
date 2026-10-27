@@ -102,4 +102,22 @@ describe('HistoryView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('No runs yet')
   })
+
+  it('shows totals and records above the list', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun(finished('a', Date.now(), 5000, 1_500_000))
+    await repo.createRun(finished('b', Date.now() - 1000, 10_000, 2_700_000))
+    useRunStore().useRepository(repo)
+
+    const stats = (await mountView()).find('.stats')
+    expect(stats.text()).toContain('15.00 km')
+    expect(stats.text()).toContain('2 runs')
+    expect(stats.text()).toContain('Longest 10.00 km')
+    expect(stats.text()).toContain('Best pace 4:30 /km')
+  })
+
+  it('hides the totals when there are no runs', async () => {
+    useRunStore().useRepository(createMemoryRunRepository())
+    expect((await mountView()).find('.stats').exists()).toBe(false)
+  })
 })
