@@ -6,6 +6,9 @@ interface RunPowerPlugin {
   requestIgnoreBatteryOptimizations(): Promise<{ ignoring: boolean }>
   requestNotifications(): Promise<{ granted: boolean }>
   openBatterySettings(): Promise<void>
+  requestAudioFocus(): Promise<void>
+  abandonAudioFocus(): Promise<void>
+  setKeepWebViewAlive(options: { keep: boolean }): Promise<void>
   /** Added by Capacitor for the `notifications` alias */
   checkPermissions(): Promise<{ notifications?: string }>
 }
@@ -58,4 +61,34 @@ export function openBatterySettings(): Promise<void> {
 /** Show the system exemption dialog (every call, unlike `ensureBatteryExemption`); resolves once it closes. */
 export async function askBatteryExemption(): Promise<boolean> {
   return (await RunPower.requestIgnoreBatteryOptimizations()).ignoring
+}
+
+/** Ask other apps to lower their audio (not stop) while a cue is spoken. Never throws. */
+export async function requestAudioFocus(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await RunPower.requestAudioFocus()
+  } catch (err) {
+    console.warn('Audio focus unavailable', err)
+  }
+}
+
+/** Let other apps return to full volume. Never throws. */
+export async function abandonAudioFocus(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await RunPower.abandonAudioFocus()
+  } catch (err) {
+    console.warn('Audio focus unavailable', err)
+  }
+}
+
+/** Keep the page's JavaScript running with the screen off while a run is on. Never throws. */
+export async function keepWebViewAlive(keep: boolean): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await RunPower.setKeepWebViewAlive({ keep })
+  } catch (err) {
+    console.warn('Could not keep the page running in the background', err)
+  }
 }

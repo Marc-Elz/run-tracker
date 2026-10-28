@@ -4,7 +4,14 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.webkit.WebView;
 import android.os.PowerManager;
 import android.provider.Settings;
 import androidx.activity.result.ActivityResult;
@@ -28,6 +35,79 @@ import com.getcapacitor.annotation.PermissionCallback;
     permissions = { @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS }) }
 )
 public class RunPowerPlugin extends Plugin {
+
+    private AudioFocusRequest focusRequest;
+    private boolean keepWebViewAlive = false;
+
+    /**
+     * While a run is on, keeps the WebView running with the screen off. Android otherwise freezes
+     * the page's JavaScript about a minute after the screen goes off, which stalls the run timer,
+     * GPS fix handling and the spoken cues. The same workaround cordova-plugin-background-mode uses.
+     */
+    @PluginMethod
+    public void setKeepWebViewAlive(PluginCall call) {
+        keepWebViewAlive = Boolean.TRUE.equals(call.getBoolean("keep", false));
+        if (keepWebViewAlive) keepAlive();
+        call.resolve();
+    }
+
+    @Override
+    protected void handleOnPause() {
+        super.handleOnPause();
+        if (keepWebViewAlive) keepAlive();
+    }
+
+    @Override
+    protected void handleOnStop() {
+        super.handleOnStop();
+        if (keepWebViewAlive) keepAlive();
+    }
+
+    /** Runs after the activity has paused, so the system's own pause doesn't win. */
+    private void keepAlive() {
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> {
+                if (!keepWebViewAlive) return;
+                WebView webView = getBridge().getWebView();
+                webView.onResume();
+                webView.resumeTimers();
+                webView.dispatchWindowVisibilityChanged(View.VISIBLE);
+            },
+            500
+        );
+    }
+
+    /** Asks other apps (music) to lower their volume while a spoken cue plays. */
+    @PluginMethod
+    public void requestAudioFocus(PluginCall call) {
+        // AudioFocusRequest needs API 26; on older phones the cue is spoken without ducking
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            call.resolve();
+            return;
+        }
+        AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(
+                new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .build();
+        audio.requestAudioFocus(focusRequest);
+        call.resolve();
+    }
+
+    /** Lets other apps return to full volume. */
+    @PluginMethod
+    public void abandonAudioFocus(PluginCall call) {
+        if (focusRequest != null) {
+            AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            audio.abandonAudioFocusRequest(focusRequest);
+            focusRequest = null;
+        }
+        call.resolve();
+    }
 
     @PluginMethod
     public void isIgnoringBatteryOptimizations(PluginCall call) {

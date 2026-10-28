@@ -12,8 +12,10 @@ const mocks = vi.hoisted(() => ({
   ensureNotifications: vi.fn<() => Promise<boolean>>(async () => true),
   askBatteryExemption: vi.fn<() => Promise<boolean>>(async () => true),
   openBatterySettings: vi.fn<() => Promise<void>>(async () => {}),
+  speak: vi.fn<(text: string) => Promise<void>>(async () => {}),
 }))
 
+vi.mock('@/lib/speech', () => ({ speak: mocks.speak }))
 vi.mock('@/lib/trackingStatus', () => ({ getTrackingStatus: mocks.getTrackingStatus }))
 vi.mock('@/lib/gps', () => ({
   openAppSettings: mocks.openAppSettings,
@@ -31,6 +33,10 @@ vi.mock('@/composables/useAppResume', () => ({
 }))
 
 const allGood: TrackingStatus = { location: 'granted', notifications: 'granted', battery: 'exempt' }
+
+// The audio cue section has its own buttons; these tests are about the permission rows
+const permissionButtons = (wrapper: ReturnType<typeof mount>) =>
+  wrapper.findAll('.row:not(.cues) button')
 
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>
   wrapper.findAll('button').find((b) => b.text() === label)
@@ -104,7 +110,7 @@ describe('SettingsView', () => {
     expect(wrapper.text()).toContain('Could not check')
     expect(wrapper.text()).toContain('Some settings could not be checked')
     // only the other rows (location, battery) have their settings link
-    expect(wrapper.findAll('button').map((b) => b.text())).toEqual([
+    expect(permissionButtons(wrapper).map((b) => b.text())).toEqual([
       'Revoke in settings',
       'Change in settings',
     ])
@@ -112,14 +118,14 @@ describe('SettingsView', () => {
 
   it('lets you open the system pages to revoke or change what is granted', async () => {
     const wrapper = await open(allGood)
-    expect(wrapper.findAll('button').map((b) => b.text())).toEqual([
+    expect(permissionButtons(wrapper).map((b) => b.text())).toEqual([
       'Revoke in settings',
       'Revoke in settings',
       'Change in settings',
     ])
 
-    await wrapper.findAll('button')[0]!.trigger('click')
-    await wrapper.findAll('button')[1]!.trigger('click')
+    await permissionButtons(wrapper)[0]!.trigger('click')
+    await permissionButtons(wrapper)[1]!.trigger('click')
     expect(mocks.openAppSettings).toHaveBeenCalledTimes(2)
 
     await button(wrapper, 'Change in settings')!.trigger('click')
@@ -129,7 +135,17 @@ describe('SettingsView', () => {
   it('has no buttons in the browser', async () => {
     const wrapper = await open(null)
     expect(wrapper.text()).toContain('Only available on the phone')
-    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(permissionButtons(wrapper)).toHaveLength(0)
     expect(wrapper.text()).toContain('Metric (km, min/km)')
+  })
+
+  it('changes the cue interval and speaks a sample on Test cue', async () => {
+    const wrapper = await open(null)
+    const group = wrapper.get('[aria-label="Cue every distance"]')
+    const five = group.findAll('button').find((b) => b.text() === '5 km')!
+    await five.trigger('click')
+    expect(five.attributes('aria-pressed')).toBe('true')
+    await button(wrapper, 'Test cue')!.trigger('click')
+    expect(mocks.speak).toHaveBeenCalledWith(expect.stringContaining('1 kilometre'))
   })
 })
