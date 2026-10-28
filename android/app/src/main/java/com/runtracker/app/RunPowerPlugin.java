@@ -8,6 +8,10 @@ import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import android.webkit.WebView;
 import android.os.PowerManager;
 import android.provider.Settings;
 import androidx.activity.result.ActivityResult;
@@ -33,6 +37,45 @@ import com.getcapacitor.annotation.PermissionCallback;
 public class RunPowerPlugin extends Plugin {
 
     private AudioFocusRequest focusRequest;
+    private boolean keepWebViewAlive = false;
+
+    /**
+     * While a run is on, keeps the WebView running with the screen off. Android otherwise freezes
+     * the page's JavaScript about a minute after the screen goes off, which stalls the run timer,
+     * GPS fix handling and the spoken cues. The same workaround cordova-plugin-background-mode uses.
+     */
+    @PluginMethod
+    public void setKeepWebViewAlive(PluginCall call) {
+        keepWebViewAlive = Boolean.TRUE.equals(call.getBoolean("keep", false));
+        if (keepWebViewAlive) keepAlive();
+        call.resolve();
+    }
+
+    @Override
+    protected void handleOnPause() {
+        super.handleOnPause();
+        if (keepWebViewAlive) keepAlive();
+    }
+
+    @Override
+    protected void handleOnStop() {
+        super.handleOnStop();
+        if (keepWebViewAlive) keepAlive();
+    }
+
+    /** Runs after the activity has paused, so the system's own pause doesn't win. */
+    private void keepAlive() {
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> {
+                if (!keepWebViewAlive) return;
+                WebView webView = getBridge().getWebView();
+                webView.onResume();
+                webView.resumeTimers();
+                webView.dispatchWindowVisibilityChanged(View.VISIBLE);
+            },
+            500
+        );
+    }
 
     /** Asks other apps (music) to lower their volume while a spoken cue plays. */
     @PluginMethod

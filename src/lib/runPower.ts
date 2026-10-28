@@ -8,6 +8,7 @@ interface RunPowerPlugin {
   openBatterySettings(): Promise<void>
   requestAudioFocus(): Promise<void>
   abandonAudioFocus(): Promise<void>
+  setKeepWebViewAlive(options: { keep: boolean }): Promise<void>
   /** Added by Capacitor for the `notifications` alias */
   checkPermissions(): Promise<{ notifications?: string }>
 }
@@ -79,5 +80,15 @@ export async function abandonAudioFocus(): Promise<void> {
     await RunPower.abandonAudioFocus()
   } catch (err) {
     console.warn('Audio focus unavailable', err)
+  }
+}
+
+/** Keep the page's JavaScript running with the screen off while a run is on. Never throws. */
+export async function keepWebViewAlive(keep: boolean): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await RunPower.setKeepWebViewAlive({ keep })
+  } catch (err) {
+    console.warn('Could not keep the page running in the background', err)
   }
 }
