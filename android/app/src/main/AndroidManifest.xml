@@ -35,6 +35,13 @@
         </provider>
     </application>
 
+    <!-- Android 11+: lets the app see the installed text-to-speech engine for spoken cues -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />

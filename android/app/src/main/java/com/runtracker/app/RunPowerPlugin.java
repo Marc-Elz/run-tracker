@@ -4,6 +4,9 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -28,6 +31,40 @@ import com.getcapacitor.annotation.PermissionCallback;
     permissions = { @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS }) }
 )
 public class RunPowerPlugin extends Plugin {
+
+    private AudioFocusRequest focusRequest;
+
+    /** Asks other apps (music) to lower their volume while a spoken cue plays. */
+    @PluginMethod
+    public void requestAudioFocus(PluginCall call) {
+        // AudioFocusRequest needs API 26; on older phones the cue is spoken without ducking
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            call.resolve();
+            return;
+        }
+        AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(
+                new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .build();
+        audio.requestAudioFocus(focusRequest);
+        call.resolve();
+    }
+
+    /** Lets other apps return to full volume. */
+    @PluginMethod
+    public void abandonAudioFocus(PluginCall call) {
+        if (focusRequest != null) {
+            AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            audio.abandonAudioFocusRequest(focusRequest);
+            focusRequest = null;
+        }
+        call.resolve();
+    }
 
     @PluginMethod
     public void isIgnoringBatteryOptimizations(PluginCall call) {

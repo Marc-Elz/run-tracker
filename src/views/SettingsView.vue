@@ -4,6 +4,9 @@ import { useAppResume } from '@/composables/useAppResume'
 import { openAppSettings, requestLocationPermission } from '@/lib/gps'
 import { askBatteryExemption, ensureNotifications, openBatterySettings } from '@/lib/runPower'
 import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
+import { CUE_DISTANCE_OPTIONS, CUE_TIME_OPTIONS, cueText } from '@/lib/cues'
+import { cueConfig, setCueConfig } from '@/lib/settings'
+import { speak } from '@/lib/speech'
 
 type Tone = 'ok' | 'warn' | 'unknown' | 'info'
 interface Row {
@@ -140,6 +143,10 @@ const rows = computed<Row[]>(() => {
   return [location, notifications, battery, units]
 })
 
+const distanceLabel = (km: number) => (km === 0 ? 'Off' : `${km} km`)
+const timeLabel = (min: number) => (min === 0 ? 'Off' : `${min} min`)
+const testCue = () => void speak(cueText(1000, 332_000, 332))
+
 const summary = computed(() => {
   if (status.value === undefined) return ''
   if (status.value === null) return 'The tracking checks show on the phone.'
@@ -179,6 +186,36 @@ const summary = computed(() => {
         {{ row.secondary.label }}
       </button>
       <p v-if="row.hint" class="hint">{{ row.hint }}</p>
+    </section>
+
+    <section class="row cues" aria-labelledby="cues-title">
+      <h2 id="cues-title">Audio cues</h2>
+      <p>Spoken distance, time and pace during a run.</p>
+      <div class="choice" role="group" aria-label="Cue every distance">
+        <span class="choice__label">Every</span>
+        <button
+          v-for="km in CUE_DISTANCE_OPTIONS"
+          :key="km"
+          class="btn btn--choice"
+          :aria-pressed="cueConfig.distanceKm === km"
+          @click="setCueConfig({ ...cueConfig, distanceKm: km })"
+        >
+          {{ distanceLabel(km) }}
+        </button>
+      </div>
+      <div class="choice" role="group" aria-label="Cue every time">
+        <span class="choice__label">Every</span>
+        <button
+          v-for="min in CUE_TIME_OPTIONS"
+          :key="min"
+          class="btn btn--choice"
+          :aria-pressed="cueConfig.timeMin === min"
+          @click="setCueConfig({ ...cueConfig, timeMin: min })"
+        >
+          {{ timeLabel(min) }}
+        </button>
+      </div>
+      <button class="btn btn--quiet" @click="testCue">Test cue</button>
     </section>
   </main>
 </template>
@@ -280,6 +317,28 @@ p {
   border: 2px solid #3b4652;
   color: #c5ced8;
   font-size: 1rem;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.choice__label {
+  min-width: 3.5rem;
+  color: #9aa5b1;
+}
+
+.btn--choice {
+  flex: 1;
+  min-width: 3.5rem;
+  padding: 0 0.5rem;
+}
+
+.btn--choice[aria-pressed='true'] {
+  background: #1f9d55;
 }
 
 .btn:disabled {

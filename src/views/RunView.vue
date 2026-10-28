@@ -4,6 +4,8 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
 import { useKeepAwake } from '@/composables/useKeepAwake'
+import { useAudioCues } from '@/composables/useAudioCues'
+import { cueConfig } from '@/lib/settings'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatPace } from '@/lib/format'
@@ -22,6 +24,7 @@ const {
 } = storeToRefs(run)
 
 useKeepAwake(computed(() => status.value === 'running' || status.value === 'paused'))
+useAudioCues(cueConfig)
 
 const isDev = import.meta.env.DEV
 const simulate = ref(isDev)
