@@ -55,6 +55,8 @@ Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-
 4. **Phase 4 - Smart features:** home server + routing services, street coverage via map-matching, then route suggestions favouring new streets.
 5. **Phase 5 - Training programs:** scheduled workouts and planned vs. done tracking.
 
+Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low-priority bugs and polish that don't block recording a run or the next feature. A bug that risks losing run data stays in the current phase.
+
 ## Decisions
 - Vue 3 + Capacitor for the app; native fallback only for tracking if needed.
 - GitHub Issues + branches + PRs, no CI (workflow rules are in `CLAUDE.md`).
@@ -62,12 +64,13 @@ Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-
 - Units are metric (km, min/km).
 - Personal use only, never published on the Play Store (decided 2026-10-26). The generic app id stays, and the Play Store review concerns for background location and the Strava brand guidelines do not apply. Revisit only if that changes.
 - Location permission is "while using" only: the foreground service keeps GPS running with the screen off, so "Allow all the time" is not requested (#3).
-- Plugins in use: `@capacitor-community/background-geolocation`, `@capacitor-community/sqlite`, `@capacitor-community/keep-awake`, `@capacitor/share` and `@capacitor/filesystem` (GPX export). The paid Transistorsoft plugin was not needed so far; the long screen-off run test (#3) is what would change that.
+- Plugins in use: `@capacitor-community/background-geolocation`, `@capacitor-community/sqlite`, `@capacitor-community/keep-awake`, `@capacitor/share` and `@capacitor/filesystem` (GPX export). The paid Transistorsoft plugin was not needed so far; the long screen-off run test (#3) is what would change that. `@capacitor-community/text-to-speech` joins them with the audio cues (#61, PR #72).
 - Raw GPS fixes are stored unfiltered; filtering happens at read time in pure functions (#38), so the rules can change without losing data.
 - Phase numbers and names stay as they are, and Phase 1.5 - Run experience was added for #61 (decided 2026-10-26). The number is not the work order: History (Phase 3) is built before Strava (Phase 2), see the next line.
 - Priorities after Phase 1 (decided 2026-10-26): the primary goal is to record a run, see it in the app's history and export it to Strava. Order: close Phase 1 with one device pass and the outdoor run, then History (#18, #19, #20), then Strava (#12 first, then #13 to #16), then the rest of Phase 3 (backup #23 before the heatmap and stats). Audio cues (#61, Phase 1.5) are wanted and get planned once the Phase 1 gate is closed. Phase 4 is lower priority: it is where the app gets more interesting, but it starts only after the map-matching spike (#25) and the #29 decision. Phase 5 is parked.
 - No shoe or gear tracking. Strava offers it as an optional field, but I don't use it.
 - Phase 1 is code-complete; the remaining boxes need device checks (#3, #5, #7, #10).
+- With the screen off, Android froze the WebView's JavaScript about a minute later (found on the phone during #61), stalling the run timer, GPS fix handling and spoken cues. While a run is on, `RunPowerPlugin.setKeepWebViewAlive` keeps the page running (PR #72, verified on the phone for 5 min with the screen off, #73). If this stops working on a phone or Android version, the fallback is moving cue timing and speech into native code. Audio cues use `localStorage` for their two settings and a native audio-focus request so music ducks during a cue.
 
 ## Pending decisions
 - **Strava client secret** (#12): proxy on home server vs. embedded secret vs. serverless function. To be decided later; only blocks #13.
