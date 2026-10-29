@@ -2,6 +2,17 @@
 
 Run-tracking Android app built with Vue 3 + Capacitor. See [context.md](context.md) for goals and decisions.
 
+## Status
+
+Restarted in October 2026 as a portfolio project, with the longer-term goal of becoming an app I would actually use for my own runs. It is built with Claude Code as an agentic workflow (issues, plans and pull requests; see `CLAUDE.md` and `.claude/`).
+
+- **Done:** Phase 1 (MVP) is code-complete: record a run with GPS in the background, show it on a map, store it in SQLite and export it as GPX. The remaining checks are on-device.
+- **In progress / next:** run history, then Strava upload.
+- **Later:** street coverage and route suggestions backed by a home server, and training programs.
+- **Personal use:** not planned for the Play Store.
+
+The roadmap lives in the [milestones](https://github.com/Marc-Elz/run-tracker/milestones).
+
 ## Prerequisites (Windows and Linux)
 - Node.js 20+ and npm
 - Android Studio (includes the Android SDK and a JDK)
