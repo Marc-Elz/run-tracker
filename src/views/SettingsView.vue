@@ -7,9 +7,7 @@ import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
 import { CUE_DISTANCE_OPTIONS, CUE_TIME_OPTIONS, cueText } from '@/lib/cues'
 import { cueConfig, setCueConfig } from '@/lib/settings'
 import { speak } from '@/lib/speech'
-import { BackupError } from '@/lib/backup'
-import { backUpRuns, restoreRuns } from '@/lib/backupRuns'
-import { useRunStore } from '@/stores/run'
+import { useBackupStore } from '@/stores/backup'
 
 type Tone = 'ok' | 'warn' | 'unknown' | 'info'
 interface Row {
@@ -47,66 +45,14 @@ async function act(row: Row, button: { run: () => Promise<unknown> } | undefined
 onMounted(refresh)
 useAppResume(refresh)
 
-const run = useRunStore()
-const finishedCount = ref<number | null>(null)
-const backupBusy = ref(false)
-const backupMessage = ref('')
-// A long restore would hold up the writes of a run in progress
-const runActive = computed(() => run.status === 'running' || run.status === 'paused')
-const backupBlocked = computed(() => backupBusy.value || runActive.value)
+const backup = useBackupStore()
+onMounted(backup.countRuns)
 
-async function countRuns() {
-  try {
-    finishedCount.value = (await run.listFinished()).length
-  } catch {
-    finishedCount.value = null
-  }
-}
-onMounted(countRuns)
-
-const runsText = (n: number) => (n === 1 ? '1 run' : `${n} runs`)
-
-async function backUp() {
-  if (backupBlocked.value) return
-  backupBusy.value = true
-  backupMessage.value = ''
-  try {
-    const count = await backUpRuns(run, Date.now(), (done, total) => {
-      backupMessage.value = `Backing up ${done} of ${total} runs…`
-    })
-    backupMessage.value = count === 0 ? 'No runs to back up' : `Backed up ${runsText(count)}`
-  } catch (err) {
-    console.warn('Backup failed', err)
-    backupMessage.value = 'Backup failed. Try again.'
-  } finally {
-    backupBusy.value = false
-  }
-}
-
-async function restore(event: Event) {
+function restore(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = '' // the same file can be picked again
-  if (!file || backupBlocked.value) return
-  backupBusy.value = true
-  backupMessage.value = ''
-  try {
-    backupMessage.value = 'Reading the file…'
-    const { added, skipped, rejected } = await restoreRuns(run, await file.text(), (done, total) => {
-      backupMessage.value = `Restoring ${done} of ${total} runs…`
-    })
-    const parts = [`Restored ${runsText(added)}`]
-    if (skipped > 0) parts.push(`${skipped} already on this phone`)
-    if (rejected > 0) parts.push(`${rejected} damaged and left out`)
-    backupMessage.value = parts.join(', ')
-  } catch (err) {
-    if (!(err instanceof BackupError)) console.warn('Restore failed', err)
-    backupMessage.value =
-      err instanceof BackupError ? err.message : 'Restore failed. Nothing was lost; try again.'
-  } finally {
-    backupBusy.value = false
-    await countRuns()
-  }
+  if (file) void backup.restore(file)
 }
 
 const SAMSUNG_HINT =
@@ -288,24 +234,24 @@ const summary = computed(() => {
       <p>Your runs live only on this phone. Save them to a file you can keep elsewhere.</p>
       <button
         class="btn"
-        :disabled="backupBlocked || finishedCount === 0"
-        @click="backUp"
+        :disabled="backup.blocked || backup.finishedCount === 0"
+        @click="backup.backUp"
       >
         Back up runs
       </button>
-      <label class="btn btn--quiet btn--label" :aria-disabled="backupBlocked">
+      <label class="btn btn--quiet btn--label" :aria-disabled="backup.blocked">
         Restore from backup
         <input
           class="file"
           type="file"
           accept=".json,application/json"
-          :disabled="backupBlocked"
+          :disabled="backup.blocked"
           @change="restore"
         />
       </label>
-      <p v-if="runActive" class="hint">Finish or stop your run first.</p>
-      <p v-else-if="finishedCount === 0" class="hint">No runs to back up.</p>
-      <p v-if="backupMessage" class="status" role="status">{{ backupMessage }}</p>
+      <p v-if="backup.runActive" class="hint">Finish or stop your run first.</p>
+      <p v-else-if="backup.finishedCount === 0" class="hint">No runs to back up.</p>
+      <p v-if="backup.message" class="status" role="status">{{ backup.message }}</p>
       <p class="hint">The file holds your full location history and is not encrypted.</p>
     </section>
   </main>

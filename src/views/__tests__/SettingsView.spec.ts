@@ -240,6 +240,33 @@ describe('SettingsView', () => {
       expect(await useRunStore().listFinished()).toEqual([])
     })
 
+    it('keeps a backup going when the screen is closed, and refuses a second one on reopen', async () => {
+      const run = useRunStore()
+      await run.importRun(finished('a'), [])
+      let finish!: () => void
+      shareFile.mockImplementationOnce(async (_name, content) => {
+        if (typeof content !== 'string') for await (const piece of content) void piece
+        await new Promise<void>((resolve) => (finish = resolve))
+        return { name: '', text: '', mime: '' }
+      })
+      const first = await open(allGood)
+      await button(first, 'Back up runs')!.trigger('click')
+      await flushPromises()
+      expect(first.text()).toContain('Backing up 1 of 1 runs')
+      first.unmount() // the user switched tab
+
+      const second = await open(allGood)
+      expect(second.text()).toContain('Backing up 1 of 1 runs') // still shown
+      expect(button(second, 'Back up runs')!.attributes('disabled')).toBeDefined()
+      await button(second, 'Back up runs')!.trigger('click')
+      expect(shareFile).toHaveBeenCalledOnce() // no second share
+
+      finish()
+      await flushPromises()
+      expect(second.text()).toContain('Backed up 1 run')
+      expect(button(second, 'Back up runs')!.attributes('disabled')).toBeUndefined()
+    })
+
     it('blocks backup and restore while a run is running or paused', async () => {
       const run = useRunStore()
       await run.importRun(finished('a'), [])
