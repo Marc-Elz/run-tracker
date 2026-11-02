@@ -18,25 +18,28 @@ const mocks = vi.hoisted(() => ({
   askBatteryExemption: vi.fn<() => Promise<boolean>>(async () => true),
   openBatterySettings: vi.fn<() => Promise<void>>(async () => {}),
   speak: vi.fn<(text: string) => Promise<void>>(async () => {}),
-  shared: { name: '', text: '', mime: '' },
 }))
+const shared = { name: '', text: '', mime: '' }
 const shareFile = vi.hoisted(() =>
   vi.fn<
     (
       name: string,
       content: string | AsyncIterable<string>,
       mime: string,
-    ) => Promise<{ name: string; text: string; mime: string }>
+    ) => Promise<string | null>
   >(async (name, content, mime) => {
     let text = ''
     if (typeof content === 'string') text = content
     else for await (const piece of content) text += piece
-    return { name, text, mime }
+    shared.name = name
+    shared.text = text
+    shared.mime = mime
+    return null
   }),
 )
 
 vi.mock('@/lib/speech', () => ({ speak: mocks.speak }))
-vi.mock('@/lib/shareRun', () => ({ shareFile }))
+vi.mock('@/lib/shareRun', () => ({ shareFile, reshareFile: async () => false }))
 vi.mock('@/lib/trackingStatus', () => ({ getTrackingStatus: mocks.getTrackingStatus }))
 vi.mock('@/lib/gps', () => ({
   openAppSettings: mocks.openAppSettings,
@@ -207,7 +210,7 @@ describe('SettingsView', () => {
       await button(wrapper, 'Back up runs')!.trigger('click')
       await flushPromises()
       expect(shareFile).toHaveBeenCalledOnce()
-      const { name, text, mime } = await shareFile.mock.results[0]!.value
+      const { name, text, mime } = shared
       expect(name).toMatch(/^run-tracker-backup-\d{4}-\d{2}-\d{2}\.json$/)
       expect(mime).toBe('application/json')
       expect(JSON.parse(text).runs.map((r: { run: RunRecord }) => r.run.id).sort()).toEqual(['a', 'b'])
@@ -247,7 +250,7 @@ describe('SettingsView', () => {
       shareFile.mockImplementationOnce(async (_name, content) => {
         if (typeof content !== 'string') for await (const piece of content) void piece
         await new Promise<void>((resolve) => (finish = resolve))
-        return { name: '', text: '', mime: '' }
+        return null
       })
       const first = await open(allGood)
       await button(first, 'Back up runs')!.trigger('click')

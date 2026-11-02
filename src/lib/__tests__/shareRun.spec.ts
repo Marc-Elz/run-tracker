@@ -6,6 +6,7 @@ const plugins = vi.hoisted(() => ({
     uri: 'file:///cache/run.gpx',
   })),
   appendFile: vi.fn<(options: unknown) => Promise<void>>(async () => {}),
+  stat: vi.fn<(options: unknown) => Promise<object>>(async () => ({})),
   share: vi.fn<(options: unknown) => Promise<unknown>>(async () => ({})),
 }))
 
@@ -13,11 +14,11 @@ vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => native.
 vi.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Encoding: { UTF8: 'utf8' },
-  Filesystem: { writeFile: plugins.writeFile, appendFile: plugins.appendFile },
+  Filesystem: { writeFile: plugins.writeFile, appendFile: plugins.appendFile, stat: plugins.stat },
 }))
 vi.mock('@capacitor/share', () => ({ Share: { share: plugins.share } }))
 
-import { shareFile, shareGpx } from '../shareRun'
+import { reshareFile, shareFile, shareGpx } from '../shareRun'
 
 describe('shareGpx', () => {
   beforeEach(() => {
@@ -83,5 +84,34 @@ describe('shareGpx', () => {
       expect.objectContaining({ path: 'backup.json', data: '{}' }),
     )
     expect(plugins.share).toHaveBeenCalledOnce()
+  })
+
+  it('returns where the file was written, so it can be shared again', async () => {
+    expect(await shareFile('backup.json', '{}', 'application/json')).toBe('file:///cache/run.gpx')
+  })
+
+  describe('reshareFile', () => {
+    it('opens the share sheet again for a file that is still in the cache', async () => {
+      expect(await reshareFile('backup.json', 'file:///cache/backup.json')).toBe(true)
+      expect(plugins.stat).toHaveBeenCalledWith({ path: 'backup.json', directory: 'CACHE' })
+      expect(plugins.writeFile).not.toHaveBeenCalled()
+      expect(plugins.share).toHaveBeenCalledWith({
+        title: 'backup.json',
+        files: ['file:///cache/backup.json'],
+      })
+    })
+
+    it('says no when the file is gone, and in the browser', async () => {
+      plugins.stat.mockRejectedValueOnce(new Error('File does not exist'))
+      expect(await reshareFile('backup.json', 'file:///x')).toBe(false)
+      expect(plugins.share).not.toHaveBeenCalled()
+      native.value = false
+      expect(await reshareFile('backup.json', 'file:///x')).toBe(false)
+    })
+
+    it('is silent when the sheet is dismissed', async () => {
+      plugins.share.mockRejectedValueOnce(new Error('Share canceled'))
+      expect(await reshareFile('backup.json', 'file:///x')).toBe(true)
+    })
   })
 })

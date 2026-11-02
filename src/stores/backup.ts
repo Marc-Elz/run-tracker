@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { BackupError } from '@/lib/backup'
-import { backUpRuns, restoreRuns } from '@/lib/backupRuns'
+import { backUpRuns, restoreRuns, type PreparedBackup } from '@/lib/backupRuns'
 import { useRunStore } from '@/stores/run'
 
 const runsText = (n: number) => (n === 1 ? '1 run' : `${n} runs`)
@@ -17,6 +17,8 @@ export const useBackupStore = defineStore('backup', () => {
   const message = ref('')
   // null until counted, or when the database cannot be read
   const finishedCount = ref<number | null>(null)
+  // The last backup file written; shared again, not rebuilt, while the runs are unchanged
+  let prepared: PreparedBackup | null = null
 
   // A long restore would hold up the writes of a run in progress
   const runActive = computed(() => run.status === 'running' || run.status === 'paused')
@@ -35,9 +37,16 @@ export const useBackupStore = defineStore('backup', () => {
     busy.value = true
     message.value = ''
     try {
-      const count = await backUpRuns(run, Date.now(), (done, total) => {
-        message.value = `Backing up ${done} of ${total} runs…`
-      })
+      const outcome = await backUpRuns(
+        run,
+        Date.now(),
+        (done, total) => {
+          message.value = `Backing up ${done} of ${total} runs…`
+        },
+        prepared,
+      )
+      prepared = outcome.prepared
+      const count = outcome.count
       message.value = count === 0 ? 'No runs to back up' : `Backed up ${runsText(count)}`
     } catch (err) {
       console.warn('Backup failed', err)

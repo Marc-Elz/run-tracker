@@ -27,6 +27,13 @@ export class BackupError extends Error {}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
+/**
+ * Changes whenever a backup of these runs would differ: a run added, deleted or renamed, or a new
+ * day. Saved runs do not otherwise change, so an equal key means the same file content.
+ */
+export const backupKey = (fileName: string, runs: RunRecord[]) =>
+  JSON.stringify([fileName, runs.map((r) => [r.id, r.name, r.finishedAt, r.distanceM, r.movingMs])])
+
 /** "run-tracker-backup-2026-10-28.json", local date */
 export function backupFileName(now: number): string {
   const d = new Date(now)

@@ -2,11 +2,12 @@ import {
   BACKUP_FOOTER,
   backupFileName,
   backupHeader,
+  backupKey,
   backupRunPiece,
   parseBackup,
 } from '@/lib/backup'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
-import { shareFile } from '@/lib/shareRun'
+import { reshareFile, shareFile } from '@/lib/shareRun'
 
 export interface BackupSource {
   listFinished(): Promise<RunRecord[]>
@@ -44,20 +45,42 @@ export async function* backupPieces(
   yield BACKUP_FOOTER
 }
 
-/** Share a backup of all finished runs. Resolves with how many runs it holds (0: nothing to back up). */
+/** A backup file already written to the cache, to share again while nothing has changed. */
+export interface PreparedBackup {
+  key: string
+  fileName: string
+  uri: string
+}
+
+export interface BackupOutcome {
+  /** How many runs the backup holds (0: nothing to back up) */
+  count: number
+  prepared: PreparedBackup | null
+}
+
+/**
+ * Share a backup of all finished runs. With the result of an earlier call and no change since,
+ * the file written then is shared again instead of being built again.
+ */
 export async function backUpRuns(
   source: BackupSource,
   now = Date.now(),
   onProgress?: Progress,
-): Promise<number> {
+  previous: PreparedBackup | null = null,
+): Promise<BackupOutcome> {
   const runs = await source.listFinished()
-  if (runs.length === 0) return 0
-  await shareFile(
-    backupFileName(now),
+  if (runs.length === 0) return { count: 0, prepared: null }
+  const fileName = backupFileName(now)
+  const key = backupKey(fileName, runs)
+  if (previous?.key === key && (await reshareFile(fileName, previous.uri))) {
+    return { count: runs.length, prepared: previous }
+  }
+  const uri = await shareFile(
+    fileName,
     backupPieces(runs, source, now, onProgress),
     'application/json',
   )
-  return runs.length
+  return { count: runs.length, prepared: uri === null ? null : { key, fileName, uri } }
 }
 
 /**

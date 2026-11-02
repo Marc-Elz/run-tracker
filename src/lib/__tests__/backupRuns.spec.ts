@@ -3,28 +3,33 @@ import { BackupError, buildBackup } from '../backup'
 import { createMemoryRunRepository } from '../db/memoryRunRepository'
 import type { RunRecord } from '../db/runRepository'
 
-// The share function stands in: it reads the pieces like the real one and keeps the joined text
+// The share functions stand in: shareFile reads the pieces like the real one and keeps the joined text
 const share = vi.hoisted(() => {
-  const shared = { name: '', text: '', mime: '', pieces: 0 }
+  const shared = { name: '', text: '', mime: '', pieces: 0, fileGone: false }
   return {
     shared,
-    shareFile: vi.fn<(name: string, content: string | AsyncIterable<string>, mime: string) => Promise<void>>(async (name, content, mime) => {
+    reshareFile: vi.fn<(name: string, uri: string) => Promise<boolean>>(
+      async () => !shared.fileGone,
+    ),
+    shareFile: vi.fn<
+      (name: string, content: string | AsyncIterable<string>, mime: string) => Promise<string | null>
+    >(async (name, content, mime) => {
       shared.name = name
       shared.mime = mime
       shared.text = ''
       shared.pieces = 0
-      if (typeof content === 'string') {
-        shared.text = content
-        return
+      if (typeof content === 'string') shared.text = content
+      else {
+        for await (const piece of content) {
+          shared.text += piece
+          shared.pieces++
+        }
       }
-      for await (const piece of content) {
-        shared.text += piece
-        shared.pieces++
-      }
+      return `file:///cache/${name}`
     }),
   }
 })
-vi.mock('../shareRun', () => ({ shareFile: share.shareFile }))
+vi.mock('../shareRun', () => ({ shareFile: share.shareFile, reshareFile: share.reshareFile }))
 
 const { backUpRuns, restoreRuns } = await import('../backupRuns')
 
@@ -43,14 +48,17 @@ const finished = (id: string, startedAt: number): RunRecord => ({
 const point = (timestamp: number) => ({ segment: 0, timestamp, lat: 1, lon: 2 })
 
 describe('backup and restore of runs', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    share.shared.fileGone = false
+  })
 
   it('backs up finished runs only, oldest first, with their points', async () => {
     const repo = createMemoryRunRepository()
     await repo.importRun(finished('new', 20), [point(21)])
     await repo.importRun(finished('old', 10), [point(11), point(12)])
     await repo.createRun({ ...finished('live', 30), status: 'running', finishedAt: null })
-    expect(await backUpRuns(repo, 0)).toBe(2)
+    expect((await backUpRuns(repo, 0)).count).toBe(2)
     const ids = (JSON.parse(share.shared.text).runs as { run: RunRecord; points: unknown[] }[]).map(
       (r) => [r.run.id, r.points.length],
     )
@@ -76,12 +84,65 @@ describe('backup and restore of runs', () => {
 
   it('shares the file with a dated name and reports the count, or 0 without runs', async () => {
     const repo = createMemoryRunRepository()
-    expect(await backUpRuns(repo, 0)).toBe(0)
+    expect((await backUpRuns(repo, 0)).count).toBe(0)
     expect(share.shareFile).not.toHaveBeenCalled()
     await repo.importRun(finished('a', 1), [])
-    expect(await backUpRuns(repo, new Date(2026, 9, 28).getTime())).toBe(1)
+    expect((await backUpRuns(repo, new Date(2026, 9, 28).getTime())).count).toBe(1)
     expect(share.shared.name).toBe('run-tracker-backup-2026-10-28.json')
     expect(share.shared.mime).toBe('application/json')
+  })
+
+  describe('sharing the same backup again', () => {
+    const day = new Date(2026, 9, 28, 12).getTime()
+    const setup = async () => {
+      const repo = createMemoryRunRepository()
+      await repo.importRun(finished('a', 1), [point(1)])
+      await repo.importRun(finished('b', 2), [point(2)])
+      return repo
+    }
+
+    it('shares the file written before instead of building it again while nothing changed', async () => {
+      const repo = await setup()
+      const first = await backUpRuns(repo, day)
+      expect(first.prepared).toMatchObject({ fileName: 'run-tracker-backup-2026-10-28.json' })
+      const second = await backUpRuns(repo, day + 60_000, undefined, first.prepared)
+      expect(share.shareFile).toHaveBeenCalledOnce()
+      expect(share.reshareFile).toHaveBeenCalledWith(
+        'run-tracker-backup-2026-10-28.json',
+        first.prepared!.uri,
+      )
+      expect(second).toEqual({ count: 2, prepared: first.prepared })
+    })
+
+    it('builds it again after a run was added, deleted or renamed, or on another day', async () => {
+      const repo = await setup()
+      let prepared = (await backUpRuns(repo, day)).prepared
+      await repo.importRun(finished('c', 3), [])
+      prepared = (await backUpRuns(repo, day, undefined, prepared)).prepared
+      expect(share.shareFile).toHaveBeenCalledTimes(2)
+
+      await repo.renameRun('a', 'Haren')
+      prepared = (await backUpRuns(repo, day, undefined, prepared)).prepared
+      expect(share.shareFile).toHaveBeenCalledTimes(3)
+
+      await repo.deleteRun('c')
+      prepared = (await backUpRuns(repo, day, undefined, prepared)).prepared
+      expect(share.shareFile).toHaveBeenCalledTimes(4)
+
+      await backUpRuns(repo, day + 86_400_000, undefined, prepared)
+      expect(share.shareFile).toHaveBeenCalledTimes(5)
+      expect(share.reshareFile).not.toHaveBeenCalled()
+    })
+
+    it('builds it again when the cached file is gone', async () => {
+      const repo = await setup()
+      const first = await backUpRuns(repo, day)
+      share.shared.fileGone = true
+      const second = await backUpRuns(repo, day, undefined, first.prepared)
+      expect(share.reshareFile).toHaveBeenCalledOnce()
+      expect(share.shareFile).toHaveBeenCalledTimes(2)
+      expect(second.count).toBe(2)
+    })
   })
 
   it('restores into an empty repository exactly as it was, and a second restore adds nothing', async () => {

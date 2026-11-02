@@ -12,7 +12,7 @@ export async function shareFile(
   fileName: string,
   content: string | AsyncIterable<string>,
   mimeType: string,
-): Promise<void> {
+): Promise<string | null> {
   const pieces = typeof content === 'string' ? [content] : content
   if (!Capacitor.isNativePlatform()) {
     const parts: string[] = []
@@ -23,7 +23,7 @@ export async function shareFile(
     link.download = fileName
     link.click()
     URL.revokeObjectURL(url)
-    return
+    return null
   }
 
   // Written piece by piece: handing a large file to the plugin as one string ran the app out of
@@ -40,6 +40,11 @@ export async function shareFile(
     else await Filesystem.appendFile(options)
   }
   if (uri === '') uri = (await Filesystem.writeFile({ path: fileName, data: '', directory: Directory.Cache, encoding: Encoding.UTF8 })).uri
+  await openShareSheet(fileName, uri)
+  return uri
+}
+
+async function openShareSheet(fileName: string, uri: string): Promise<void> {
   try {
     await Share.share({ title: fileName, files: [uri] })
   } catch (err) {
@@ -49,6 +54,23 @@ export async function shareFile(
   }
 }
 
+/**
+ * Open the share sheet again for a file `shareFile` already wrote to the cache, so a dismissed
+ * sheet does not mean building a large file again. False when the file is gone (Android clears
+ * the cache) and has to be written again.
+ */
+export async function reshareFile(fileName: string, uri: string): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false
+  try {
+    await Filesystem.stat({ path: fileName, directory: Directory.Cache })
+  } catch {
+    return false
+  }
+  await openShareSheet(fileName, uri)
+  return true
+}
+
 /** Hand a GPX file to the user, see `shareFile`. */
-export const shareGpx = (fileName: string, xml: string) =>
-  shareFile(fileName, xml, 'application/gpx+xml')
+export const shareGpx = async (fileName: string, xml: string): Promise<void> => {
+  await shareFile(fileName, xml, 'application/gpx+xml')
+}
