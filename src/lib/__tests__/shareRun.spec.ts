@@ -5,6 +5,7 @@ const plugins = vi.hoisted(() => ({
   writeFile: vi.fn<(options: unknown) => Promise<{ uri: string }>>(async () => ({
     uri: 'file:///cache/run.gpx',
   })),
+  appendFile: vi.fn<(options: unknown) => Promise<void>>(async () => {}),
   share: vi.fn<(options: unknown) => Promise<unknown>>(async () => ({})),
 }))
 
@@ -12,7 +13,7 @@ vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => native.
 vi.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Encoding: { UTF8: 'utf8' },
-  Filesystem: { writeFile: plugins.writeFile },
+  Filesystem: { writeFile: plugins.writeFile, appendFile: plugins.appendFile },
 }))
 vi.mock('@capacitor/share', () => ({ Share: { share: plugins.share } }))
 
@@ -56,6 +57,24 @@ describe('shareGpx', () => {
     expect(click).toHaveBeenCalledOnce()
     expect(plugins.share).not.toHaveBeenCalled()
     click.mockRestore()
+  })
+
+  it('writes pieces one by one, the first as the file and the rest appended', async () => {
+    async function* pieces() {
+      yield '{"a":['
+      yield '1,'
+      yield '2]}'
+    }
+    await shareFile('backup.json', pieces(), 'application/json')
+    expect(plugins.writeFile).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: '{"a":[' }))
+    expect(plugins.appendFile.mock.calls.map(([o]) => (o as { data: string }).data)).toEqual([
+      '1,',
+      '2]}',
+    ])
+    expect(plugins.share).toHaveBeenCalledWith({
+      title: 'backup.json',
+      files: ['file:///cache/run.gpx'],
+    })
   })
 
   it('shares any file, here JSON, through the same cache and share sheet', async () => {

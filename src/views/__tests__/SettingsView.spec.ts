@@ -18,11 +18,25 @@ const mocks = vi.hoisted(() => ({
   askBatteryExemption: vi.fn<() => Promise<boolean>>(async () => true),
   openBatterySettings: vi.fn<() => Promise<void>>(async () => {}),
   speak: vi.fn<(text: string) => Promise<void>>(async () => {}),
-  shareFile: vi.fn<(name: string, text: string, mime: string) => Promise<void>>(async () => {}),
+  shared: { name: '', text: '', mime: '' },
 }))
+const shareFile = vi.hoisted(() =>
+  vi.fn<
+    (
+      name: string,
+      content: string | AsyncIterable<string>,
+      mime: string,
+    ) => Promise<{ name: string; text: string; mime: string }>
+  >(async (name, content, mime) => {
+    let text = ''
+    if (typeof content === 'string') text = content
+    else for await (const piece of content) text += piece
+    return { name, text, mime }
+  }),
+)
 
 vi.mock('@/lib/speech', () => ({ speak: mocks.speak }))
-vi.mock('@/lib/shareRun', () => ({ shareFile: mocks.shareFile }))
+vi.mock('@/lib/shareRun', () => ({ shareFile }))
 vi.mock('@/lib/trackingStatus', () => ({ getTrackingStatus: mocks.getTrackingStatus }))
 vi.mock('@/lib/gps', () => ({
   openAppSettings: mocks.openAppSettings,
@@ -192,8 +206,8 @@ describe('SettingsView', () => {
       const wrapper = await open(allGood)
       await button(wrapper, 'Back up runs')!.trigger('click')
       await flushPromises()
-      expect(mocks.shareFile).toHaveBeenCalledOnce()
-      const [name, text, mime] = mocks.shareFile.mock.calls[0]!
+      expect(shareFile).toHaveBeenCalledOnce()
+      const { name, text, mime } = await shareFile.mock.results[0]!.value
       expect(name).toMatch(/^run-tracker-backup-\d{4}-\d{2}-\d{2}\.json$/)
       expect(mime).toBe('application/json')
       expect(JSON.parse(text).runs.map((r: { run: RunRecord }) => r.run.id).sort()).toEqual(['a', 'b'])

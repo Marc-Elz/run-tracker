@@ -40,3 +40,7 @@ __screenshots__/
 
 # Claude Code worktrees (background sessions)
 .claude/worktrees/
+
+# Large files made by scripts/make-test-backup.mjs for device tests
+big.json
+*.backup.json

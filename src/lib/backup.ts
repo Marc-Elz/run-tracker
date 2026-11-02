@@ -33,9 +33,19 @@ export function backupFileName(now: number): string {
   return `run-tracker-backup-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`
 }
 
+/**
+ * The file as pieces that join to one JSON text: header, one piece per run (with its separator),
+ * footer. Writing them one by one keeps a large backup from ever being one huge string.
+ */
+export const backupHeader = (now: number) =>
+  `{"format":"${BACKUP_FORMAT}","version":${BACKUP_VERSION},"exportedAt":${now},"runs":[`
+export const backupRunPiece = (entry: BackupRun, index: number) =>
+  (index > 0 ? ',' : '') + JSON.stringify(entry)
+export const BACKUP_FOOTER = ']}'
+
 /** The file text for these runs (compact: a backup of many runs is large). */
 export function buildBackup(runs: BackupRun[], now: number): string {
-  return JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: now, runs })
+  return backupHeader(now) + runs.map(backupRunPiece).join('') + BACKUP_FOOTER
 }
 
 type Json = Record<string, unknown>

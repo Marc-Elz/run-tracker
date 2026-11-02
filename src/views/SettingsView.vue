@@ -71,7 +71,9 @@ async function backUp() {
   backupBusy.value = true
   backupMessage.value = ''
   try {
-    const count = await backUpRuns(run)
+    const count = await backUpRuns(run, Date.now(), (done, total) => {
+      backupMessage.value = `Backing up ${done} of ${total} runs…`
+    })
     backupMessage.value = count === 0 ? 'No runs to back up' : `Backed up ${runsText(count)}`
   } catch (err) {
     console.warn('Backup failed', err)
@@ -89,7 +91,10 @@ async function restore(event: Event) {
   backupBusy.value = true
   backupMessage.value = ''
   try {
-    const { added, skipped, rejected } = await restoreRuns(run, await file.text())
+    backupMessage.value = 'Reading the file…'
+    const { added, skipped, rejected } = await restoreRuns(run, await file.text(), (done, total) => {
+      backupMessage.value = `Restoring ${done} of ${total} runs…`
+    })
     const parts = [`Restored ${runsText(added)}`]
     if (skipped > 0) parts.push(`${skipped} already on this phone`)
     if (rejected > 0) parts.push(`${rejected} damaged and left out`)
