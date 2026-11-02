@@ -201,6 +201,33 @@ if (docker) {
   )
 }
 
+// ---- debug keystore ----
+// Gradle signs the debug build with this key and creates a new one silently if it is missing. A
+// phone only updates an app in place when the key matches, otherwise the old app (and its saved
+// runs) has to be uninstalled. Every PC that installs to the phone needs the same key (#76).
+const keystore = join(process.env.ANDROID_USER_HOME ?? join(home, '.android'), 'debug.keystore')
+const keytoolBin = [javaHome, studioJbr]
+  .filter(Boolean)
+  .map((p) => join(p, 'bin', `keytool${exe}`))
+  .find((p) => existsSync(p))
+// run() only goes through a shell on Windows, where paths with spaces need quotes
+const q = (p) => (isWin ? `"${p}"` : p)
+const keystoreInfo = existsSync(keystore)
+  ? run(keytoolBin ? q(keytoolBin) : 'keytool', ['-list', '-v', '-keystore', q(keystore), '-storepass', 'android', '-alias', 'androiddebugkey'])
+  : null
+const fingerprint = keystoreInfo?.match(/SHA256:\s*([0-9A-F:]+)/i)?.[1]
+add(
+  'device',
+  'Debug keystore',
+  !!fingerprint,
+  fingerprint
+    ? `SHA256 ${fingerprint}`
+    : existsSync(keystore)
+      ? `${keystore} exists but the fingerprint could not be read (keytool or other password?)`
+      : `${keystore} not found`,
+  `Before the first build copy debug.keystore from your other PC to ${keystore} (not into the repo), or Gradle creates a new key and installing over the app on the phone will want an uninstall, which wipes the saved runs. Then compare this fingerprint with the other PC.`,
+)
+
 // ---- map key ----
 const envLocal = existsSync(join(root, '.env.local')) ? readFileSync(join(root, '.env.local'), 'utf8') : ''
 add(
