@@ -43,6 +43,11 @@ export interface RunRepository {
   listFinished(): Promise<RunRecord[]>
   /** Points of a run in recording order */
   loadPoints(runId: string): Promise<StoredPoint[]>
+  /**
+   * Store a finished run with its name and all its points as one unit, points in the given order.
+   * Returns false and writes nothing when a run with this id already exists.
+   */
+  importRun(run: RunRecord, points: StoredPoint[]): Promise<boolean>
 }
 
 /** Run every call strictly after the previous one finished, so writes land in order. */
@@ -63,6 +68,7 @@ export function serialized(repo: RunRepository): RunRepository {
     getRun: (id) => enqueue(() => repo.getRun(id)),
     listFinished: () => enqueue(() => repo.listFinished()),
     loadPoints: (runId) => enqueue(() => repo.loadPoints(runId)),
+    importRun: (run, points) => enqueue(() => repo.importRun(run, points)),
   }
 }
 
@@ -81,6 +87,7 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     getRun: fail,
     listFinished: fail,
     loadPoints: fail,
+    importRun: fail,
   }
 }
 

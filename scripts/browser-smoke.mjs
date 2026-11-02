@@ -1,5 +1,5 @@
 // Browser smoke test of the flows that only need a browser: tab bar, a run with the dev GPS
-// simulator, the run summary with its map, History, GPX download, Settings. Starts the dev server itself, no setup beyond
+// simulator, the run summary with its map, History, GPX download, backup and restore, Settings. Starts the dev server itself, no setup beyond
 // `npx playwright install chromium`. Not part of the pre-PR checks; run it when a change touches these flows.
 // Usage: npm run test:browser   (SHOTS=<dir> saves screenshots of Settings and the finished run)
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -48,7 +48,11 @@ try {
   const settings = await page.locator('.settings').innerText()
   check('Settings shows phone-only rows in the browser', settings.includes('Only available on the phone'))
   check('Settings shows metric units', settings.includes('Metric (km, min/km)'))
-  check('Settings has no buttons in the browser', (await page.locator('.settings button').count()) === 0)
+  check(
+    'Settings has no permission buttons in the browser',
+    (await page.locator('.settings .row:not(.cues):not(.backup) button').count()) === 0,
+  )
+  check('Back up runs is disabled before the first run', await page.getByRole('button', { name: 'Back up runs' }).isDisabled())
   check('no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
   if (shots) await page.screenshot({ path: join(shots, 'settings.png') })
   await page.locator('nav a', { hasText: 'History' }).click()
@@ -97,6 +101,24 @@ try {
   check('GPX has one segment per pause/resume', segments === 2, `${segments} segments, ${points} points`)
   check('GPX points have UTC times', points > 5 && !/<trkpt [^>]*><(?!ele|time)/.test(xml) && /<time>\d{4}-\d{2}-\d{2}T[\d:.]+Z<\/time>/.test(xml))
 
+  // Backup: download the file from Settings (checked below after Delete, by restoring it)
+  await page.locator('nav a', { hasText: 'Settings' }).click()
+  await page.waitForSelector('.settings')
+  const [backupDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Back up runs' }).click(),
+  ])
+  const backupName = backupDownload.suggestedFilename()
+  check('backup file is run-tracker-backup-YYYY-MM-DD.json', /^run-tracker-backup-\d{4}-\d{2}-\d{2}\.json$/.test(backupName), backupName)
+  const backupPath = await backupDownload.path()
+  const backup = JSON.parse(readFileSync(backupPath, 'utf8'))
+  check(
+    'backup holds the one finished run with its points',
+    backup.format === 'run-tracker-backup' && backup.runs.length === 1 && backup.runs[0].points.length > 5,
+    `${backup.runs.length} run(s)`,
+  )
+  check('Settings says what was backed up', (await page.locator('.settings').innerText()).includes('Backed up 1 run'))
+
   // The run is listed in History and opens from there; Delete asks first
   await page.locator('nav a', { hasText: 'History' }).click()
   await page.waitForSelector('.history .row')
@@ -112,6 +134,19 @@ try {
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
   await page.waitForSelector('.history')
   check('Delete removes the run and returns to History', (await page.locator('main').innerText()).includes('No runs yet'))
+
+  // Restore the backup: the run comes back, a second restore adds nothing
+  await page.locator('nav a', { hasText: 'Settings' }).click()
+  await page.waitForSelector('.settings')
+  await page.locator('.settings input[type="file"]').setInputFiles(backupPath)
+  await page.getByText('Restored 1 run', { exact: true }).waitFor()
+  check('restore brings the run back', true)
+  await page.locator('.settings input[type="file"]').setInputFiles(backupPath)
+  await page.getByText('Restored 0 runs, 1 already on this phone').waitFor()
+  check('restoring the same file again adds nothing', true)
+  await page.locator('nav a', { hasText: 'History' }).click()
+  await page.waitForSelector('.history .row')
+  check('History lists the restored run', (await page.locator('.history .row').count()) === 1)
   check('no console or page errors', errors.length === 0, errors.join(' | '))
 } finally {
   await browser.close()

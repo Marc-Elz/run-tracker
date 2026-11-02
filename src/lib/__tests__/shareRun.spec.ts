@@ -16,7 +16,7 @@ vi.mock('@capacitor/filesystem', () => ({
 }))
 vi.mock('@capacitor/share', () => ({ Share: { share: plugins.share } }))
 
-import { shareGpx } from '../shareRun'
+import { shareFile, shareGpx } from '../shareRun'
 
 describe('shareGpx', () => {
   beforeEach(() => {
@@ -56,5 +56,13 @@ describe('shareGpx', () => {
     expect(click).toHaveBeenCalledOnce()
     expect(plugins.share).not.toHaveBeenCalled()
     click.mockRestore()
+  })
+
+  it('shares any file, here JSON, through the same cache and share sheet', async () => {
+    await shareFile('backup.json', '{}', 'application/json')
+    expect(plugins.writeFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'backup.json', data: '{}' }),
+    )
+    expect(plugins.share).toHaveBeenCalledOnce()
   })
 })

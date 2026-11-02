@@ -8,6 +8,9 @@ const plugin = vi.hoisted(() => {
     open: vi.fn<() => Promise<void>>(async () => {}),
     execute: vi.fn<(sql: string) => Promise<object>>(async () => ({})),
     run: vi.fn<(sql: string, values?: unknown[]) => Promise<object>>(async () => ({})),
+    executeSet: vi.fn<
+      (set: { statement: string; values: unknown[] }[], transaction?: boolean) => Promise<object>
+    >(async () => ({})),
     query: vi.fn<
       (sql: string, values?: unknown[]) => Promise<{ values: Record<string, unknown>[] }>
     >(async (sql: string) => ({
@@ -184,5 +187,51 @@ describe('sqlite run repository', () => {
     plugin.db.query.mockResolvedValueOnce({ values: [row] })
     expect((await repo.listFinished()).map((r) => r.id)).toEqual(['a'])
     expect(plugin.db.query.mock.lastCall![0]).toContain(`status = 'finished'`)
+  })
+
+  describe('importRun', () => {
+    const run = {
+      id: 'a',
+      name: 'Haren',
+      status: 'finished' as const,
+      startedAt: 1,
+      finishedAt: 2,
+      elapsedMs: 1,
+      segment: 1,
+      segmentStartedAt: null,
+      movingMs: 1,
+      distanceM: 10,
+    }
+    const points = [
+      { segment: 0, timestamp: 5, lat: 1, lon: 2, accuracy: 3 },
+      { segment: 1, timestamp: 4, lat: 5, lon: 6 },
+    ]
+
+    it('writes the run, its name and its points in one transaction, in order', async () => {
+      const repo = await openSqliteRunRepository()
+      plugin.db.query.mockResolvedValueOnce({ values: [] })
+      expect(await repo.importRun(run, points)).toBe(true)
+      const [set, transaction] = plugin.db.executeSet.mock.lastCall!
+      expect(transaction).toBe(true)
+      expect(set).toHaveLength(3)
+      expect(set[0]!.statement).toContain('INSERT INTO runs')
+      expect(set[0]!.values.slice(0, 10)).toEqual(['a', 'Haren', 'finished', 1, 2, 1, 1, null, 1, 10])
+      expect(set[1]!.values).toEqual(['a', 0, 5, 1, 2, 3, null, null])
+      expect(set[2]!.values).toEqual(['a', 1, 4, 5, 6, null, null, null])
+    })
+
+    it('writes nothing when the run already exists', async () => {
+      const repo = await openSqliteRunRepository()
+      plugin.db.query.mockResolvedValueOnce({ values: [{ id: 'a' }] })
+      expect(await repo.importRun(run, points)).toBe(false)
+      expect(plugin.db.executeSet).not.toHaveBeenCalled()
+    })
+
+    it('passes on a failed transaction so the caller sees the error', async () => {
+      const repo = await openSqliteRunRepository()
+      plugin.db.query.mockResolvedValueOnce({ values: [] })
+      plugin.db.executeSet.mockRejectedValueOnce(new Error('constraint failed'))
+      await expect(repo.importRun(run, points)).rejects.toThrow('constraint failed')
+    })
   })
 })

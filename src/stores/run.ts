@@ -4,7 +4,7 @@ import type { TrackPoint } from '@/lib/geo'
 import { paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/runStats'
 import { toSegments } from '@/lib/runSummary'
 import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
-import type { RunRecord, RunRepository } from '@/lib/db/runRepository'
+import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runRepository'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
@@ -185,6 +185,7 @@ export const useRunStore = defineStore('run', () => {
   const listFinished = () => repo.listFinished()
   const loadPoints = (id: string) => repo.loadPoints(id)
   const deleteRun = (id: string) => repo.deleteRun(id)
+  const importRun = (run: RunRecord, points: StoredPoint[]) => repo.importRun(run, points)
 
   /** Name a saved run; blank clears the name. Resolves with the name as stored. */
   async function renameRun(id: string, name: string): Promise<string | null> {
@@ -295,6 +296,7 @@ export const useRunStore = defineStore('run', () => {
     listFinished,
     loadPoints,
     deleteRun,
+    importRun,
     renameRun,
     reset,
     discard,

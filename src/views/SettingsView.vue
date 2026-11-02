@@ -7,6 +7,9 @@ import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
 import { CUE_DISTANCE_OPTIONS, CUE_TIME_OPTIONS, cueText } from '@/lib/cues'
 import { cueConfig, setCueConfig } from '@/lib/settings'
 import { speak } from '@/lib/speech'
+import { BackupError } from '@/lib/backup'
+import { backUpRuns, restoreRuns } from '@/lib/backupRuns'
+import { useRunStore } from '@/stores/run'
 
 type Tone = 'ok' | 'warn' | 'unknown' | 'info'
 interface Row {
@@ -43,6 +46,63 @@ async function act(row: Row, button: { run: () => Promise<unknown> } | undefined
 
 onMounted(refresh)
 useAppResume(refresh)
+
+const run = useRunStore()
+const finishedCount = ref<number | null>(null)
+const backupBusy = ref(false)
+const backupMessage = ref('')
+// A long restore would hold up the writes of a run in progress
+const runActive = computed(() => run.status === 'running' || run.status === 'paused')
+const backupBlocked = computed(() => backupBusy.value || runActive.value)
+
+async function countRuns() {
+  try {
+    finishedCount.value = (await run.listFinished()).length
+  } catch {
+    finishedCount.value = null
+  }
+}
+onMounted(countRuns)
+
+const runsText = (n: number) => (n === 1 ? '1 run' : `${n} runs`)
+
+async function backUp() {
+  if (backupBlocked.value) return
+  backupBusy.value = true
+  backupMessage.value = ''
+  try {
+    const count = await backUpRuns(run)
+    backupMessage.value = count === 0 ? 'No runs to back up' : `Backed up ${runsText(count)}`
+  } catch (err) {
+    console.warn('Backup failed', err)
+    backupMessage.value = 'Backup failed. Try again.'
+  } finally {
+    backupBusy.value = false
+  }
+}
+
+async function restore(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // the same file can be picked again
+  if (!file || backupBlocked.value) return
+  backupBusy.value = true
+  backupMessage.value = ''
+  try {
+    const { added, skipped, rejected } = await restoreRuns(run, await file.text())
+    const parts = [`Restored ${runsText(added)}`]
+    if (skipped > 0) parts.push(`${skipped} already on this phone`)
+    if (rejected > 0) parts.push(`${rejected} damaged and left out`)
+    backupMessage.value = parts.join(', ')
+  } catch (err) {
+    if (!(err instanceof BackupError)) console.warn('Restore failed', err)
+    backupMessage.value =
+      err instanceof BackupError ? err.message : 'Restore failed. Nothing was lost; try again.'
+  } finally {
+    backupBusy.value = false
+    await countRuns()
+  }
+}
 
 const SAMSUNG_HINT =
   'On Samsung, also add Run Tracker under Settings › Battery › Background usage limits › Never sleeping apps.'
@@ -217,6 +277,32 @@ const summary = computed(() => {
       </div>
       <button class="btn btn--quiet" @click="testCue">Test cue</button>
     </section>
+
+    <section class="row backup" aria-labelledby="backup-title">
+      <h2 id="backup-title">Backup</h2>
+      <p>Your runs live only on this phone. Save them to a file you can keep elsewhere.</p>
+      <button
+        class="btn"
+        :disabled="backupBlocked || finishedCount === 0"
+        @click="backUp"
+      >
+        Back up runs
+      </button>
+      <label class="btn btn--quiet btn--label" :aria-disabled="backupBlocked">
+        Restore from backup
+        <input
+          class="file"
+          type="file"
+          accept=".json,application/json"
+          :disabled="backupBlocked"
+          @change="restore"
+        />
+      </label>
+      <p v-if="runActive" class="hint">Finish or stop your run first.</p>
+      <p v-else-if="finishedCount === 0" class="hint">No runs to back up.</p>
+      <p v-if="backupMessage" class="status" role="status">{{ backupMessage }}</p>
+      <p class="hint">The file holds your full location history and is not encrypted.</p>
+    </section>
   </main>
 </template>
 
@@ -317,6 +403,33 @@ p {
   border: 2px solid #3b4652;
   color: #c5ced8;
   font-size: 1rem;
+}
+
+.btn--label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.btn--label[aria-disabled='true'] {
+  opacity: 0.5;
+}
+
+/* Visually hidden but still the control behind the label */
+.file {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.status {
+  font-weight: 700;
+  color: #4cc38a;
 }
 
 .choice {

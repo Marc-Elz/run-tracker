@@ -146,5 +146,50 @@ export async function openSqliteRunRepository(): Promise<RunRepository> {
       )
       return (result.values ?? []).map(toStoredPoint)
     },
+    async importRun(run, points) {
+      const existing = await db.query('SELECT id FROM runs WHERE id = ?', [run.id])
+      if ((existing.values ?? []).length > 0) return false
+      const now = Date.now()
+      // One transaction: either the whole run is stored or none of it
+      await db.executeSet(
+        [
+          {
+            statement: `INSERT INTO runs (id, name, status, started_at, finished_at, elapsed_ms,
+              segment, segment_started_at, moving_ms, distance_m, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            values: [
+              run.id,
+              run.name,
+              run.status,
+              run.startedAt,
+              run.finishedAt,
+              run.elapsedMs,
+              run.segment,
+              run.segmentStartedAt,
+              run.movingMs,
+              run.distanceM,
+              now,
+              now,
+            ],
+          },
+          ...points.map((p) => ({
+            statement: `INSERT INTO track_points (run_id, segment, timestamp, lat, lon, accuracy, altitude, speed)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            values: [
+              run.id,
+              p.segment,
+              p.timestamp,
+              p.lat,
+              p.lon,
+              p.accuracy ?? null,
+              p.altitude ?? null,
+              p.speed ?? null,
+            ],
+          })),
+        ],
+        true,
+      )
+      return true
+    },
   }
 }
