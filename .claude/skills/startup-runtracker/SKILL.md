@@ -13,8 +13,9 @@ Solo project, several PCs (Windows 11 and a Linux home PC, Docker Desktop on all
 3. For every ✗ the doctor prints, fix what you can without asking (`npm install`); `gh auth login` needs me, so tell me the command. For things only I can do, give me the OS-specific step from the doctor's hint and wait:
    - installing Android Studio, enabling USB debugging on the phone, plugging it in, a Linux udev rule
    - Docker is only needed from Phase 4; don't push me to fix it earlier.
-4. Android items are only needed to run on the phone. Web work (`npm run dev`) needs only the "Required" group.
-5. Finish by running the checks: `npm run type-check`, `npm run lint`, `npm run test:unit`. Report what passed. Say plainly if the phone run was not verified.
+4. Before the first `npm run android:run` on a PC, the doctor's "Debug keystore" line must show the same SHA256 as my other PCs (#76). If it is missing, tell me to copy `~/.android/debug.keystore` from the PC the phone was last installed from (never into the repo); do not run `android:run` first, because Gradle would create a new key.
+5. Android items are only needed to run on the phone. Web work (`npm run dev`) needs only the "Required" group.
+6. Finish by running the checks: `npm run type-check`, `npm run lint`, `npm run test:unit`. Report what passed. Say plainly if the phone run was not verified.
 
 Never install system software or change global config on my behalf without asking.
 
@@ -41,6 +42,7 @@ Then ask which issue to take. Don't start coding until I pick one.
 4. If a decision was made in conversation, update `context.md` (Decisions / Pending decisions) on a `docs/` branch.
 
 ## Gotchas
+- A signature-mismatch error on `android:run` (INSTALL_FAILED_UPDATE_INCOMPATIBLE) means this PC's debug key differs from the one on the phone. Stop: uninstalling wipes the saved runs. Export what I want to keep (GPX share) first.
 - Git Bash on Windows rewrites `branch:path` arguments; use `MSYS_NO_PATHCONV=1` for `git show branch:file`.
 - `.vscode/`, `android/`, `dist/` and `node_modules/` show up as untracked when on a branch that predates the scaffold; they are ignored once the scaffold is merged.
 - Background GPS and keep-awake can only be verified on the real phone, never in the browser.
