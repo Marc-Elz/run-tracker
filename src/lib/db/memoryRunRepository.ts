@@ -49,5 +49,14 @@ export function createMemoryRunRepository(): RunRepository {
     async loadPoints(runId) {
       return (points.get(runId) ?? []).map((p) => ({ ...p }))
     },
+    async importRun(run, imported) {
+      if (runs.has(run.id)) return false
+      runs.set(run.id, { ...run })
+      points.set(
+        run.id,
+        imported.map((p) => ({ ...p })),
+      )
+      return true
+    },
   }
 }

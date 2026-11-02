@@ -7,6 +7,7 @@ import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
 import { CUE_DISTANCE_OPTIONS, CUE_TIME_OPTIONS, cueText } from '@/lib/cues'
 import { cueConfig, setCueConfig } from '@/lib/settings'
 import { speak } from '@/lib/speech'
+import { useBackupStore } from '@/stores/backup'
 
 type Tone = 'ok' | 'warn' | 'unknown' | 'info'
 interface Row {
@@ -43,6 +44,16 @@ async function act(row: Row, button: { run: () => Promise<unknown> } | undefined
 
 onMounted(refresh)
 useAppResume(refresh)
+
+const backup = useBackupStore()
+onMounted(backup.countRuns)
+
+function restore(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // the same file can be picked again
+  if (file) void backup.restore(file)
+}
 
 const SAMSUNG_HINT =
   'On Samsung, also add Run Tracker under Settings › Battery › Background usage limits › Never sleeping apps.'
@@ -217,6 +228,32 @@ const summary = computed(() => {
       </div>
       <button class="btn btn--quiet" @click="testCue">Test cue</button>
     </section>
+
+    <section class="row backup" aria-labelledby="backup-title">
+      <h2 id="backup-title">Backup</h2>
+      <p>Your runs live only on this phone. Save them to a file you can keep elsewhere.</p>
+      <button
+        class="btn"
+        :disabled="backup.blocked || backup.finishedCount === 0"
+        @click="backup.backUp"
+      >
+        Back up runs
+      </button>
+      <label class="btn btn--quiet btn--label" :aria-disabled="backup.blocked">
+        Restore from backup
+        <input
+          class="file"
+          type="file"
+          accept=".json,application/json"
+          :disabled="backup.blocked"
+          @change="restore"
+        />
+      </label>
+      <p v-if="backup.runActive" class="hint">Finish or stop your run first.</p>
+      <p v-else-if="backup.finishedCount === 0" class="hint">No runs to back up.</p>
+      <p v-if="backup.message" class="status" role="status">{{ backup.message }}</p>
+      <p class="hint">The file holds your full location history and is not encrypted.</p>
+    </section>
   </main>
 </template>
 
@@ -317,6 +354,33 @@ p {
   border: 2px solid #3b4652;
   color: #c5ced8;
   font-size: 1rem;
+}
+
+.btn--label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.btn--label[aria-disabled='true'] {
+  opacity: 0.5;
+}
+
+/* Visually hidden but still the control behind the label */
+.file {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.status {
+  font-weight: 700;
+  color: #4cc38a;
 }
 
 .choice {

@@ -5,6 +5,7 @@ import App from './App.vue'
 import router from './router'
 import { useRunStore } from './stores/run'
 import { openRunRepository, unavailableRunRepository } from './lib/db/runRepository'
+import { clearSharedFiles } from './lib/shareRun'
 
 async function boot() {
   const app = createApp(App)
@@ -23,6 +24,7 @@ async function boot() {
     run.useRepository(unavailableRunRepository(err))
   }
 
+  void clearSharedFiles()
   app.mount('#app')
 }
 

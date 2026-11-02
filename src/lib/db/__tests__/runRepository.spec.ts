@@ -108,3 +108,43 @@ describe('unavailable repository', () => {
     await expect(repo.listFinished()).rejects.toThrow('Database unavailable')
   })
 })
+
+describe('importRun', () => {
+  const finished = (id: string) => ({ ...runRecord(id, 0, 'finished'), name: 'Haren', finishedAt: 9 })
+  const pts = [
+    { segment: 0, timestamp: 5, lat: 1, lon: 2 },
+    { segment: 0, timestamp: 5, lat: 3, lon: 4, accuracy: 6 },
+    { segment: 1, timestamp: 2, lat: 5, lon: 6 },
+  ]
+
+  it('stores the run with its name and the points in the given order', async () => {
+    const repo = createMemoryRunRepository()
+    expect(await repo.importRun(finished('a'), pts)).toBe(true)
+    expect(await repo.getRun('a')).toEqual(finished('a'))
+    expect(await repo.loadPoints('a')).toEqual(pts)
+    expect((await repo.listFinished()).map((r) => r.id)).toEqual(['a'])
+  })
+
+  it('writes nothing and returns false when the id already exists', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.importRun(finished('a'), pts)
+    expect(await repo.importRun({ ...finished('a'), name: 'Other' }, [])).toBe(false)
+    expect((await repo.getRun('a'))?.name).toBe('Haren')
+    expect(await repo.loadPoints('a')).toEqual(pts)
+  })
+
+  it('goes through the write queue and fails when the database is unavailable', async () => {
+    const calls: string[] = []
+    const inner = createMemoryRunRepository()
+    const queued = serialized({
+      ...inner,
+      importRun: async (run, points) => {
+        calls.push(run.id)
+        return inner.importRun(run, points)
+      },
+    })
+    expect(await queued.importRun(finished('a'), [])).toBe(true)
+    expect(calls).toEqual(['a'])
+    await expect(unavailableRunRepository('x').importRun(finished('a'), [])).rejects.toThrow(/unavailable/)
+  })
+})
