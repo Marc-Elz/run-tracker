@@ -7,6 +7,8 @@ const plugins = vi.hoisted(() => ({
   })),
   appendFile: vi.fn<(options: unknown) => Promise<void>>(async () => {}),
   stat: vi.fn<(options: unknown) => Promise<object>>(async () => ({})),
+  readdir: vi.fn<(options: unknown) => Promise<{ files: { name: string }[] }>>(async () => ({ files: [] })),
+  deleteFile: vi.fn<(options: unknown) => Promise<void>>(async () => {}),
   share: vi.fn<(options: unknown) => Promise<unknown>>(async () => ({})),
 }))
 
@@ -14,11 +16,15 @@ vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => native.
 vi.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Encoding: { UTF8: 'utf8' },
-  Filesystem: { writeFile: plugins.writeFile, appendFile: plugins.appendFile, stat: plugins.stat },
+  Filesystem: { writeFile: plugins.writeFile, appendFile: plugins.appendFile,
+    stat: plugins.stat,
+    readdir: plugins.readdir,
+    deleteFile: plugins.deleteFile,
+  },
 }))
 vi.mock('@capacitor/share', () => ({ Share: { share: plugins.share } }))
 
-import { reshareFile, shareFile, shareGpx } from '../shareRun'
+import { clearSharedFiles, reshareFile, shareFile, shareGpx } from '../shareRun'
 
 describe('shareGpx', () => {
   beforeEach(() => {
@@ -112,6 +118,35 @@ describe('shareGpx', () => {
     it('is silent when the sheet is dismissed', async () => {
       plugins.share.mockRejectedValueOnce(new Error('Share canceled'))
       expect(await reshareFile('backup.json', 'file:///x')).toBe(true)
+    })
+  })
+
+  describe('clearSharedFiles', () => {
+    it('deletes old backups and GPX exports from the cache and nothing else', async () => {
+      plugins.readdir.mockResolvedValueOnce({
+        files: [
+          { name: 'run-tracker-backup-2026-11-02.json' },
+          { name: 'run-2026-10-26-0705.gpx' },
+          { name: 'WebView' },
+          { name: 'other.json' },
+          { name: 'run-tracker-backup-x.json.bak' },
+        ],
+      })
+      await clearSharedFiles()
+      expect(plugins.readdir).toHaveBeenCalledWith({ path: '', directory: 'CACHE' })
+      expect(plugins.deleteFile.mock.calls.map(([o]) => (o as { path: string }).path)).toEqual([
+        'run-tracker-backup-2026-11-02.json',
+        'run-2026-10-26-0705.gpx',
+      ])
+    })
+
+    it('does nothing in the browser and never throws', async () => {
+      native.value = false
+      await clearSharedFiles()
+      expect(plugins.readdir).not.toHaveBeenCalled()
+      native.value = true
+      plugins.readdir.mockRejectedValueOnce(new Error('no access'))
+      await expect(clearSharedFiles()).resolves.toBeUndefined()
     })
   })
 })

@@ -74,3 +74,23 @@ export async function reshareFile(fileName: string, uri: string): Promise<boolea
 export const shareGpx = async (fileName: string, xml: string): Promise<void> => {
   await shareFile(fileName, xml, 'application/gpx+xml')
 }
+
+// Files this app writes to the cache to share: backups and GPX exports
+const SHARED_FILE = /^(run-tracker-backup-[\d-]+\.json|run-\d{4}-\d{2}-\d{2}-\d{4}\.gpx)$/
+
+/**
+ * Delete the files earlier shares left in the cache (a backup can be tens of MB). Called when the
+ * app starts: by then it has forgotten them, and the app they were shared with has long finished
+ * reading. Never throws; a file that cannot be deleted is left for Android to clear.
+ */
+export async function clearSharedFiles(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    const { files } = await Filesystem.readdir({ path: '', directory: Directory.Cache })
+    for (const file of files.filter((f) => SHARED_FILE.test(f.name))) {
+      await Filesystem.deleteFile({ path: file.name, directory: Directory.Cache })
+    }
+  } catch (err) {
+    console.warn('[share] could not clear old shared files', err)
+  }
+}
