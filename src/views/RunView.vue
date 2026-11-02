@@ -4,8 +4,10 @@ import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
 import { useKeepAwake } from '@/composables/useKeepAwake'
+import { useAudioCues } from '@/composables/useAudioCues'
+import { cueConfig } from '@/lib/settings'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
-import { ensureBatteryExemption, ensureNotifications } from '@/lib/runPower'
+import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatPace } from '@/lib/format'
 
 const run = useRunStore()
@@ -22,6 +24,12 @@ const {
 } = storeToRefs(run)
 
 useKeepAwake(computed(() => status.value === 'running' || status.value === 'paused'))
+useAudioCues(cueConfig)
+
+// Android freezes the page with the screen off; a run needs its timer, fixes and cues to go on
+const runActive = computed(() => status.value === 'running' || status.value === 'paused')
+watch(runActive, (on) => void keepWebViewAlive(on), { immediate: true })
+onBeforeUnmount(() => void keepWebViewAlive(false))
 
 const isDev = import.meta.env.DEV
 const simulate = ref(isDev)
