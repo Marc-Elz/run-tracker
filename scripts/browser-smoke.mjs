@@ -79,13 +79,35 @@ try {
   check('Stop opens the run summary', /\/run\/[0-9a-f-]{36}$/.test(page.url()), page.url())
   check('tab bar is back on the summary', (await tabBar()) === 1)
   const stats = await page.locator('.summary .stats').innerText()
-  check('summary shows distance, time, moving and avg pace', ['distance', 'time', 'moving', 'avg pace'].every((l) => stats.toLowerCase().includes(l)), stats.replace(/\n+/g, ' '))
+  check('summary shows distance, time, moving time, avg pace and moving pace', ['distance', 'time', 'moving time', 'avg pace', 'moving pace'].every((l) => stats.toLowerCase().includes(l)), stats.replace(/\n+/g, ' '))
   check('summary distance is not zero', Number(await page.locator('.summary .stat__value').first().innerText()) > 0)
   await page.waitForSelector('.route-map__canvas canvas', { timeout: 10000 })
   check('route map renders a canvas', (await page.locator('.route-map__canvas canvas').count()) === 1)
   const mapMessage = await page.locator('.route-map__problem').allInnerTexts()
   console.log(`INFO map message: ${mapMessage.join(' | ') || '(none)'}`)
   check('no horizontal scroll on the summary', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  // Five stats in three columns: each value must still fit its column at 360 px (#65)
+  const clipped = await page.evaluate(() =>
+    [...document.querySelectorAll('.summary .stat')]
+      .map((tile) => ({
+        label: tile.querySelector('.stat__label').innerText,
+        value: tile.querySelector('.stat__value').innerText,
+        over: tile.querySelector('.stat__value').scrollWidth - tile.querySelector('.stat__value').clientWidth,
+      }))
+      .filter((stat) => stat.over > 0),
+  )
+  check('no stat value is clipped at 360 px', clipped.length === 0, clipped.map((s) => `${s.label} ${s.value} +${s.over}px`).join(', '))
+  // The simulated run lasts seconds; a real one passes an hour and formats as "1:02:05" (#65)
+  const hourSlack = await page.evaluate(() => {
+    const tile = document.querySelector('.summary .stat')
+    const value = tile.querySelector('.stat__value')
+    const before = value.innerText
+    value.innerText = '1:02:05'
+    const slack = Math.round(tile.clientWidth - value.scrollWidth)
+    value.innerText = before
+    return slack
+  })
+  check('an hour-long time still fits its column at 360 px', hourSlack >= 0, `${hourSlack}px to spare`)
   if (shots) await page.screenshot({ path: join(shots, 'summary.png') })
 
   // GPX download

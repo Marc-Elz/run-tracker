@@ -114,10 +114,39 @@ describe('buildRunSummary', () => {
     expect(summary.avgPaceSecPerKm).toBeNull()
   })
 
+  it('reports a moving pace faster than the elapsed-time pace', () => {
+    // 4 fixes, 6 s of movement, but 12 s elapsed: half the run stood still
+    const summary = buildRunSummary(run({ elapsedMs: 12_000 }), [fix(0), fix(1), fix(2), fix(3)])
+    expect(summary.movingMs).toBe(6000)
+    expect(summary.movingPaceSecPerKm).toBeGreaterThan(0)
+    expect(summary.movingPaceSecPerKm!).toBeLessThan(summary.avgPaceSecPerKm!)
+  })
+
+  it('has no moving pace when nothing counted as moving', () => {
+    // 11 m in 60 s is 0.19 m/s, under MIN_MOVING_SPEED_MPS, so the step adds distance but no time
+    const crawl: StoredPoint[] = [
+      { segment: 0, timestamp: 0, lat: 52, lon: 4, accuracy: 5 },
+      { segment: 0, timestamp: 60_000, lat: 52.0001, lon: 4, accuracy: 5 },
+    ]
+    const summary = buildRunSummary(run({ elapsedMs: 60_000 }), crawl)
+    expect(summary.movingMs).toBe(0)
+    expect(summary.distanceM).toBeGreaterThan(10)
+    expect(summary.movingPaceSecPerKm).toBeNull()
+    expect(summary.avgPaceSecPerKm).toBeGreaterThan(0)
+  })
+
+  it('takes both paces from the stored totals when a run has no points', () => {
+    const stored = run({ distanceM: 1000, movingMs: 240_000, elapsedMs: 300_000 })
+    const summary = buildRunSummary(stored, [])
+    expect(summary.movingPaceSecPerKm).toBe(240)
+    expect(summary.avgPaceSecPerKm).toBe(300)
+  })
+
   it('handles a single point: a marker but no distance', () => {
     const summary = buildRunSummary(run(), [fix(0)])
     expect(summary.start).toEqual(summary.end)
     expect(summary.distanceM).toBe(0)
     expect(summary.avgPaceSecPerKm).toBeNull()
+    expect(summary.movingPaceSecPerKm).toBeNull()
   })
 })

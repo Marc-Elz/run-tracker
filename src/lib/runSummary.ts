@@ -10,6 +10,8 @@ export interface RunSummary {
   movingMs: number
   /** Seconds per km over the elapsed time, null when the run is too short for a pace */
   avgPaceSecPerKm: number | null
+  /** Seconds per km over the moving time only, null when nothing moved or the run is too short */
+  movingPaceSecPerKm: number | null
   /** The drawn route: the used points of each segment, so a pause gap is never joined */
   lines: LngLat[][]
   start: LngLat | null
@@ -111,6 +113,7 @@ export function buildRunSummary(run: RunRecord, points: StoredPoint[]): RunSumma
     elapsedMs: run.elapsedMs,
     movingMs: totals.movingMs,
     avgPaceSecPerKm: paceSecPerKm(run.elapsedMs, totals.distanceM),
+    movingPaceSecPerKm: paceSecPerKm(totals.movingMs, totals.distanceM),
     lines,
     start: all[0] ?? null,
     end: all[all.length - 1] ?? null,
