@@ -1,9 +1,11 @@
+import type { RouteOverview } from '@/lib/routeOverview'
 import type { RunRecord, RunRepository, StoredPoint } from './runRepository'
 
 /** Keeps runs in memory: used in the browser and in unit tests. */
 export function createMemoryRunRepository(): RunRepository {
   const runs = new Map<string, RunRecord>()
   const points = new Map<string, StoredPoint[]>()
+  const overviews = new Map<string, RouteOverview>()
 
   return {
     async createRun(run) {
@@ -29,6 +31,7 @@ export function createMemoryRunRepository(): RunRepository {
     async deleteRun(id) {
       runs.delete(id)
       points.delete(id)
+      overviews.delete(id)
     },
     async findUnfinished() {
       return [...runs.values()]
@@ -57,6 +60,13 @@ export function createMemoryRunRepository(): RunRepository {
         imported.map((p) => ({ ...p })),
       )
       return true
+    },
+    async readOverviews() {
+      return [...overviews.values()].filter((o) => runs.get(o.runId)?.status === 'finished')
+    },
+    async saveOverview(overview) {
+      if (!runs.has(overview.runId)) throw new Error(`Run ${overview.runId} not found`)
+      overviews.set(overview.runId, overview)
     },
   }
 }
