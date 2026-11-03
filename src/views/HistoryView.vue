@@ -69,6 +69,10 @@ onMounted(load)
         </p>
       </section>
 
+      <RouterLink v-if="runs.length > 0" :to="{ name: 'heatmap' }" class="map-link">
+        Map of all routes
+      </RouterLink>
+
       <ul class="list">
         <li v-for="r in runs" :key="r.id">
           <RouterLink :to="{ name: 'run-summary', params: { id: r.id } }" class="row">
@@ -145,6 +149,20 @@ h1 {
   margin: 0.5rem 0 0;
   color: #9aa5b1;
   font-variant-numeric: tabular-nums;
+}
+
+.map-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.5rem;
+  margin: 0 1.5rem 1rem;
+  border-radius: 1rem;
+  background: #3b4652;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .list {

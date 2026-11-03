@@ -40,6 +40,13 @@ CREATE TABLE track_points (
 );
 CREATE INDEX track_points_run ON track_points (run_id, segment, timestamp);
 `,
+  `CREATE TABLE route_overview (
+  run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  algo INTEGER NOT NULL,
+  lines TEXT NOT NULL,
+  bounds TEXT
+);
+`,
 ]
 
 export async function schemaVersion(db: SqlDb): Promise<number> {
