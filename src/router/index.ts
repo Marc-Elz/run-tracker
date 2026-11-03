@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import RunView from '@/views/RunView.vue'
 import HistoryView from '@/views/HistoryView.vue'
+import HeatmapView from '@/views/HeatmapView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import RunSummaryView from '@/views/RunSummaryView.vue'
 import { useRunStore } from '@/stores/run'
@@ -8,6 +9,7 @@ import { useRunStore } from '@/stores/run'
 export const routes = [
   { path: '/', name: 'run', component: RunView },
   { path: '/history', name: 'history', component: HistoryView },
+  { path: '/heatmap', name: 'heatmap', component: HeatmapView },
   { path: '/settings', name: 'settings', component: SettingsView },
   { path: '/run/:id', name: 'run-summary', component: RunSummaryView },
 ]

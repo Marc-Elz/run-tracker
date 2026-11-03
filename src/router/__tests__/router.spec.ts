@@ -15,8 +15,8 @@ describe('router', () => {
     expect(router.currentRoute.value.params.id).toBe('abc')
   })
 
-  it('has Run, History and Settings routes', async () => {
-    for (const name of ['run', 'history', 'settings']) {
+  it('has Run, History, Heatmap and Settings routes', async () => {
+    for (const name of ['run', 'history', 'heatmap', 'settings']) {
       await router.push({ name })
       expect(router.currentRoute.value.name).toBe(name)
     }

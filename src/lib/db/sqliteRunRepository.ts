@@ -1,5 +1,6 @@
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite'
 import type { TrackPoint } from '@/lib/geo'
+import type { RouteOverview } from '@/lib/routeOverview'
 import { migrate } from './migrations'
 import type { RunRecord, RunRepository, StoredPoint, StoredRunStatus } from './runRepository'
 
@@ -39,6 +40,18 @@ export function toStoredPoint(row: Row): StoredPoint {
   if (altitude !== undefined) point.altitude = altitude
   if (speed !== undefined) point.speed = speed
   return point
+}
+
+export function toRouteOverview(row: Row): RouteOverview {
+  return {
+    runId: String(row.run_id),
+    algo: Number(row.algo),
+    lines: JSON.parse(String(row.lines)) as RouteOverview['lines'],
+    bounds:
+      row.bounds === null || row.bounds === undefined
+        ? null
+        : (JSON.parse(String(row.bounds)) as RouteOverview['bounds']),
+  }
 }
 
 /**
@@ -190,6 +203,19 @@ export async function openSqliteRunRepository(): Promise<RunRepository> {
         true,
       )
       return true
+    },
+    async readOverviews() {
+      const result = await db.query(
+        `SELECT o.run_id, o.algo, o.lines, o.bounds FROM route_overview o
+         JOIN runs r ON r.id = o.run_id WHERE r.status = 'finished'`,
+      )
+      return (result.values ?? []).map(toRouteOverview)
+    },
+    async saveOverview(o) {
+      await db.run(
+        `INSERT OR REPLACE INTO route_overview (run_id, algo, lines, bounds) VALUES (?, ?, ?, ?)`,
+        [o.runId, o.algo, JSON.stringify(o.lines), o.bounds ? JSON.stringify(o.bounds) : null],
+      )
     },
   }
 }

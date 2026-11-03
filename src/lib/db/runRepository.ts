@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import type { TrackPoint } from '@/lib/geo'
+import type { RouteOverview } from '@/lib/routeOverview'
 import { createMemoryRunRepository } from './memoryRunRepository'
 
 export type StoredRunStatus = 'running' | 'paused' | 'finished'
@@ -48,6 +49,10 @@ export interface RunRepository {
    * Returns false and writes nothing when a run with this id already exists.
    */
   importRun(run: RunRecord, points: StoredPoint[]): Promise<boolean>
+  /** Stored route overviews of finished runs (a cache; see `loadRouteOverviews`) */
+  readOverviews(): Promise<RouteOverview[]>
+  /** Stores or replaces the overview of a run */
+  saveOverview(overview: RouteOverview): Promise<void>
 }
 
 /** Run every call strictly after the previous one finished, so writes land in order. */
@@ -69,6 +74,8 @@ export function serialized(repo: RunRepository): RunRepository {
     listFinished: () => enqueue(() => repo.listFinished()),
     loadPoints: (runId) => enqueue(() => repo.loadPoints(runId)),
     importRun: (run, points) => enqueue(() => repo.importRun(run, points)),
+    readOverviews: () => enqueue(() => repo.readOverviews()),
+    saveOverview: (overview) => enqueue(() => repo.saveOverview(overview)),
   }
 }
 
@@ -88,6 +95,8 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     listFinished: fail,
     loadPoints: fail,
     importRun: fail,
+    readOverviews: fail,
+    saveOverview: fail,
   }
 }
 

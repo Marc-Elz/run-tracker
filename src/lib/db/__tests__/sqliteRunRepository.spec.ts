@@ -35,7 +35,7 @@ vi.mock('@capacitor-community/sqlite', () => ({
   },
 }))
 
-const { openSqliteRunRepository, toRunRecord, toStoredPoint } =
+const { openSqliteRunRepository, toRouteOverview, toRunRecord, toStoredPoint } =
   await import('../sqliteRunRepository')
 
 describe('sqlite run repository', () => {
@@ -232,6 +232,42 @@ describe('sqlite run repository', () => {
       plugin.db.query.mockResolvedValueOnce({ values: [] })
       plugin.db.executeSet.mockRejectedValueOnce(new Error('constraint failed'))
       await expect(repo.importRun(run, points)).rejects.toThrow('constraint failed')
+    })
+  })
+
+  describe('route overviews', () => {
+    const lines: [number, number][][] = [
+      [
+        [4, 52],
+        [4.1, 52.1],
+      ],
+    ]
+
+    it('stores an overview as JSON, replacing an older one', async () => {
+      const repo = await openSqliteRunRepository()
+      await repo.saveOverview({ runId: 'a', algo: 1, lines, bounds: [4, 52, 4.1, 52.1] })
+      const [sql, values] = plugin.db.run.mock.lastCall!
+      expect(sql).toContain('INSERT OR REPLACE INTO route_overview')
+      expect(values).toEqual(['a', 1, '[[[4,52],[4.1,52.1]]]', '[4,52,4.1,52.1]'])
+    })
+
+    it('reads the overviews of finished runs back', async () => {
+      const repo = await openSqliteRunRepository()
+      plugin.db.query.mockResolvedValueOnce({
+        values: [{ run_id: 'a', algo: 1, lines: '[[[4,52],[4.1,52.1]]]', bounds: null }],
+      })
+      expect(await repo.readOverviews()).toEqual([{ runId: 'a', algo: 1, lines, bounds: null }])
+      expect(plugin.db.query.mock.lastCall![0]).toContain(`status = 'finished'`)
+    })
+
+    it('maps a row with and without bounds', () => {
+      expect(toRouteOverview({ run_id: 'x', algo: 2, lines: '[]', bounds: '[1,2,3,4]' })).toEqual({
+        runId: 'x',
+        algo: 2,
+        lines: [],
+        bounds: [1, 2, 3, 4],
+      })
+      expect(toRouteOverview({ run_id: 'x', algo: 2, lines: '[]', bounds: null }).bounds).toBeNull()
     })
   })
 })

@@ -8,7 +8,11 @@ import { buildRunSummary } from '@/lib/runSummary'
 import { formatPace } from '@/lib/format'
 import HistoryView from '../HistoryView.vue'
 
-const link = { props: ['to'], template: '<a class="row" :data-id="to.params.id"><slot /></a>' }
+const link = {
+  props: ['to'],
+  template:
+    '<a :class="to.name === \'heatmap\' ? \'map-link\' : \'row\'" :data-id="to.params?.id"><slot /></a>',
+}
 
 const finished = (
   id: string,
@@ -119,5 +123,14 @@ describe('HistoryView', () => {
   it('hides the totals when there are no runs', async () => {
     useRunStore().useRepository(createMemoryRunRepository())
     expect((await mountView()).find('.stats').exists()).toBe(false)
+  })
+
+  it('links to the map of all routes when there are runs, and hides it when there are none', async () => {
+    const repo = createMemoryRunRepository()
+    useRunStore().useRepository(repo)
+    expect((await mountView()).find('.map-link').exists()).toBe(false)
+
+    await repo.createRun(finished('a', 1000, 5000))
+    expect((await mountView()).find('.map-link').text()).toBe('Map of all routes')
   })
 })

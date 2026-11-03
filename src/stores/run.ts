@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import type { TrackPoint } from '@/lib/geo'
 import { paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/runStats'
 import { toSegments } from '@/lib/runSummary'
+import { loadRouteOverviews } from '@/lib/routeOverview'
 import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
 import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runRepository'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
@@ -185,6 +186,9 @@ export const useRunStore = defineStore('run', () => {
   const listFinished = () => repo.listFinished()
   const loadPoints = (id: string) => repo.loadPoints(id)
   const deleteRun = (id: string) => repo.deleteRun(id)
+  /** Finished runs with their route for the all-routes map; builds missing overviews first. */
+  const loadOverviews = (onProgress?: (done: number, total: number) => void) =>
+    loadRouteOverviews(repo, onProgress)
   const importRun = (run: RunRecord, points: StoredPoint[]) => repo.importRun(run, points)
 
   /** Name a saved run; blank clears the name. Resolves with the name as stored. */
@@ -295,6 +299,7 @@ export const useRunStore = defineStore('run', () => {
     getRun,
     listFinished,
     loadPoints,
+    loadOverviews,
     deleteRun,
     importRun,
     renameRun,

@@ -60,4 +60,15 @@ describe('migrate', () => {
       for (const statement of statements) expect(statement).not.toContain(';')
     },
   )
+
+  it('adds the overview table on top of an existing version 1 database and changes nothing else', async () => {
+    const { db, state } = fakeDb(1)
+    await migrate(db)
+    expect(state.executed).toHaveLength(MIGRATIONS.length - 1)
+    const sql = state.executed[0]!
+    expect(sql).toMatch(/^CREATE TABLE route_overview/)
+    expect(sql).toContain('REFERENCES runs(id) ON DELETE CASCADE')
+    expect(sql).not.toMatch(/ALTER|DROP|DELETE FROM|UPDATE|INSERT/)
+    expect(state.version).toBe(MIGRATIONS.length)
+  })
 })

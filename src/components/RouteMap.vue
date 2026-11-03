@@ -1,17 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { Map as MapLibreMap, StyleSpecification } from 'maplibre-gl'
+import type { Map as MapLibreMap } from 'maplibre-gl'
 import { mapStyleUrl } from '@/lib/mapStyle'
+import { BLANK_STYLE, loadMapLibre } from '@/lib/mapSetup'
 import type { LngLat, RunSummary } from '@/lib/runSummary'
 
 const props = defineProps<{ route: Pick<RunSummary, 'lines' | 'start' | 'end' | 'bounds'> }>()
-
-/** No tiles, just the route on a plain background: used without a key or when the style fails to load */
-const BLANK_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {},
-  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#1a2027' } }],
-}
 
 const el = ref<HTMLDivElement | null>(null)
 const styleUrl = mapStyleUrl()
@@ -70,14 +64,8 @@ function drawRoute() {
 
 onMounted(async () => {
   if (!el.value || !hasRoute.value) return
-  const [maplibregl, worker] = await Promise.all([
-    import('maplibre-gl'),
-    import('maplibre-gl/dist/maplibre-gl-worker.mjs?url'),
-    import('maplibre-gl/dist/maplibre-gl.css'),
-  ])
+  const maplibregl = await loadMapLibre()
   if (!el.value) return // unmounted while loading
-  // The build does not copy MapLibre's worker file on its own; hand it over as an asset
-  maplibregl.setWorkerUrl(worker.default)
 
   const { bounds, start } = props.route
   const instance = new maplibregl.Map({
