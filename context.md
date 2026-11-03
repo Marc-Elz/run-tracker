@@ -38,12 +38,14 @@ Personal-use app that doubles as a portfolio project; the source will be shared 
 - Always keep a GPX export as a non-lock-in fallback.
 
 ### CityStrides
-- No public write API known. It syncs from Strava, so uploading to Strava gets runs into CityStrides automatically. Still to verify with a real run (#17).
-- Whether we build our own in-app "streets I've run" view or keep relying on CityStrides is **not decided**: see #29. Building it means no app switching and the coverage data is needed for route suggestions anyway, but it is likely more complex than it looks (boundaries, partial streets, matching quality, rendering).
+- No public write API known, and no direct GPX upload: it ingests runs through Strava or Garmin Connect. With Phase 2 - Strava parked (#86) our runs cannot reach it without a Garmin detour, so verifying the Strava path (#17) is parked too.
+- It does have Node Hunter (a red dot per unfinished node) and a manual Route Builder, and it is good at city boundaries, completion percentages and street lists. It has no automatic loop over unrun streets for a target distance and no guidance during a run: that gap is what #30, #31 and #32 build.
+- We compute coverage in the app ourselves, minimal scope (#29, decided 2026-11-03); see the next section.
 
 ## Street coverage & route suggestions (Phase 4)
 - Street data: OpenStreetMap (regional extract on the home server).
 - Map-match GPS traces to OSM ways to know which streets are covered (approach chosen in the spike, #25: Valhalla / GraphHopper / on-phone).
+- The in-app coverage view stays minimal (#29): a run vs. unrun colour layer, no boundaries, percentages or street lists. Coverage exists mainly to feed route suggestions (#31).
 - Routing/loop generation: OpenRouteService, GraphHopper or Valhalla (round-trip routes by distance), weighted towards unrun segments.
 - Services run via Docker Compose on the home server (#27).
 
@@ -74,9 +76,11 @@ Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low
 - Phase 1 is code-complete; the remaining boxes need device checks (#3, #5, #7, #10).
 - With the screen off, Android froze the WebView's JavaScript about a minute later (found on the phone during #61), stalling the run timer, GPS fix handling and spoken cues. While a run is on, `RunPowerPlugin.setKeepWebViewAlive` keeps the page running (PR #72, verified on the phone for 5 min with the screen off, #73). If this stops working on a phone or Android version, the fallback is moving cue timing and speech into native code. Audio cues use `localStorage` for their two settings and a native audio-focus request so music ducks during a cue.
 - Phase 2 - Strava is parked (decided 2026-11-03, #86): creating a Strava API application requires a paid Strava subscription (€10.99/month or €69.99/year; the API itself is free once the app exists), and that is not worth it for a personal app whose runs already reach Strava as a GPX through the share sheet (#7, #20). #13–#17 stay open and `blocked`, waiting on a subscription rather than on code. The #12 serverless token-proxy decision stands for whenever it is unparked.
+- In-app street coverage (#29, decided 2026-11-03): build it ourselves, minimal scope - map-matched coverage plus a run vs. unrun colour layer, no boundaries, percentages or street lists. The data is needed for route suggestions (#31) anyway, the heatmap (#21) draws GPS traces and so can never show an unrun street, and CityStrides can no longer receive our runs now that Strava is parked (#86). The boundaries-and-stats part is what CityStrides does well and #31 does not need; add it later only if I want it.
 
 ## Pending decisions
-- **In-app street coverage view** (#29): skip / minimal / full. Decide after #17 and #25.
+- **Voice quality for audio cues** (#75): keep the system voice / pick an installed voice in Settings / bundled clips / cloud TTS.
+- **How much run recording moves to native code** (#83): decide on the screen-off evidence from #73.
 
 ## Open questions
 - App name?
