@@ -18,7 +18,8 @@
     "android:open": "cap open android",
     "android:run": "npm run android:sync && cap run android",
     "test:browser": "node scripts/browser-smoke.mjs",
-    "doctor": "node scripts/doctor.mjs"
+    "doctor": "node scripts/doctor.mjs",
+    "make:test-backup": "node scripts/make-test-backup.mjs dummy-groningen.backup.json"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.3.1",
