@@ -30,6 +30,7 @@ Personal-use app that doubles as a portfolio project; the source will be shared 
 
 ## Integrations
 ### Strava
+- **Phase 2 is parked (#86):** creating a Strava API application requires a paid Strava subscription (€10.99/month or €69.99/year), which is not being bought. #13–#17 stay open and `blocked`. Runs reach Strava as a GPX through the Android share sheet until that changes. The notes below describe the integration as planned, for whenever it is unparked.
 - Strava API v3, OAuth2, scope `activity:write`.
 - Upload GPX/FIT via `POST /uploads`.
 - New API apps are limited to a single athlete (me) until approved by Strava – fine for personal use.
@@ -50,7 +51,7 @@ Personal-use app that doubles as a portfolio project; the source will be shared 
 Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-Elz/run-tracker/milestones (the issue list is the source of truth, not this file).
 1. **Phase 1 - MVP:** record a run (GPS, distance, pace, time), show on map, save locally in SQLite, export GPX.
 1.5. **Phase 1.5 - Run experience:** make a run nicer to do, starting with audio cues (#61).
-2. **Phase 2 - Strava:** OAuth + upload after a run (CityStrides follows via Strava).
+2. **Phase 2 - Strava:** OAuth + upload after a run (CityStrides follows via Strava). Parked, see #86.
 3. **Phase 3 - History:** run list, detail, heatmap, stats, backup, optional sync to the home server.
 4. **Phase 4 - Smart features:** home server + routing services, street coverage via map-matching, then route suggestions favouring new streets.
 5. **Phase 5 - Training programs:** scheduled workouts and planned vs. done tracking.
@@ -67,13 +68,13 @@ Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low
 - Plugins in use: `@capacitor-community/background-geolocation`, `@capacitor-community/sqlite`, `@capacitor-community/keep-awake`, `@capacitor/share` and `@capacitor/filesystem` (GPX export). The paid Transistorsoft plugin was not needed so far; the long screen-off run test (#3) is what would change that. `@capacitor-community/text-to-speech` joins them with the audio cues (#61, PR #72).
 - Raw GPS fixes are stored unfiltered; filtering happens at read time in pure functions (#38), so the rules can change without losing data.
 - Phase numbers and names stay as they are, and Phase 1.5 - Run experience was added for #61 (decided 2026-10-26). The number is not the work order: History (Phase 3) is built before Strava (Phase 2), see the next line.
-- Priorities after Phase 1 (decided 2026-10-26): the primary goal is to record a run, see it in the app's history and export it to Strava. Order: close Phase 1 with one device pass and the outdoor run, then History (#18, #19, #20), then Strava (#12 first, then #13 to #16), then the rest of Phase 3 (backup #23 before the heatmap and stats). Audio cues (#61, Phase 1.5) are wanted and get planned once the Phase 1 gate is closed. Phase 4 is lower priority: it is where the app gets more interesting, but it starts only after the map-matching spike (#25) and the #29 decision. Phase 5 is parked.
+- Priorities after Phase 1 (decided 2026-10-26): the primary goal is to record a run, see it in the app's history and export it to Strava. Order: close Phase 1 with one device pass and the outdoor run, then History (#18, #19, #20), then the rest of Phase 3 (backup #23 before the heatmap and stats). Strava (Phase 2) sat between them in this order until it was parked on 2026-11-03 (#86). Audio cues (#61, Phase 1.5) are wanted and get planned once the Phase 1 gate is closed. Phase 4 is lower priority: it is where the app gets more interesting, but it starts only after the map-matching spike (#25) and the #29 decision. Phase 5 is parked.
 - No shoe or gear tracking. Strava offers it as an optional field, but I don't use it.
 - Phase 1 is code-complete; the remaining boxes need device checks (#3, #5, #7, #10).
 - With the screen off, Android froze the WebView's JavaScript about a minute later (found on the phone during #61), stalling the run timer, GPS fix handling and spoken cues. While a run is on, `RunPowerPlugin.setKeepWebViewAlive` keeps the page running (PR #72, verified on the phone for 5 min with the screen off, #73). If this stops working on a phone or Android version, the fallback is moving cue timing and speech into native code. Audio cues use `localStorage` for their two settings and a native audio-focus request so music ducks during a cue.
+- Phase 2 - Strava is parked (decided 2026-11-03, #86): creating a Strava API application requires a paid Strava subscription (€10.99/month or €69.99/year; the API itself is free once the app exists), and that is not worth it for a personal app whose runs already reach Strava as a GPX through the share sheet (#7, #20). #13–#17 stay open and `blocked`, waiting on a subscription rather than on code. The #12 serverless token-proxy decision stands for whenever it is unparked.
 
 ## Pending decisions
-- **Strava client secret** (#12): proxy on home server vs. embedded secret vs. serverless function. To be decided later; only blocks #13.
 - **In-app street coverage view** (#29): skip / minimal / full. Decide after #17 and #25.
 
 ## Open questions
