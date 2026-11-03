@@ -1,6 +1,7 @@
-// Writes a large backup file of made-up runs around Groningen, for testing Restore and the
-// all-routes map on the phone (#23, #21). Run names start with "Dummy" so they are easy to find and
-// delete in History. Same seed, same file: re-running gives the same routes (new run ids).
+// Writes a large backup file of made-up runs around Utrecht, for testing Restore and the
+// all-routes map on the phone (#23, #21). Utrecht is far from the home area on purpose, so the
+// dummies never sit on top of real runs. Run names start with "Dummy" so they are easy to spot.
+// Same seed, same file: re-running gives the same routes (new run ids).
 // Usage: node scripts/make-test-backup.mjs <out.json> [runs=300] [pointsPerRun=2000]
 // Then: adb push <out.json> /sdcard/Download/ and pick it with Settings > Restore from backup.
 // Restore adds to the runs already on the phone; it never replaces them.
@@ -40,10 +41,10 @@ const gauss = () => (random() + random() + random() + random() - 2) / 0.58
 
 // Where people start: the first ones get most runs, like a real habit
 const STARTS = [
-  { name: 'Noorderplantsoen', lat: 53.2145, lon: 6.559, weight: 4 },
-  { name: 'Stadspark', lat: 53.206, lon: 6.54, weight: 3 },
-  { name: 'Haren', lat: 53.173, lon: 6.607, weight: 2 },
-  { name: 'Paterswolde', lat: 53.1535, lon: 6.5755, weight: 1 },
+  { name: 'Griftpark', lat: 52.0975, lon: 5.1215, weight: 4 },
+  { name: 'Wilhelminapark', lat: 52.087, lon: 5.1335, weight: 3 },
+  { name: 'Amelisweerd', lat: 52.079, lon: 5.156, weight: 2 },
+  { name: 'De Haar', lat: 52.121, lon: 4.987, weight: 1 },
 ]
 const startPool = STARTS.flatMap((s) => Array(s.weight).fill(s))
 
