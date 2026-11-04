@@ -209,12 +209,9 @@ background:#fff;padding:8px;font:14px sans-serif;border-radius:4px}label{display
 <label style="color:#d80"><input type="checkbox" data-layer="graphhopper" checked> GraphHopper</label></div>
 <div id="map"></div><script>
 const walks = ${data};
-// OSM's own tiles: they show footpaths and come from the data both engines match against. Fine
-// for one person's review; the app itself stays on MapTiler (src/lib/mapStyle.ts).
-const map = new maplibregl.Map({ container: 'map', style: { version: 8,
-  sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256,
-    maxzoom: 19, attribution: '© OpenStreetMap contributors' } },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }] } });
+// OpenFreeMap: OSM-based, no key, and allows pages opened from a local file. OSM's own tile servers
+// block those (no Referer, against their policy). The app itself stays on MapTiler (src/lib/mapStyle.ts).
+const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/liberty' });
 map.on('error', (e) => { const note = document.createElement('p');
   note.style.color = '#c00'; note.textContent = 'Map error: ' + (e.error?.status ?? e.error?.message ?? 'unknown');
   document.getElementById('panel').append(note); });
