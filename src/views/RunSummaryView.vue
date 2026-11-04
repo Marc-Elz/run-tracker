@@ -200,11 +200,15 @@ onMounted(loadRun)
         </div>
         <div class="stat">
           <span class="stat__value">{{ formatDuration(summary.movingMs) }}</span>
-          <span class="stat__label">Moving</span>
+          <span class="stat__label">Moving time</span>
         </div>
         <div class="stat">
           <span class="stat__value">{{ formatPace(summary.avgPaceSecPerKm) }}</span>
           <span class="stat__label">Avg pace (min/km)</span>
+        </div>
+        <div class="stat">
+          <span class="stat__value">{{ formatPace(summary.movingPaceSecPerKm) }}</span>
+          <span class="stat__label">Moving pace (min/km)</span>
         </div>
       </section>
 
@@ -370,9 +374,10 @@ onMounted(loadRun)
 
 .stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem 1rem;
-  padding: 1.5rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem 0.75rem;
+  /* Narrower side padding than the rest of the screen: three columns need the width at 360 px */
+  padding: 1.5rem 1rem;
   text-align: center;
 }
 
@@ -386,7 +391,9 @@ onMounted(loadRun)
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   line-height: 1;
-  font-size: clamp(2.25rem, 12vw, 3.5rem);
+  /* Three columns: a column is about 101 px at 360 px, and the widest value is an hour-long
+     time like "1:02:05", so the size has to leave that room with a little to spare */
+  font-size: clamp(1.5rem, 7.5vw, 2rem);
 }
 
 .stat__label {
