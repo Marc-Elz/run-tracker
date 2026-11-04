@@ -196,11 +196,10 @@ const table = (headers, rows) =>
 
 /** Private map for reviewing matches by eye. Stays in data/, because it shows the routes. */
 function reviewPage(walks) {
-  const key = process.env.VITE_MAPTILER_KEY ?? ''
   const data = JSON.stringify(walks).replaceAll('</', '<\\/')
   return `<!doctype html><meta charset="utf-8"><title>Map-matching review</title>
-<link href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css" rel="stylesheet">
-<script src="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
 <style>html,body,#map{margin:0;height:100%}#panel{position:absolute;z-index:1;top:8px;left:8px;
 background:#fff;padding:8px;font:14px sans-serif;border-radius:4px}label{display:block}</style>
 <div id="panel"><select id="walk"></select>
@@ -209,9 +208,16 @@ background:#fff;padding:8px;font:14px sans-serif;border-radius:4px}label{display
 <label style="color:#06c"><input type="checkbox" data-layer="valhalla" checked> Valhalla</label>
 <label style="color:#d80"><input type="checkbox" data-layer="graphhopper" checked> GraphHopper</label></div>
 <div id="map"></div><script>
-const walks = ${data}, key = ${JSON.stringify(key)};
-const map = new maplibregl.Map({ container: 'map',
-  style: 'https://api.maptiler.com/maps/streets-v2/style.json?key=' + key });
+const walks = ${data};
+// OSM's own tiles: they show footpaths and come from the data both engines match against. Fine
+// for one person's review; the app itself stays on MapTiler (src/lib/mapStyle.ts).
+const map = new maplibregl.Map({ container: 'map', style: { version: 8,
+  sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256,
+    maxzoom: 19, attribution: '© OpenStreetMap contributors' } },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }] } });
+map.on('error', (e) => { const note = document.createElement('p');
+  note.style.color = '#c00'; note.textContent = 'Map error: ' + (e.error?.status ?? e.error?.message ?? 'unknown');
+  document.getElementById('panel').append(note); });
 const select = document.getElementById('walk'), thin = document.getElementById('thin');
 walks.forEach((w, i) => select.add(new Option(w.label + ' (' + w.date + ')', i)));
 const multi = (lines) => ({ type: 'Feature', properties: {},

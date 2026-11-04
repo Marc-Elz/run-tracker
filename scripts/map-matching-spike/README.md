@@ -15,7 +15,7 @@ mkdir -p data/custom_files data/graphhopper
 curl -L -o data/custom_files/groningen-latest.osm.pbf https://download.geofabrik.de/europe/netherlands/groningen-latest.osm.pbf
 docker compose up -d
 adb exec-out run-as com.runtracker.app cat databases/runtrackerSQLite.db > data/phone.db
-node --env-file=../../.env.local compare.mjs
+node compare.mjs
 ```
 
 Both engines are ready once `curl localhost:8002/status` and `curl localhost:8989/health` answer.
