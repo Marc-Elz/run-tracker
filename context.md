@@ -22,7 +22,7 @@ Personal-use app that doubles as a portfolio project; the source will be shared 
 - **App id:** `com.runtracker.app` (deliberately generic, no personal name). Must be unique and becomes permanent if ever published, so revisit before a first Play Store upload.
 - **Scaffold:** Vue 3 + TS + Vite with Vue Router, Pinia, Vitest, ESLint/oxlint, Prettier; Capacitor 8 with the Android platform.
 - **Keep screen on:** `@capacitor-community/keep-awake` while a run is active.
-- **Home server:** an old laptop (Linux + Docker) will host the routing engine, optional run sync and possibly a Strava token proxy. Needs remote access while out running (Tailscale / Cloudflare Tunnel preferred over open ports). See #26.
+- **Home server:** the current Linux dev laptop (Docker, 8 cores, 15 GB RAM), also called "the old laptop" in older issues, will host the routing engine, optional run sync and possibly a Strava token proxy. Needs remote access while out running (Tailscale / Cloudflare Tunnel preferred over open ports). See #26.
 
 ## Known risks
 - Samsung battery optimisation kills background apps. Need to prompt the user to exempt the app and test on the real device.
@@ -44,9 +44,9 @@ Personal-use app that doubles as a portfolio project; the source will be shared 
 
 ## Street coverage & route suggestions (Phase 4)
 - Street data: OpenStreetMap (regional extract on the home server).
-- Map-match GPS traces to OSM ways to know which streets are covered (approach chosen in the spike, #25: Valhalla / GraphHopper / on-phone).
+- Map-match GPS traces to OSM ways to know which streets are covered, with self-hosted GraphHopper (chosen in the #25 spike, see #91). The comparison tooling is in `scripts/map-matching-spike/`.
 - The in-app coverage view stays minimal (#29): a run vs. unrun colour layer, no boundaries, percentages or street lists. Coverage exists mainly to feed route suggestions (#31).
-- Routing/loop generation: OpenRouteService, GraphHopper or Valhalla (round-trip routes by distance), weighted towards unrun segments.
+- Routing/loop generation: OpenRouteService, GraphHopper or Valhalla (round-trip routes by distance), weighted towards unrun segments. Not decided yet; GraphHopper will already be running for matching.
 - Services run via Docker Compose on the home server (#27).
 
 ## Phases
@@ -63,7 +63,7 @@ Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low
 ## Decisions
 - Vue 3 + Capacitor for the app; native fallback only for tracking if needed.
 - GitHub Issues + branches + PRs, no CI (workflow rules are in `CLAUDE.md`).
-- Old laptop as home server; automatic sync to it is a nice-to-have, manual backup file comes first (#23).
+- Dev laptop as home server; automatic sync to it is a nice-to-have, manual backup file comes first (#23).
 - Units are metric (km, min/km).
 - Personal use only, never published on the Play Store (decided 2026-10-26). The generic app id stays, and the Play Store review concerns for background location and the Strava brand guidelines do not apply. Revisit only if that changes.
 - Location permission is "while using" only: the foreground service keeps GPS running with the screen off, so "Allow all the time" is not requested (#3).
@@ -77,6 +77,7 @@ Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low
 - With the screen off, Android froze the WebView's JavaScript about a minute later (found on the phone during #61), stalling the run timer, GPS fix handling and spoken cues. While a run is on, `RunPowerPlugin.setKeepWebViewAlive` keeps the page running (PR #72, verified on the phone for 5 min with the screen off, #73). If this stops working on a phone or Android version, the fallback is moving cue timing and speech into native code. Audio cues use `localStorage` for their two settings and a native audio-focus request so music ducks during a cue.
 - Phase 2 - Strava is parked (decided 2026-11-03, #86): creating a Strava API application requires a paid Strava subscription (€10.99/month or €69.99/year; the API itself is free once the app exists), and that is not worth it for a personal app whose runs already reach Strava as a GPX through the share sheet (#7, #20). #13–#17 stay open and `blocked`, waiting on a subscription rather than on code. The #12 serverless token-proxy decision stands for whenever it is unparked.
 - In-app street coverage (#29, decided 2026-11-03): build it ourselves, minimal scope - map-matched coverage plus a run vs. unrun colour layer, no boundaries, percentages or street lists. The data is needed for route suggestions (#31) anyway, the heatmap (#21) draws GPS traces and so can never show an unrun street, and CityStrides can no longer receive our runs now that Strava is parked (#86). The boundaries-and-stats part is what CityStrides does well and #31 does not need; add it later only if I want it.
+- Map matching (#91, decided 2026-11-04, from the #25 spike): self-hosted GraphHopper. On 4 real walks reviewed by hand it followed the walked route most closely and did not claim a street I had turned back on, which Valhalla did. On-phone matching was rejected on paper, and hosted APIs because I want to run and understand the service myself, it fits the home server plan, and traces stay on my own machine. Expect some credit for a nearby way; based on walks only, so revisit if real runs match noticeably worse.
 
 ## Pending decisions
 - **Voice quality for audio cues** (#75): keep the system voice / pick an installed voice in Settings / bundled clips / cloud TTS.
