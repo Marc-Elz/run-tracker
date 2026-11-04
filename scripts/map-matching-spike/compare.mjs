@@ -13,6 +13,7 @@ const MAX_ACCURACY_M = 25 // same cutoff as MAX_ACCURACY_M in src/lib/runStats.t
 const MIN_RUN_M = 1000 // leaves out the indoor tests and short runs
 const GPS_ACCURACY_M = 10 // same setting for both engines, so the comparison is fair
 const THIN_EVERY = 3 // walking at 1 fix/s, every 3rd point is roughly the point spacing of a run
+const FAR_M = 20 // further than this from the other line counts as not on the same path
 
 /** Great-circle distance in metres between two [lon, lat] pairs. */
 function metres([lon1, lat1], [lon2, lat2]) {
@@ -79,7 +80,7 @@ function loadWalks() {
 }
 
 /** Sends one segment to Valhalla. Result shape is shared with `matchGraphhopper`. */
-async function matchValhalla(points) {
+async function matchValhalla(points, turnPenalty = 500) {
   const response = await fetch(`${VALHALLA}/trace_attributes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -88,7 +89,7 @@ async function matchValhalla(points) {
       costing: 'pedestrian',
       shape_match: 'map_snap',
       // Valhalla's docs suggest 500 for pedestrian traces that jitter back and forth
-      trace_options: { gps_accuracy: GPS_ACCURACY_M, turn_penalty_factor: 500 },
+      trace_options: { gps_accuracy: GPS_ACCURACY_M, turn_penalty_factor: turnPenalty },
       // The percent_along fields used below come back without being listed: naming them here
       // is rejected as an invalid filter attribute, despite being in the docs
       filters: {
@@ -187,6 +188,39 @@ function agreement(waysA, waysB) {
   return either === 0 ? 0 : shared / either
 }
 
+/** Points every `stepM` metres along lines of [lon, lat] pairs. */
+function samples(lines, stepM = 5) {
+  const result = []
+  for (const line of lines) {
+    for (let i = 0; i + 1 < line.length; i++) {
+      const count = Math.max(1, Math.ceil(metres(line[i], line[i + 1]) / stepM))
+      for (let s = 0; s < count; s++) {
+        const t = s / count
+        result.push([
+          line[i][0] + (line[i + 1][0] - line[i][0]) * t,
+          line[i][1] + (line[i + 1][1] - line[i][1]) * t,
+        ])
+      }
+    }
+  }
+  return result
+}
+
+const isFar = (point, others) => !others.some((other) => metres(point, other) <= FAR_M)
+
+/**
+ * How far a match strays from the GPS trace. `claimedM`: matched metres with no fix nearby, so
+ * credit for street that wasn't walked. `missed`: share of fixes with no matched line nearby.
+ */
+function strayFromGps(gpsLines, matchedLines) {
+  const line = samples(matchedLines)
+  const fixes = gpsLines.flat()
+  return {
+    claimedM: line.filter((point) => isFar(point, fixes)).length * 5,
+    missed: fixes.filter((fix) => isFar(fix, line)).length / fixes.length,
+  }
+}
+
 const percent = (fraction) => `${Math.round(fraction * 100)}%`
 
 const table = (headers, rows) =>
@@ -206,6 +240,7 @@ background:#fff;padding:8px;font:14px sans-serif;border-radius:4px}label{display
 <label><input type="checkbox" id="thin"> every ${THIN_EVERY}rd point</label>
 <label style="color:#c00"><input type="checkbox" data-layer="gps" checked> GPS</label>
 <label style="color:#06c"><input type="checkbox" data-layer="valhalla" checked> Valhalla</label>
+<label style="color:#808"><input type="checkbox" data-layer="valhallaNoPenalty" checked> Valhalla, no turn penalty</label>
 <label style="color:#d80"><input type="checkbox" data-layer="graphhopper" checked> GraphHopper</label></div>
 <div id="map"></div><script>
 const walks = ${data};
@@ -223,12 +258,13 @@ function show(fit) {
   const walk = walks[select.value], v = thin.checked ? walk.thin : walk.full;
   map.getSource('gps').setData(multi(walk.gps));
   map.getSource('valhalla').setData(multi(v.valhalla.lines));
+  map.getSource('valhallaNoPenalty').setData(multi(v.valhallaNoPenalty.lines));
   map.getSource('graphhopper').setData(multi(v.graphhopper.lines));
   if (fit) { const b = new maplibregl.LngLatBounds();
     walk.gps.flat().forEach((c) => b.extend(c)); map.fitBounds(b, { padding: 60 }); }
 }
 map.on('load', () => {
-  [['gps', '#c00', 2], ['valhalla', '#06c', 7], ['graphhopper', '#d80', 3]].forEach(([id, color, width]) => {
+  [['gps', '#c00', 2], ['valhalla', '#06c', 9], ['valhallaNoPenalty', '#808', 6], ['graphhopper', '#d80', 3]].forEach(([id, color, width]) => {
     map.addSource(id, { type: 'geojson', data: multi([]) });
     map.addLayer({ id, type: 'line', source: id, paint: { 'line-color': color, 'line-width': width, 'line-opacity': 0.8 } });
   });
@@ -241,7 +277,12 @@ document.querySelectorAll('[data-layer]').forEach((box) => { box.onchange = () =
 }
 
 const walks = loadWalks()
-const engines = { valhalla: matchValhalla, graphhopper: matchGraphhopper }
+const engines = {
+  valhalla: matchValhalla,
+  // Without the suggested penalty, to check that setting isn't what makes Valhalla overshoot U-turns
+  valhallaNoPenalty: (points) => matchValhalla(points, 0),
+  graphhopper: matchGraphhopper,
+}
 const results = []
 for (const walk of walks) {
   const thinned = walk.segments.map((points) => points.filter((_, i) => i % THIN_EVERY === 0))
@@ -294,15 +335,27 @@ console.log(
 console.log('\nEngines compared, and full vs. thinned, per walk (length-weighted way overlap)\n')
 console.log(
   table(
-    ['walk', 'valhalla vs graphhopper', 'valhalla full vs thin', 'graphhopper full vs thin'],
+    ['walk', 'valhalla vs graphhopper', 'no-penalty vs graphhopper', 'valhalla vs no-penalty', 'valhalla full vs thin', 'graphhopper full vs thin'],
     results.map((w) => [
       w.label,
       percent(agreement(w.full.valhalla.ways, w.full.graphhopper.ways)),
+      percent(agreement(w.full.valhallaNoPenalty.ways, w.full.graphhopper.ways)),
+      percent(agreement(w.full.valhalla.ways, w.full.valhallaNoPenalty.ways)),
       percent(agreement(w.full.valhalla.ways, w.thin.valhalla.ways)),
       percent(agreement(w.full.graphhopper.ways, w.thin.graphhopper.ways)),
     ]),
   ),
 )
+
+console.log(`\nMatched line vs. GPS trace, full traces (far = over ${FAR_M} m)\n`)
+const strayRows = []
+for (const walk of results) {
+  for (const name of Object.keys(engines)) {
+    const { claimedM, missed } = strayFromGps(walk.gps, walk.full[name].lines)
+    strayRows.push([walk.label, name, `${claimedM} m`, percent(missed)])
+  }
+}
+console.log(table(['walk', 'engine', 'line far from any fix', 'fixes far from line'], strayRows))
 
 console.log('\nWalks compared with each other (meaningful only where they follow the same route)\n')
 const pairs = []
