@@ -30,6 +30,8 @@ Tiles and the graph are built on first start only. `docker compose down` stops t
 
 - **Way ids:** whether each engine returns an OSM way id for every matched piece.
 - **Matched length vs. GPS length:** a big difference suggests skipped streets or added detours.
+- **Matched line vs. GPS trace:** metres of line over 20 m from any fix (credit for street that
+  wasn't walked), and the share of fixes over 20 m from the line.
 - **Overlap:** length-weighted share of the same ways, between engines, between full and thinned
   traces (every 3rd point, roughly a run's point spacing), and between walks.
 
