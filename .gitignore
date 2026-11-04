@@ -44,3 +44,6 @@ __screenshots__/
 # Large files made by scripts/make-test-backup.mjs for device tests
 big.json
 *.backup.json
+
+# Map-matching spike (#25): traces, OSM data and results stay off the public repo
+scripts/map-matching-spike/data/

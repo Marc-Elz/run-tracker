@@ -1,0 +1,31 @@
+# Map-matching spike (#25): the two engines under test, on localhost only.
+# Not the production setup; that is #27. See README.md in this folder.
+name: map-matching-spike
+
+services:
+  valhalla:
+    # Release 3.9.1. The image builds routing tiles from any .pbf in /custom_files on first start.
+    image: ghcr.io/valhalla/valhalla-scripted@sha256:6238809f9dc3057743d70a20efd3911ec38e458bfa13a0601909b58f68dfd956
+    ports:
+      - '127.0.0.1:8002:8002'
+    volumes:
+      - ./data/custom_files:/custom_files
+
+  graphhopper:
+    # GraphHopper has no official image. This community build follows master, hence the digest.
+    image: israelhikingmap/graphhopper@sha256:0a4a10e04be6278e0df45705c4e317998a0deb45ee843ab0577c2d1c396207e0
+    # Replaces the image's entrypoint, which hard-codes config-example.yml
+    entrypoint:
+      - ./graphhopper.sh
+      - --config
+      - /config/graphhopper.yml
+      - --graph-cache
+      - /cache/graph
+    environment:
+      JAVA_OPTS: -Xmx2g -Xms512m
+    ports:
+      - '127.0.0.1:8989:8989'
+    volumes:
+      - ./graphhopper.yml:/config/graphhopper.yml:ro
+      - ./data/custom_files:/osm:ro
+      - ./data/graphhopper:/cache
