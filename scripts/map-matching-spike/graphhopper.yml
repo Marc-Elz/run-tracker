@@ -1,0 +1,24 @@
+# Smallest GraphHopper config for the spike: foot only, no elevation.
+# osm_way_id is the reason this file exists: it stores each edge's OSM way id in the
+# graph, so /match can return it as a path detail (details=osm_way_id).
+graphhopper:
+  datareader.file: /osm/groningen-latest.osm.pbf
+  graph.location: /cache/graph
+  profiles:
+    - name: foot
+      custom_model_files: [foot.json]
+  profiles_ch: []
+  profiles_lm: []
+  graph.encoded_values: osm_way_id, road_class, road_environment, foot_access, foot_priority, foot_average_speed, foot_road_access, ferry_speed, hike_rating, mtb_rating, sidewalk
+  prepare.min_network_size: 200
+  graph.dataaccess.default_type: RAM_STORE
+  import.osm.ignored_highways: ''
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
