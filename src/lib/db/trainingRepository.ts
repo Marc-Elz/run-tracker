@@ -24,7 +24,7 @@ export interface TrainingRepository {
   /** Sessions of a program by week, then position */
   listSessions(programId: string): Promise<ProgramSession[]>
   getSession(id: string): Promise<ProgramSession | null>
-  /** Adds the session, or replaces it when its id exists */
+  /** Adds the session, or replaces it when its id exists; a rest day loses its steps in the same write */
   saveSession(session: ProgramSession): Promise<void>
   /** Deletes the session and its steps */
   deleteSession(id: string): Promise<void>
@@ -35,11 +35,14 @@ export interface TrainingRepository {
   /** Every program with its sessions and steps, oldest first (for a backup) */
   exportPrograms(): Promise<ProgramBundle[]>
   /**
-   * Store a program with its sessions and steps as one unit, keeping its times.
-   * Returns false and writes nothing when a program with this id already exists.
+   * Store a program with its sessions and steps as one unit, keeping its times. Writes nothing
+   * and says why when the program is already here ('exists') or one of its session or step ids
+   * belongs to something else on this phone ('clash'). A thrown error is a real storage failure.
    */
-  importProgram(bundle: ProgramBundle): Promise<boolean>
+  importProgram(bundle: ProgramBundle): Promise<ImportOutcome>
 }
+
+export type ImportOutcome = 'added' | 'exists' | 'clash'
 
 /** `updatedAt` for a write: now, but always later than the value before */
 export const nextUpdatedAt = (previous: number, now = Date.now()) => Math.max(now, previous + 1)

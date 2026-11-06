@@ -9,19 +9,23 @@ import {
   parseBackup,
 } from '@/lib/backup'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
-import type { ProgramBundle } from '@/lib/training'
+import type { ProgramBundle, TrainingProgram } from '@/lib/training'
+import type { ImportOutcome } from '@/lib/db/trainingRepository'
 import { reshareFile, shareFile } from '@/lib/shareRun'
 
 /** Runs come from the run store, programs from the training store (see `stores/backup.ts`) */
 export interface BackupSource {
   listFinished(): Promise<RunRecord[]>
   loadPoints(runId: string): Promise<StoredPoint[]>
+  /** Enough to decide whether the last file can be shared again */
+  listPrograms(): Promise<TrainingProgram[]>
+  /** Everything inside the programs, read only when a new file is built */
   exportPrograms(): Promise<ProgramBundle[]>
 }
 
 export interface BackupTarget {
   importRun(run: RunRecord, points: StoredPoint[]): Promise<boolean>
-  importProgram(bundle: ProgramBundle): Promise<boolean>
+  importProgram(bundle: ProgramBundle): Promise<ImportOutcome>
 }
 
 export interface RestoreResult {
@@ -30,7 +34,7 @@ export interface RestoreResult {
   skipped: number
   programsAdded: number
   programsSkipped: number
-  /** Malformed runs and programs in the file, and programs that could not be stored */
+  /** Malformed runs and programs in the file, and programs whose ids clash with others here */
   rejected: number
 }
 
@@ -38,11 +42,10 @@ export type Progress = (done: number, total: number) => void
 
 /**
  * The pieces of a backup of all finished runs, oldest first, loading each run's points as it
- * goes, then the programs. Progress counts runs only: the programs are small and already loaded.
+ * goes, then the programs. Progress counts runs only: the programs are small.
  */
 export async function* backupPieces(
   runs: RunRecord[],
-  programs: ProgramBundle[],
   source: BackupSource,
   now: number,
   onProgress?: Progress,
@@ -55,7 +58,9 @@ export async function* backupPieces(
     onProgress?.(done, runs.length)
   }
   yield BACKUP_PROGRAMS_START
-  for (const [i, bundle] of programs.entries()) yield backupProgramPiece(bundle, i)
+  for (const [i, bundle] of (await source.exportPrograms()).entries()) {
+    yield backupProgramPiece(bundle, i)
+  }
   yield BACKUP_FOOTER
 }
 
@@ -84,21 +89,17 @@ export async function backUpRuns(
   previous: PreparedBackup | null = null,
 ): Promise<BackupOutcome> {
   const runs = await source.listFinished()
-  const programs = await source.exportPrograms()
+  const programs = await source.listPrograms()
   const counts = { runs: runs.length, programs: programs.length }
   if (runs.length === 0 && programs.length === 0) return { ...counts, prepared: null }
   const fileName = backupFileName(now)
-  const key = backupKey(
-    fileName,
-    runs,
-    programs.map((b) => b.program),
-  )
+  const key = backupKey(fileName, runs, programs)
   if (previous?.key === key && (await reshareFile(fileName, previous.uri))) {
     return { ...counts, prepared: previous }
   }
   const uri = await shareFile(
     fileName,
-    backupPieces(runs, programs, source, now, onProgress),
+    backupPieces(runs, source, now, onProgress),
     'application/json',
   )
   return { ...counts, prepared: uri === null ? null : { key, fileName, uri } }
@@ -107,9 +108,10 @@ export async function backUpRuns(
 /**
  * Add the runs and programs of a backup file that this phone does not have. Throws `BackupError`
  * before writing anything when the file is unusable; a run or program that already exists is
- * never overwritten. A program that fails to store (say, a hand-edited file reusing a session id
- * of another program) is counted as rejected and the rest goes on; a failing run still stops
- * the restore, as before.
+ * never overwritten. A program whose session or step ids belong to something else on this phone
+ * (only possible with a hand-edited file) is counted as rejected and the rest goes on. A storage
+ * failure stops the restore, for programs as for runs, so it is reported as a failure and not as
+ * a damaged file.
  */
 export async function restoreRuns(
   target: BackupTarget,
@@ -128,13 +130,10 @@ export async function restoreRuns(
   let programsAdded = 0
   let programsSkipped = 0
   for (const bundle of parsed.programs) {
-    try {
-      if (await target.importProgram(bundle)) programsAdded++
-      else programsSkipped++
-    } catch (err) {
-      console.warn('[backup] could not restore program', bundle.program.id, err)
-      rejected++
-    }
+    const outcome = await target.importProgram(bundle)
+    if (outcome === 'added') programsAdded++
+    else if (outcome === 'exists') programsSkipped++
+    else rejected++
   }
   return { added, skipped, programsAdded, programsSkipped, rejected }
 }

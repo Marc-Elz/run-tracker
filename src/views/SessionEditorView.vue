@@ -21,7 +21,9 @@ const training = useTrainingStore()
 const programId = computed(() => route.params.id as string)
 // No session id: a new session
 const sessionId = computed(() => (route.params.sid as string | undefined) ?? undefined)
-const leave = useLeaveScreen(() => ({ name: 'program', params: { id: programId.value } }))
+const saving = ref(false)
+// Android back waits for a save in flight, which leaves the screen itself when it succeeds
+const leave = useLeaveScreen(() => ({ name: 'program', params: { id: programId.value } }), saving)
 
 const requestedWeek = Number(route.query.week)
 const form = ref<SessionInput>({
@@ -32,7 +34,6 @@ const form = ref<SessionInput>({
 })
 const weeks = ref(1)
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>('loading')
-const saving = ref(false)
 const error = ref<string | null>(null)
 const confirming = ref(false)
 const deleting = ref(false)

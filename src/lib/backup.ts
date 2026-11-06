@@ -1,6 +1,9 @@
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 import {
+  checkProgram,
+  checkSession,
   checkSteps,
+  TrainingError,
   SESSION_TYPES,
   STEP_KINDS,
   TARGET_KINDS,
@@ -135,6 +138,16 @@ function toRun(raw: unknown): RunRecord | null {
   }
 }
 
+/** The result of a `lib/training` check, or null when the check refuses it */
+function obeys<T>(check: () => T): T | null {
+  try {
+    return check()
+  } catch (err) {
+    if (err instanceof TrainingError) return null
+    throw err
+  }
+}
+
 function toProgram(raw: unknown): TrainingProgram | null {
   if (!isObject(raw)) return null
   const { id, name, goal, weeks, startDate, createdAt, updatedAt } = raw
@@ -143,7 +156,9 @@ function toProgram(raw: unknown): TrainingProgram | null {
     return null
   }
   if (!isNumber(createdAt) || !isNumber(updatedAt)) return null
-  return { id, name, goal, weeks, startDate, createdAt, updatedAt }
+  // The same rules as a program entered in the app (weeks, lengths, trimming)
+  const checked = obeys(() => checkProgram({ name, goal, weeks, startDate }))
+  return checked && { id, ...checked, createdAt, updatedAt }
 }
 
 function toSession(raw: unknown, program: TrainingProgram): ProgramSession | null {
@@ -152,7 +167,8 @@ function toSession(raw: unknown, program: TrainingProgram): ProgramSession | nul
   if (!isId(id) || programId !== program.id) return null
   if (!isWhole(week, 1) || week > program.weeks || !isNumber(position)) return null
   if (!oneOf(SESSION_TYPES, type) || !isText(title) || !isTextOrNull(notes)) return null
-  return { id, programId, week, position, type, title, notes }
+  const checked = obeys(() => checkSession({ week, type, title, notes }, program.weeks))
+  return checked && { id, programId, position, ...checked }
 }
 
 function toStep(raw: unknown, sessionIds: Set<string>): SessionStep | null {
@@ -199,11 +215,7 @@ function toBundle(raw: unknown, seen: Set<string>): ProgramBundle | null {
     const own = bundle.steps
       .filter((s) => s.sessionId === session.id)
       .sort((a, b) => a.position - b.position)
-    try {
-      checkSteps(own)
-    } catch {
-      return null
-    }
+    if (obeys(() => checkSteps(own)) === null) return null
   }
   for (const id of ids) seen.add(id)
   return bundle
@@ -224,14 +236,15 @@ export function parseBackup(text: string): ParsedBackup {
   if (!isObject(data) || data.format !== BACKUP_FORMAT || !Array.isArray(data.runs)) {
     throw new BackupError('This file is not a Run Tracker backup.')
   }
-  if (data.programs !== undefined && !Array.isArray(data.programs)) {
-    throw new BackupError('This backup is damaged: its training programs cannot be read.')
-  }
   if (!isCount(data.version) || data.version < 1) {
     throw new BackupError('This backup has no valid version.')
   }
   if (data.version > BACKUP_VERSION) {
     throw new BackupError('This backup was made by a newer version of the app. Update the app first.')
+  }
+  // After the version: a newer app may store programs differently
+  if (data.programs !== undefined && !Array.isArray(data.programs)) {
+    throw new BackupError('This backup is damaged: its training programs cannot be read.')
   }
 
   const runs: BackupRun[] = []

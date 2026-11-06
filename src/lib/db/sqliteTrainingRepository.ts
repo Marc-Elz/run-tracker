@@ -12,6 +12,17 @@ import type { SqlConnection } from './migrations'
 import type { TrainingRepository } from './trainingRepository'
 
 type Row = Record<string, unknown>
+
+function groupBy<T>(list: T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>()
+  for (const item of list) {
+    const k = key(item)
+    const group = groups.get(k)
+    if (group) group.push(item)
+    else groups.set(k, [item])
+  }
+  return groups
+}
 type Statement = { statement: string; values: unknown[] }
 
 const text = (v: unknown) => (v === null || v === undefined ? null : String(v))
@@ -171,7 +182,14 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
       return row ? toSession(row) : null
     },
     async saveSession(session) {
-      await db.executeSet([upsertSession(session), touchProgram(session.programId)], true)
+      const clearSteps: Statement[] =
+        session.type === 'rest'
+          ? [{ statement: 'DELETE FROM session_steps WHERE session_id = ?', values: [session.id] }]
+          : []
+      await db.executeSet(
+        [upsertSession(session), ...clearSteps, touchProgram(session.programId)],
+        true,
+      )
     },
     async deleteSession(id) {
       // The touch goes first: after the delete the session can't lead to its program
@@ -210,21 +228,39 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
       const steps = (await rows('SELECT * FROM session_steps ORDER BY session_id, position')).map(
         toStep,
       )
+      // Grouped once, in the order the queries gave
+      const sessionsOf = groupBy(sessions, (s) => s.programId)
+      const stepsOf = groupBy(steps, (s) => s.sessionId)
       return programs.map((program): ProgramBundle => {
-        const own = sessions.filter((s) => s.programId === program.id)
-        const ids = new Set(own.map((s) => s.id))
-        return { program, sessions: own, steps: steps.filter((st) => ids.has(st.sessionId)) }
+        const own = sessionsOf.get(program.id) ?? []
+        return { program, sessions: own, steps: own.flatMap((s) => stepsOf.get(s.id) ?? []) }
       })
     },
     async importProgram({ program, sessions, steps }) {
       const [existing] = await rows('SELECT id FROM training_programs WHERE id = ?', [program.id])
-      if (existing) return false
+      if (existing) return 'exists'
+      const taken = async (table: string, ids: string[]) =>
+        ids.length > 0 &&
+        (await rows(`SELECT id FROM ${table} WHERE id IN (${ids.map(() => '?').join(', ')})`, ids))
+          .length > 0
+      if (
+        (await taken(
+          'program_sessions',
+          sessions.map((s) => s.id),
+        )) ||
+        (await taken(
+          'session_steps',
+          steps.map((s) => s.id),
+        ))
+      ) {
+        return 'clash'
+      }
       // One transaction: either the whole program is stored or none of it
       await db.executeSet(
         [insertProgram(program), ...sessions.map(insertSession), ...steps.map(insertStep)],
         true,
       )
-      return true
+      return 'added'
     },
   }
 }

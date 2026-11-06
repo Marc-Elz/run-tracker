@@ -164,6 +164,33 @@ describe.each(implementations)('%s training repository', (_name, open) => {
     expect(steps[2]).toMatchObject({ targetKind: 'duration', targetValue: 90, paceMin: null })
   })
 
+  it('drops the steps of a session that becomes a rest day', async () => {
+    const repo = await open()
+    await repo.createProgram(program('p'))
+    await repo.saveSession(session('s', 'p'))
+    await repo.replaceSteps('s', [step('x', 's')])
+    await repo.saveSession(session('s', 'p', { type: 'rest', title: 'Rest' }))
+    expect(await repo.loadSteps('s')).toEqual([])
+  })
+
+  it('writes nothing and says so when a session or step id of an import is already used', async () => {
+    const repo = await open()
+    await repo.createProgram(program('p'))
+    await repo.saveSession(session('s', 'p'))
+    await repo.replaceSteps('s', [step('x', 's')])
+    const bySession = { program: program('q'), sessions: [session('s', 'q')], steps: [] }
+    const byStep = {
+      program: program('r'),
+      sessions: [session('t', 'r')],
+      steps: [step('x', 't')],
+    }
+    expect(await repo.importProgram(bySession)).toBe('clash')
+    expect(await repo.importProgram(byStep)).toBe('clash')
+    expect(await repo.getProgram('q')).toBeNull()
+    expect(await repo.getProgram('r')).toBeNull()
+    expect(await repo.getSession('t')).toBeNull()
+  })
+
   it('deletes a program with all its sessions and steps, leaving other programs alone', async () => {
     const repo = await open()
     await repo.createProgram(program('p'))
@@ -190,9 +217,9 @@ describe.each(implementations)('%s training repository', (_name, open) => {
     expect(exported[0]!.steps.map((s) => s.id)).toEqual(['x', 'y'])
 
     const target = await open()
-    expect(await target.importProgram(exported[0]!)).toBe(true)
+    expect(await target.importProgram(exported[0]!)).toBe('added')
     expect(await target.exportPrograms()).toEqual(exported)
-    expect(await target.importProgram(exported[0]!)).toBe(false)
+    expect(await target.importProgram(exported[0]!)).toBe('exists')
     expect(await target.listPrograms()).toHaveLength(1)
   })
 })
@@ -200,16 +227,15 @@ describe.each(implementations)('%s training repository', (_name, open) => {
 describe.skipIf(!nodeSqlite)('training tables on real SQLite', () => {
   it('stores nothing of a program whose import fails halfway', async () => {
     const repo = await sqliteRepo()
-    await repo.createProgram(program('p'))
-    await repo.saveSession(session('taken', 'p'))
-    const clash = {
+    // Two steps with one id: the second insert fails inside the transaction
+    const broken = {
       program: program('q'),
-      sessions: [session('fresh', 'q'), session('taken', 'q')],
-      steps: [],
+      sessions: [session('s', 'q')],
+      steps: [step('x', 's'), step('x', 's', { position: 1 })],
     }
-    await expect(repo.importProgram(clash)).rejects.toThrow(/UNIQUE constraint failed/)
+    await expect(repo.importProgram(broken)).rejects.toThrow(/UNIQUE constraint failed/)
     expect(await repo.getProgram('q')).toBeNull()
-    expect(await repo.getSession('fresh')).toBeNull()
+    expect(await repo.getSession('s')).toBeNull()
   })
 
   it('never moves a session to another program when its id is saved again', async () => {

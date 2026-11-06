@@ -55,6 +55,7 @@ function repos() {
   const training = createMemoryTrainingRepository()
   return Object.assign(run, {
     training,
+    listPrograms: () => training.listPrograms(),
     exportPrograms: () => training.exportPrograms(),
     importProgram: training.importProgram,
   })
@@ -281,20 +282,44 @@ describe('backup and restore of runs', () => {
       })
     })
 
-    it('counts a program that fails to store as rejected and restores the rest', async () => {
+    it('counts a program whose ids clash with another one here as rejected, and restores the rest', async () => {
       const target = repos()
+      await target.training.createProgram(program('mine'))
+      await target.training.saveSession(session('s', 'mine'))
       const programs = [
-        { program: program('bad'), sessions: [], steps: [] },
+        // Hand-edited: a new program reusing the id of a session already on this phone
+        { program: program('clash'), sessions: [session('s', 'clash')], steps: [] },
         { program: program('good'), sessions: [], steps: [] },
       ]
-      const importProgram = target.importProgram
-      target.importProgram = async (bundle) => {
-        if (bundle.program.id === 'bad') throw new Error('UNIQUE constraint failed')
-        return importProgram(bundle)
-      }
       const result = await restoreRuns(target, buildBackup([], programs, 0))
       expect(result).toMatchObject({ programsAdded: 1, rejected: 1 })
       expect(await target.training.getProgram('good')).not.toBeNull()
+      expect(await target.training.getProgram('clash')).toBeNull()
+      expect((await target.training.getSession('s'))!.programId).toBe('mine')
+    })
+
+    it('stops on a storage failure instead of calling the file damaged', async () => {
+      const target = repos()
+      target.importProgram = async () => {
+        throw new Error('disk full')
+      }
+      const programs = [{ program: program('p'), sessions: [], steps: [] }]
+      await expect(restoreRuns(target, buildBackup([], programs, 0))).rejects.toThrow('disk full')
+    })
+
+    it('decides whether to share the last file again without reading the sessions', async () => {
+      const store = repos()
+      await store.training.createProgram(program('p'))
+      const first = await backUpRuns(store, 0)
+      let exported = 0
+      const exportPrograms = store.exportPrograms
+      store.exportPrograms = () => {
+        exported++
+        return exportPrograms()
+      }
+      await backUpRuns(store, 0, undefined, first.prepared)
+      expect(exported).toBe(0)
+      expect(share.reshareFile).toHaveBeenCalledOnce()
     })
   })
 })

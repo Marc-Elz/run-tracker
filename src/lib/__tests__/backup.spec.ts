@@ -188,11 +188,28 @@ describe('training programs in the backup', () => {
         // The repeat covers one step, but that step is gone
         broken((b) => ({ ...b, steps: [b.steps[0]] })),
         broken((b) => ({ ...b, steps: 'none' })),
+        // The rules of a program entered in the app
+        broken((b) => ({ ...b, program: { ...b.program, weeks: 500 } })),
+        broken((b) => ({ ...b, program: { ...b.program, name: 'x'.repeat(300) } })),
+        broken((b) => ({ ...b, sessions: [{ ...b.sessions[0], title: 'x'.repeat(300) }] })),
         'not an object',
       ]),
     )
     expect(parsed.programs.map((p) => p.program.id)).toEqual(['good'])
-    expect(parsed.rejected).toBe(9)
+    expect(parsed.rejected).toBe(12)
+  })
+
+  it('trims names and titles as the app does', () => {
+    const b = bundle('p')
+    b.program.name = '  Half  '
+    b.sessions[0]!.title = ' 6×400 m '
+    const parsed = parseBackup(file([b]))
+    expect(parsed.programs[0]!.program.name).toBe('Half')
+    expect(parsed.programs[0]!.sessions[0]!.title).toBe('6×400 m')
+  })
+
+  it('says a newer app made the file before looking at its programs', () => {
+    expect(() => parseBackup(file({}, 3))).toThrow(/newer version/)
   })
 
   it('leaves out a program that reuses an id of another one in the same file', () => {

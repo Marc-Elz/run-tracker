@@ -69,8 +69,8 @@ export const useTrainingStore = defineStore('training', () => {
       position,
       ...checked,
     }
+    // A rest day loses its steps in the same write (see TrainingRepository.saveSession)
     await repo.saveSession(session)
-    if (checked.type === 'rest' && existing) await repo.replaceSteps(session.id, [])
     return session.id
   }
 

@@ -13,14 +13,16 @@ const training = useTrainingStore()
 
 // No id: a new program
 const id = computed(() => (route.params.id as string | undefined) ?? null)
-const leave = useLeaveScreen(() =>
-  id.value ? { name: 'program', params: { id: id.value } } : { name: 'training' },
+const saving = ref(false)
+// Android back waits for a save in flight, which leaves the screen itself when it succeeds
+const leave = useLeaveScreen(
+  () => (id.value ? { name: 'program', params: { id: id.value } } : { name: 'training' }),
+  saving,
 )
 
 const form = ref<ProgramInput>({ name: '', goal: null, weeks: 8, startDate: null })
 const sessionCount = ref(0)
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>(id.value ? 'loading' : 'ready')
-const saving = ref(false)
 const error = ref<string | null>(null)
 const confirming = ref(false)
 const deleting = ref(false)

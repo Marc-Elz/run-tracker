@@ -56,9 +56,11 @@ export function createMemoryTrainingRepository(): TrainingRepository {
       return session ? { ...session } : null
     },
     async saveSession(session) {
-      if (!programs.has(session.programId))
+      if (!programs.has(session.programId)) {
         throw new Error(`Program ${session.programId} not found`)
+      }
       sessions.set(session.id, { ...session })
+      if (session.type === 'rest') steps.delete(session.id)
       touch(session.programId)
     },
     async deleteSession(id) {
@@ -91,11 +93,17 @@ export function createMemoryTrainingRepository(): TrainingRepository {
         })
     },
     async importProgram({ program, sessions: imported, steps: importedSteps }) {
-      if (programs.has(program.id)) return false
-      if (imported.some((s) => sessions.has(s.id))) throw new Error('Session id already exists')
+      if (programs.has(program.id)) return 'exists'
+      const stepIds = new Set([...steps.values()].flat().map((s) => s.id))
+      if (
+        imported.some((s) => sessions.has(s.id)) ||
+        importedSteps.some((s) => stepIds.has(s.id))
+      ) {
+        return 'clash'
+      }
       programs.set(program.id, { ...program })
-      for (const s of imported) sessions.set(s.id, { ...s })
       for (const s of imported) {
+        sessions.set(s.id, { ...s })
         steps.set(
           s.id,
           importedSteps
@@ -104,7 +112,7 @@ export function createMemoryTrainingRepository(): TrainingRepository {
             .sort((a, b) => a.position - b.position),
         )
       }
-      return true
+      return 'added'
     },
   }
 }
