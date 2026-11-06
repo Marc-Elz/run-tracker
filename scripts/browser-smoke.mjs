@@ -35,6 +35,15 @@ try {
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
+  // A failed MapTiler request says why in its body (Invalid key / Missing key / Key usage restricted); a bare 403 doesn't.
+  const mapTilerFailures = []
+  page.on('response', async (r) => {
+    if (!new URL(r.url()).hostname.endsWith('maptiler.com') || r.status() < 400) return
+    // Chromium hides the body of a CORS-blocked error from the page, so ask again from Node with the page's Referer.
+    const again = await fetch(r.url(), { headers: { Referer: url } }).catch(() => null)
+    const body = ((await again?.text().catch(() => '')) ?? '').trim().slice(0, 60)
+    mapTilerFailures.push(`${r.status()} ${body}`.trim())
+  })
   const tabBar = () => page.locator('nav').count()
 
   await page.goto(url)
@@ -169,7 +178,8 @@ try {
   await page.locator('nav a', { hasText: 'History' }).click()
   await page.waitForSelector('.history .row')
   check('History lists the restored run', (await page.locator('.history .row').count()) === 1)
-  check('no console or page errors', errors.length === 0, errors.join(' | '))
+  check('MapTiler requests succeed', mapTilerFailures.length === 0, [...new Set(mapTilerFailures)].join(' | '))
+  check('no console or page errors',errors.length === 0, errors.join(' | '))
 } finally {
   await browser.close()
   await server.close()
