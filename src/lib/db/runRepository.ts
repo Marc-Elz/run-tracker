@@ -1,7 +1,5 @@
-import { Capacitor } from '@capacitor/core'
 import type { TrackPoint } from '@/lib/geo'
 import type { RouteOverview } from '@/lib/routeOverview'
-import { createMemoryRunRepository } from './memoryRunRepository'
 
 export type StoredRunStatus = 'running' | 'paused' | 'finished'
 
@@ -55,14 +53,24 @@ export interface RunRepository {
   saveOverview(overview: RouteOverview): Promise<void>
 }
 
-/** Run every call strictly after the previous one finished, so writes land in order. */
-export function serialized(repo: RunRepository): RunRepository {
+/** Runs each operation strictly after the previous one finished */
+export type Queue = <T>(op: () => Promise<T>) => Promise<T>
+
+/**
+ * One queue for every repository on the same connection, so a training program write never
+ * interleaves with the writes of a run in progress.
+ */
+export function createQueue(): Queue {
   let tail: Promise<unknown> = Promise.resolve()
-  const enqueue = <T>(op: () => Promise<T>): Promise<T> => {
+  return <T>(op: () => Promise<T>): Promise<T> => {
     const next = tail.then(op)
     tail = next.catch(() => {})
     return next
   }
+}
+
+/** Run every call strictly after the previous one on this queue finished, so writes land in order. */
+export function serialized(repo: RunRepository, enqueue: Queue = createQueue()): RunRepository {
   return {
     createRun: (run) => enqueue(() => repo.createRun(run)),
     updateRun: (run) => enqueue(() => repo.updateRun(run)),
@@ -98,11 +106,4 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     readOverviews: fail,
     saveOverview: fail,
   }
-}
-
-/** SQLite on the phone; in memory in the browser, where nothing needs to survive a reload. */
-export async function openRunRepository(): Promise<RunRepository> {
-  if (!Capacitor.isNativePlatform()) return createMemoryRunRepository()
-  const { openSqliteRunRepository } = await import('./sqliteRunRepository')
-  return serialized(await openSqliteRunRepository())
 }

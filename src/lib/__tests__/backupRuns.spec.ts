@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BackupError, buildBackup } from '../backup'
 import { createMemoryRunRepository } from '../db/memoryRunRepository'
+import { createMemoryTrainingRepository } from '../db/memoryTrainingRepository'
 import type { RunRecord } from '../db/runRepository'
+import type { TrainingProgram } from '../training'
 
 // The share functions stand in: shareFile reads the pieces like the real one and keeps the joined text
 const share = vi.hoisted(() => {
@@ -47,6 +49,17 @@ const finished = (id: string, startedAt: number): RunRecord => ({
 })
 const point = (timestamp: number) => ({ segment: 0, timestamp, lat: 1, lon: 2 })
 
+/** Runs and programs as one source and target, like `stores/backup.ts` builds from its stores */
+function repos() {
+  const run = createMemoryRunRepository()
+  const training = createMemoryTrainingRepository()
+  return Object.assign(run, {
+    training,
+    exportPrograms: () => training.exportPrograms(),
+    importProgram: training.importProgram,
+  })
+}
+
 describe('backup and restore of runs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -54,11 +67,11 @@ describe('backup and restore of runs', () => {
   })
 
   it('backs up finished runs only, oldest first, with their points', async () => {
-    const repo = createMemoryRunRepository()
+    const repo = repos()
     await repo.importRun(finished('new', 20), [point(21)])
     await repo.importRun(finished('old', 10), [point(11), point(12)])
     await repo.createRun({ ...finished('live', 30), status: 'running', finishedAt: null })
-    expect((await backUpRuns(repo, 0)).count).toBe(2)
+    expect((await backUpRuns(repo, 0)).runs).toBe(2)
     const ids = (JSON.parse(share.shared.text).runs as { run: RunRecord; points: unknown[] }[]).map(
       (r) => [r.run.id, r.points.length],
     )
@@ -69,11 +82,11 @@ describe('backup and restore of runs', () => {
   })
 
   it('hands the file over in pieces, one per run, and reports progress', async () => {
-    const repo = createMemoryRunRepository()
+    const repo = repos()
     for (let i = 0; i < 3; i++) await repo.importRun(finished(`r${i}`, i), [point(i)])
     const seen: [number, number][] = []
     await backUpRuns(repo, 0, (done, total) => seen.push([done, total]))
-    expect(share.shared.pieces).toBe(5) // header, 3 runs, footer
+    expect(share.shared.pieces).toBe(6) // header, 3 runs, start of programs, footer
     expect(seen).toEqual([
       [1, 3],
       [2, 3],
@@ -83,11 +96,11 @@ describe('backup and restore of runs', () => {
   })
 
   it('shares the file with a dated name and reports the count, or 0 without runs', async () => {
-    const repo = createMemoryRunRepository()
-    expect((await backUpRuns(repo, 0)).count).toBe(0)
+    const repo = repos()
+    expect((await backUpRuns(repo, 0)).runs).toBe(0)
     expect(share.shareFile).not.toHaveBeenCalled()
     await repo.importRun(finished('a', 1), [])
-    expect((await backUpRuns(repo, new Date(2026, 9, 28).getTime())).count).toBe(1)
+    expect((await backUpRuns(repo, new Date(2026, 9, 28).getTime())).runs).toBe(1)
     expect(share.shared.name).toBe('run-tracker-backup-2026-10-28.json')
     expect(share.shared.mime).toBe('application/json')
   })
@@ -95,7 +108,7 @@ describe('backup and restore of runs', () => {
   describe('sharing the same backup again', () => {
     const day = new Date(2026, 9, 28, 12).getTime()
     const setup = async () => {
-      const repo = createMemoryRunRepository()
+      const repo = repos()
       await repo.importRun(finished('a', 1), [point(1)])
       await repo.importRun(finished('b', 2), [point(2)])
       return repo
@@ -111,7 +124,7 @@ describe('backup and restore of runs', () => {
         'run-tracker-backup-2026-10-28.json',
         first.prepared!.uri,
       )
-      expect(second).toEqual({ count: 2, prepared: first.prepared })
+      expect(second).toEqual({ runs: 2, programs: 0, prepared: first.prepared })
     })
 
     it('builds it again after a run was added, deleted or renamed, or on another day', async () => {
@@ -141,46 +154,147 @@ describe('backup and restore of runs', () => {
       const second = await backUpRuns(repo, day, undefined, first.prepared)
       expect(share.reshareFile).toHaveBeenCalledOnce()
       expect(share.shareFile).toHaveBeenCalledTimes(2)
-      expect(second.count).toBe(2)
+      expect(second.runs).toBe(2)
     })
   })
 
   it('restores into an empty repository exactly as it was, and a second restore adds nothing', async () => {
-    const source = createMemoryRunRepository()
+    const source = repos()
     await source.importRun({ ...finished('a', 1), name: 'Haren' }, [point(5), point(5), point(2)])
     await backUpRuns(source, 0)
     const text = share.shared.text
 
-    const target = createMemoryRunRepository()
+    const target = repos()
     const seen: [number, number][] = []
     expect(await restoreRuns(target, text, (done, total) => seen.push([done, total]))).toEqual({
       added: 1,
       skipped: 0,
+      programsAdded: 0,
+      programsSkipped: 0,
       rejected: 0,
     })
     expect(seen).toEqual([[1, 1]])
     expect(await target.getRun('a')).toEqual(await source.getRun('a'))
     expect(await target.loadPoints('a')).toEqual(await source.loadPoints('a'))
-    expect(await restoreRuns(target, text)).toEqual({ added: 0, skipped: 1, rejected: 0 })
+    expect(await restoreRuns(target, text)).toMatchObject({ added: 0, skipped: 1, rejected: 0 })
     expect(await target.listFinished()).toHaveLength(1)
   })
 
   it('keeps the first of two runs with the same id in one file', async () => {
-    const target = createMemoryRunRepository()
+    const target = repos()
     const text = buildBackup(
       [
         { run: { ...finished('a', 1), name: 'first' }, points: [] },
         { run: { ...finished('a', 1), name: 'second' }, points: [] },
       ],
+      [],
       0,
     )
-    expect(await restoreRuns(target, text)).toEqual({ added: 1, skipped: 1, rejected: 0 })
+    expect(await restoreRuns(target, text)).toMatchObject({ added: 1, skipped: 1, rejected: 0 })
     expect((await target.getRun('a'))?.name).toBe('first')
   })
 
   it('writes nothing when the file is unusable', async () => {
-    const target = createMemoryRunRepository()
+    const target = repos()
     await expect(restoreRuns(target, 'nope')).rejects.toThrow(BackupError)
     expect(await target.listFinished()).toEqual([])
+  })
+
+  describe('training programs', () => {
+    const program = (id: string): TrainingProgram => ({
+      id,
+      name: 'Half',
+      goal: null,
+      weeks: 4,
+      startDate: null,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    const session = (id: string, programId: string) => ({
+      id,
+      programId,
+      week: 1,
+      position: 0,
+      type: 'easy' as const,
+      title: 'Easy',
+      notes: null,
+    })
+
+    it('backs up programs when there are no runs at all', async () => {
+      const store = repos()
+      await store.training.createProgram(program('p'))
+      expect(await backUpRuns(store, 0)).toMatchObject({ runs: 0, programs: 1 })
+      expect(JSON.parse(share.shared.text).programs[0].program.id).toBe('p')
+    })
+
+    it('builds it again after a session or a step was edited', async () => {
+      const day = new Date(2026, 9, 28, 12).getTime()
+      const store = repos()
+      await store.training.createProgram(program('p'))
+      await store.training.saveSession(session('s', 'p'))
+      let prepared = (await backUpRuns(store, day)).prepared
+      await backUpRuns(store, day, undefined, prepared)
+      expect(share.shareFile).toHaveBeenCalledTimes(1)
+
+      await store.training.saveSession({ ...session('s', 'p'), notes: 'Hilly' })
+      prepared = (await backUpRuns(store, day, undefined, prepared)).prepared
+      expect(share.shareFile).toHaveBeenCalledTimes(2)
+
+      await store.training.replaceSteps('s', [
+        {
+          id: 'x',
+          sessionId: 's',
+          position: 0,
+          kind: 'cooldown',
+          targetKind: 'none',
+          targetValue: null,
+          paceMin: null,
+          paceMax: null,
+          repetitions: null,
+          span: null,
+        },
+      ])
+      await backUpRuns(store, day, undefined, prepared)
+      expect(share.shareFile).toHaveBeenCalledTimes(3)
+    })
+
+    it('restores programs next to runs, and skips the ones already on this phone', async () => {
+      const source = repos()
+      await source.importRun(finished('a', 1), [])
+      await source.training.createProgram(program('p'))
+      await source.training.saveSession(session('s', 'p'))
+      await backUpRuns(source, 0)
+      const text = share.shared.text
+
+      const target = repos()
+      expect(await restoreRuns(target, text)).toEqual({
+        added: 1,
+        skipped: 0,
+        programsAdded: 1,
+        programsSkipped: 0,
+        rejected: 0,
+      })
+      expect(await target.training.exportPrograms()).toEqual(await source.training.exportPrograms())
+      expect(await restoreRuns(target, text)).toMatchObject({
+        programsAdded: 0,
+        programsSkipped: 1,
+      })
+    })
+
+    it('counts a program that fails to store as rejected and restores the rest', async () => {
+      const target = repos()
+      const programs = [
+        { program: program('bad'), sessions: [], steps: [] },
+        { program: program('good'), sessions: [], steps: [] },
+      ]
+      const importProgram = target.importProgram
+      target.importProgram = async (bundle) => {
+        if (bundle.program.id === 'bad') throw new Error('UNIQUE constraint failed')
+        return importProgram(bundle)
+      }
+      const result = await restoreRuns(target, buildBackup([], programs, 0))
+      expect(result).toMatchObject({ programsAdded: 1, rejected: 1 })
+      expect(await target.training.getProgram('good')).not.toBeNull()
+    })
   })
 })
