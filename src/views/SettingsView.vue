@@ -46,7 +46,7 @@ onMounted(refresh)
 useAppResume(refresh)
 
 const backup = useBackupStore()
-onMounted(backup.countRuns)
+onMounted(backup.countItems)
 
 function restore(event: Event) {
   const input = event.target as HTMLInputElement
@@ -231,13 +231,16 @@ const summary = computed(() => {
 
     <section class="row backup" aria-labelledby="backup-title">
       <h2 id="backup-title">Backup</h2>
-      <p>Your runs live only on this phone. Save them to a file you can keep elsewhere.</p>
+      <p>
+        Your runs and training programs live only on this phone. Save them to a file you can keep
+        elsewhere.
+      </p>
       <button
         class="btn"
-        :disabled="backup.blocked || backup.finishedCount === 0"
+        :disabled="backup.blocked || backup.nothingToBackUp"
         @click="backup.backUp"
       >
-        Back up runs
+        Back up
       </button>
       <label class="btn btn--quiet btn--label" :aria-disabled="backup.blocked">
         Restore from backup
@@ -250,7 +253,7 @@ const summary = computed(() => {
         />
       </label>
       <p v-if="backup.runActive" class="hint">Finish or stop your run first.</p>
-      <p v-else-if="backup.finishedCount === 0" class="hint">No runs to back up.</p>
+      <p v-else-if="backup.nothingToBackUp" class="hint">Nothing to back up yet.</p>
       <p v-if="backup.message" class="status" role="status">{{ backup.message }}</p>
       <p class="hint">The file holds your full location history and is not encrypted.</p>
     </section>

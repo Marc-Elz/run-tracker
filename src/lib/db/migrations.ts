@@ -5,6 +5,18 @@ export interface SqlDb {
   query(statement: string): Promise<{ values?: Record<string, unknown>[] }>
 }
 
+/** The part of a connection the repositories use (matches SQLiteDBConnection) */
+export interface SqlConnection extends SqlDb {
+  /** One statement; commits on its own */
+  run(statement: string, values?: unknown[]): Promise<unknown>
+  query(statement: string, values?: unknown[]): Promise<{ values?: Record<string, unknown>[] }>
+  /** Several statements in one transaction: all of them apply, or none do */
+  executeSet(
+    set: { statement: string; values: unknown[] }[],
+    transaction?: boolean,
+  ): Promise<unknown>
+}
+
 /**
  * Schema changes, oldest first; never edit one that has shipped, add a new one.
  * Every statement must end with ";" plus a newline: on Android the plugin splits on exactly
@@ -46,6 +58,39 @@ CREATE INDEX track_points_run ON track_points (run_id, segment, timestamp);
   lines TEXT NOT NULL,
   bounds TEXT
 );
+`,
+  `CREATE TABLE training_programs (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  goal TEXT,
+  weeks INTEGER NOT NULL CHECK (weeks >= 1),
+  start_date TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE program_sessions (
+  id TEXT PRIMARY KEY NOT NULL,
+  program_id TEXT NOT NULL REFERENCES training_programs(id) ON DELETE CASCADE,
+  week INTEGER NOT NULL CHECK (week >= 1),
+  position INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('easy', 'long', 'intervals', 'tempo', 'free', 'rest')),
+  title TEXT NOT NULL,
+  notes TEXT
+);
+CREATE INDEX program_sessions_program ON program_sessions (program_id, week, position);
+CREATE TABLE session_steps (
+  id TEXT PRIMARY KEY NOT NULL,
+  session_id TEXT NOT NULL REFERENCES program_sessions(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('warmup', 'run', 'recovery', 'repeat', 'cooldown')),
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('none', 'duration', 'distance')),
+  target_value REAL,
+  pace_min REAL,
+  pace_max REAL,
+  repetitions INTEGER,
+  span INTEGER
+);
+CREATE INDEX session_steps_session ON session_steps (session_id, position);
 `,
 ]
 

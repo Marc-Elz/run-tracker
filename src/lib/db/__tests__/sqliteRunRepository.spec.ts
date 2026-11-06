@@ -35,10 +35,12 @@ vi.mock('@capacitor-community/sqlite', () => ({
   },
 }))
 
-const { openSqliteRunRepository, toRouteOverview, toRunRecord, toStoredPoint } =
+const { createSqliteRunRepository, toRouteOverview, toRunRecord, toStoredPoint } =
   await import('../sqliteRunRepository')
+const { openDb } = await import('../connection')
+const openRepo = () => createSqliteRunRepository(plugin.db)
 
-describe('sqlite run repository', () => {
+describe('sqlite connection and run repository', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     plugin.consistent = true
@@ -46,7 +48,7 @@ describe('sqlite run repository', () => {
   })
 
   it('creates the connection, opens it and migrates a fresh database', async () => {
-    await openSqliteRunRepository()
+    await openDb()
     expect(plugin.createConnection).toHaveBeenCalledWith(
       'runtracker',
       false,
@@ -61,7 +63,7 @@ describe('sqlite run repository', () => {
   it('reuses a connection the plugin still holds instead of creating it again', async () => {
     plugin.exists = true
     plugin.db.isDBOpen.mockResolvedValueOnce({ result: true })
-    await openSqliteRunRepository()
+    await openDb()
     expect(plugin.retrieveConnection).toHaveBeenCalledWith('runtracker', false)
     expect(plugin.createConnection).not.toHaveBeenCalled()
     expect(plugin.db.open).not.toHaveBeenCalled()
@@ -70,13 +72,13 @@ describe('sqlite run repository', () => {
   it('creates a fresh connection when the native side was out of step (WebView reload)', async () => {
     plugin.consistent = false
     plugin.exists = true
-    await openSqliteRunRepository()
+    await openDb()
     expect(plugin.createConnection).toHaveBeenCalled()
     expect(plugin.retrieveConnection).not.toHaveBeenCalled()
   })
 
   it('stores missing GPS values as NULL', async () => {
-    const repo = await openSqliteRunRepository()
+    const repo = openRepo()
     await repo.addPoint('a', 2, { lat: 52, lon: 4, timestamp: 1000, accuracy: 8 })
     expect(plugin.db.run).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO track_points'),
@@ -137,7 +139,7 @@ describe('sqlite run repository', () => {
     }
     expect(toRunRecord(row).name).toBe('Morning loop')
 
-    const repo = await openSqliteRunRepository()
+    const repo = openRepo()
     await repo.renameRun('a', 'Easy 5k')
     expect(plugin.db.run).toHaveBeenLastCalledWith(
       'UPDATE runs SET name = ?, updated_at = ? WHERE id = ?',
@@ -148,7 +150,7 @@ describe('sqlite run repository', () => {
   })
 
   it('does not touch the name when a run is updated', async () => {
-    const repo = await openSqliteRunRepository()
+    const repo = openRepo()
     await repo.updateRun({
       id: 'a',
       name: null,
@@ -165,7 +167,7 @@ describe('sqlite run repository', () => {
   })
 
   it('reads one run and the finished runs', async () => {
-    const repo = await openSqliteRunRepository()
+    const repo = openRepo()
     const row = {
       id: 'a',
       status: 'finished',
@@ -208,7 +210,7 @@ describe('sqlite run repository', () => {
     ]
 
     it('writes the run, its name and its points in one transaction, in order', async () => {
-      const repo = await openSqliteRunRepository()
+      const repo = openRepo()
       plugin.db.query.mockResolvedValueOnce({ values: [] })
       expect(await repo.importRun(run, points)).toBe(true)
       const [set, transaction] = plugin.db.executeSet.mock.lastCall!
@@ -221,14 +223,14 @@ describe('sqlite run repository', () => {
     })
 
     it('writes nothing when the run already exists', async () => {
-      const repo = await openSqliteRunRepository()
+      const repo = openRepo()
       plugin.db.query.mockResolvedValueOnce({ values: [{ id: 'a' }] })
       expect(await repo.importRun(run, points)).toBe(false)
       expect(plugin.db.executeSet).not.toHaveBeenCalled()
     })
 
     it('passes on a failed transaction so the caller sees the error', async () => {
-      const repo = await openSqliteRunRepository()
+      const repo = openRepo()
       plugin.db.query.mockResolvedValueOnce({ values: [] })
       plugin.db.executeSet.mockRejectedValueOnce(new Error('constraint failed'))
       await expect(repo.importRun(run, points)).rejects.toThrow('constraint failed')
@@ -244,7 +246,7 @@ describe('sqlite run repository', () => {
     ]
 
     it('stores an overview as JSON, replacing an older one', async () => {
-      const repo = await openSqliteRunRepository()
+      const repo = openRepo()
       await repo.saveOverview({ runId: 'a', algo: 1, lines, bounds: [4, 52, 4.1, 52.1] })
       const [sql, values] = plugin.db.run.mock.lastCall!
       expect(sql).toContain('INSERT OR REPLACE INTO route_overview')
@@ -252,7 +254,7 @@ describe('sqlite run repository', () => {
     })
 
     it('reads the overviews of finished runs back', async () => {
-      const repo = await openSqliteRunRepository()
+      const repo = openRepo()
       plugin.db.query.mockResolvedValueOnce({
         values: [{ run_id: 'a', algo: 1, lines: '[[[4,52],[4.1,52.1]]]', bounds: null }],
       })

@@ -5,6 +5,7 @@ import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import type { RunRecord } from '@/lib/db/runRepository'
 import { buildBackup } from '@/lib/backup'
 import { useRunStore } from '@/stores/run'
+import { useTrainingStore } from '@/stores/training'
 import type { TrackingStatus } from '@/lib/trackingStatus'
 import SettingsView from '../SettingsView.vue'
 
@@ -196,10 +197,20 @@ describe('SettingsView', () => {
       await flushPromises()
     }
 
-    it('disables Back up runs and says why when there are no runs', async () => {
+    it('disables Back up and says why when there are no runs and no programs', async () => {
       const wrapper = await open(allGood)
-      expect(button(wrapper, 'Back up runs')!.attributes('disabled')).toBeDefined()
-      expect(wrapper.text()).toContain('No runs to back up.')
+      expect(button(wrapper, 'Back up')!.attributes('disabled')).toBeDefined()
+      expect(wrapper.text()).toContain('Nothing to back up yet.')
+    })
+
+    it('backs up training programs when there are no runs', async () => {
+      await useTrainingStore().createProgram({ name: 'Half', goal: null, weeks: 4, startDate: null })
+      const wrapper = await open(allGood)
+      expect(wrapper.text()).not.toContain('Nothing to back up yet.')
+      await button(wrapper, 'Back up')!.trigger('click')
+      await flushPromises()
+      expect(JSON.parse(shared.text).programs).toHaveLength(1)
+      expect(wrapper.text()).toContain('Backed up 1 program')
     })
 
     it('shares one backup file with every finished run and its points', async () => {
@@ -207,7 +218,7 @@ describe('SettingsView', () => {
       await run.importRun(finished('a', 'Haren'), [{ segment: 0, timestamp: 5, lat: 1, lon: 2 }])
       await run.importRun(finished('b'), [])
       const wrapper = await open(allGood)
-      await button(wrapper, 'Back up runs')!.trigger('click')
+      await button(wrapper, 'Back up')!.trigger('click')
       await flushPromises()
       expect(shareFile).toHaveBeenCalledOnce()
       const { name, text, mime } = shared
@@ -226,6 +237,7 @@ describe('SettingsView', () => {
           { run: finished('a'), points: [] },
           { run: finished('b', 'Haren'), points: [{ segment: 0, timestamp: 5, lat: 1, lon: 2 }] },
         ],
+        [],
         0,
       )
       await pick(wrapper, text)
@@ -233,7 +245,7 @@ describe('SettingsView', () => {
       expect((await run.listFinished()).map((r) => r.id).sort()).toEqual(['a', 'b'])
       expect(await run.loadPoints('b')).toHaveLength(1)
       // The new run now allows a backup
-      expect(button(wrapper, 'Back up runs')!.attributes('disabled')).toBeUndefined()
+      expect(button(wrapper, 'Back up')!.attributes('disabled')).toBeUndefined()
     })
 
     it('shows the reason and changes nothing for a file that is not a backup', async () => {
@@ -253,21 +265,21 @@ describe('SettingsView', () => {
         return null
       })
       const first = await open(allGood)
-      await button(first, 'Back up runs')!.trigger('click')
+      await button(first, 'Back up')!.trigger('click')
       await flushPromises()
       expect(first.text()).toContain('Backing up 1 of 1 runs')
       first.unmount() // the user switched tab
 
       const second = await open(allGood)
       expect(second.text()).toContain('Backing up 1 of 1 runs') // still shown
-      expect(button(second, 'Back up runs')!.attributes('disabled')).toBeDefined()
-      await button(second, 'Back up runs')!.trigger('click')
+      expect(button(second, 'Back up')!.attributes('disabled')).toBeDefined()
+      await button(second, 'Back up')!.trigger('click')
       expect(shareFile).toHaveBeenCalledOnce() // no second share
 
       finish()
       await flushPromises()
       expect(second.text()).toContain('Backed up 1 run')
-      expect(button(second, 'Back up runs')!.attributes('disabled')).toBeUndefined()
+      expect(button(second, 'Back up')!.attributes('disabled')).toBeUndefined()
     })
 
     it('blocks backup and restore while a run is running or paused', async () => {
@@ -275,10 +287,10 @@ describe('SettingsView', () => {
       await run.importRun(finished('a'), [])
       run.start(1_000)
       const wrapper = await open(allGood)
-      expect(button(wrapper, 'Back up runs')!.attributes('disabled')).toBeDefined()
+      expect(button(wrapper, 'Back up')!.attributes('disabled')).toBeDefined()
       expect(wrapper.get('input[type="file"]').attributes('disabled')).toBeDefined()
       expect(wrapper.text()).toContain('Finish or stop your run first.')
-      await pick(wrapper, buildBackup([{ run: finished('z'), points: [] }], 0))
+      await pick(wrapper, buildBackup([{ run: finished('z'), points: [] }], [], 0))
       expect((await run.listFinished()).map((r) => r.id)).toEqual(['a'])
     })
   })
