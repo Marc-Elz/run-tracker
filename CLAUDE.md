@@ -31,6 +31,7 @@ Background, decisions and open questions: `context.md` (read it when a task need
 - Native behaviour (background GPS, keep-awake, battery optimisation) can only be verified on the real phone. Say plainly in the PR when something was not tried on a device.
 - Map tiles need a MapTiler key: copy `.env.example` to `.env.local` (gitignored) on each PC and add a free key. Without it the run map shows the route on a plain background. The key is bundled into the app, so it is not a secret; the provider lives only in `src/lib/mapStyle.ts`.
 - All PCs that install to the phone must use the same debug keystore (`~/.android/debug.keystore`, kept out of the repo, copied by hand; `npm run doctor` shows its SHA256). A different key forces an uninstall, which deletes the saved runs. Never accept an uninstall without exporting first (#76).
+- Every git worktree needs its own `npm install` (and its own `.env.local`). Without a `node_modules` of its own it resolves packages from the parent repo, and the Vite dev server then refuses to serve MapLibre's worker file, so the map throws `e.endsWith is not a function` (#90).
 - Don't commit secrets. The Strava client secret handling is an open decision (#12).
 - App id is `com.runtracker.app`; keep personal names out of the repo.
 
