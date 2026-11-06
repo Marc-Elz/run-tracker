@@ -2,10 +2,17 @@
 // simulator, the run summary with its map, History, GPX download, backup and restore, Settings. Starts the dev server itself, no setup beyond
 // `npx playwright install chromium`. Not part of the pre-PR checks; run it when a change touches these flows.
 // Usage: npm run test:browser   (SHOTS=<dir> saves screenshots of Settings and the finished run)
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createServer } from 'vite'
 import { chromium } from 'playwright'
+
+// A git worktree under .claude/worktrees without its own node_modules resolves packages from the parent repo, and Vite then
+// refuses to serve MapLibre's worker file from outside the worktree ("e.endsWith is not a function", #90). Fail early instead.
+if (!existsSync(new URL('../node_modules', import.meta.url))) {
+  console.error('No node_modules in this checkout. Run `npm install` here first (each git worktree needs its own).')
+  process.exit(2)
+}
 
 const shots = process.env.SHOTS
 if (shots) mkdirSync(shots, { recursive: true })

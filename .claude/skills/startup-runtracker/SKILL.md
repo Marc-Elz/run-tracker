@@ -45,4 +45,5 @@ Then ask which issue to take. Don't start coding until I pick one.
 - A signature-mismatch error on `android:run` (INSTALL_FAILED_UPDATE_INCOMPATIBLE) means this PC's debug key differs from the one on the phone. Stop: uninstalling wipes the saved runs. Export what I want to keep (GPX share) first.
 - Git Bash on Windows rewrites `branch:path` arguments; use `MSYS_NO_PATHCONV=1` for `git show branch:file`.
 - `.vscode/`, `android/`, `dist/` and `node_modules/` show up as untracked when on a branch that predates the scaffold; they are ignored once the scaffold is merged.
+- A new git worktree needs `npm install` and a copy of `.env.local` before `npm run dev` or `npm run test:browser`; otherwise the map throws `e.endsWith is not a function` (#90).
 - Background GPS and keep-awake can only be verified on the real phone, never in the browser.
