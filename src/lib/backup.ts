@@ -20,7 +20,9 @@ import {
  *     runs: [{ run: RunRecord, points: StoredPoint[] }],
  *     programs: [{ program: TrainingProgram, sessions: ProgramSession[], steps: SessionStep[] }] }
  * Only finished runs are in it. Field names are the ones of those types; times are UTC epoch
- * milliseconds. Version 1 is the same without `programs`, and is still read. The sync to the
+ * milliseconds. A run's `sessionId` (#40) links it to a session in `programs`; files made before
+ * it have no `sessionId`, which reads as null. Version 1 is the same without `programs`, and is
+ * still read. The sync to the
  * home server (#24) builds on this format, so a change that old files cannot satisfy needs a new
  * `version`.
  */
@@ -53,7 +55,7 @@ const pad = (n: number) => String(n).padStart(2, '0')
 export const backupKey = (fileName: string, runs: RunRecord[], programs: TrainingProgram[]) =>
   JSON.stringify([
     fileName,
-    runs.map((r) => [r.id, r.name, r.finishedAt, r.distanceM, r.movingMs]),
+    runs.map((r) => [r.id, r.name, r.finishedAt, r.distanceM, r.movingMs, r.sessionId]),
     programs.map((p) => [p.id, p.updatedAt]),
   ])
 
@@ -119,7 +121,9 @@ function toPoint(raw: unknown): StoredPoint | null {
 function toRun(raw: unknown): RunRecord | null {
   if (!isObject(raw)) return null
   const { id, name, startedAt, finishedAt, elapsedMs, segment, movingMs, distanceM } = raw
+  const { sessionId } = raw
   if (typeof id !== 'string' || id === '') return null
+  if (sessionId !== undefined && sessionId !== null && !isId(sessionId)) return null
   if (name !== null && typeof name !== 'string') return null
   if (!isNumber(startedAt) || !isNumber(finishedAt)) return null
   if (!isCount(segment)) return null
@@ -135,6 +139,7 @@ function toRun(raw: unknown): RunRecord | null {
     segmentStartedAt: null,
     movingMs,
     distanceM,
+    sessionId: isId(sessionId) ? sessionId : null,
   }
 }
 

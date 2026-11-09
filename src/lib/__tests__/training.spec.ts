@@ -9,8 +9,10 @@ import {
   findStep,
   formatMinSec,
   fromBlocks,
+  isRunnable,
   localDate,
   moveStep,
+  nextSession,
   parseMinSec,
   programWeek,
   removeStep,
@@ -271,5 +273,36 @@ describe('min:s and step summaries', () => {
     )
     expect(stepSummary(step({ paceMax: 330 }))).toBe('Run · 5:30 /km')
     expect(stepSummary(step({ kind: 'repeat', repetitions: 6 }), 2)).toBe('6× · 2 steps')
+  })
+})
+
+describe('next session (#40)', () => {
+  const session = (id: string, week: number, position: number, type = 'easy'): ProgramSession =>
+    ({ id, programId: 'p', week, position, type, title: id, notes: null }) as ProgramSession
+  // Stored order is not guaranteed: week 2 first on purpose
+  const sessions = [
+    session('w2a', 2, 0),
+    session('w1b', 1, 5),
+    session('w1rest', 1, 1, 'rest'),
+    session('w1a', 1, 0),
+  ]
+
+  it('is the first session by week, then position, that has no finished run', () => {
+    expect(nextSession(sessions, new Set())?.id).toBe('w1a')
+    expect(nextSession(sessions, new Set(['w1a']))?.id).toBe('w1b')
+  })
+
+  it('skips rest days', () => {
+    expect(nextSession(sessions, new Set(['w1a', 'w1b']))?.id).toBe('w2a')
+    expect(isRunnable(sessions[2]!, new Set())).toBe(false)
+  })
+
+  it('keeps a missed session next until it is run', () => {
+    expect(nextSession(sessions, new Set(['w1b', 'w2a']))?.id).toBe('w1a')
+  })
+
+  it('is null when every session is done or a rest day, or there are none', () => {
+    expect(nextSession(sessions, new Set(['w1a', 'w1b', 'w2a']))).toBeNull()
+    expect(nextSession([], new Set())).toBeNull()
   })
 })

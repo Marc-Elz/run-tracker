@@ -17,6 +17,7 @@ import {
 } from '@/lib/training'
 import type { TrainingRepository } from '@/lib/db/trainingRepository'
 import { createMemoryTrainingRepository } from '@/lib/db/memoryTrainingRepository'
+import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 
 /**
  * Training programs: the rules from `lib/training` applied before every write, ids and times
@@ -77,6 +78,12 @@ export const useTrainingStore = defineStore('training', () => {
     return session.id
   }
 
+  /** Deletes the program; its runs stay, unlinked. Stops following it when it was followed. */
+  async function deleteProgram(id: string) {
+    await repo.deleteProgram(id)
+    if (followedProgramId.value === id) setFollowedProgram(null)
+  }
+
   async function replaceSteps(sessionId: string, steps: SessionStep[]) {
     const ordered = steps.map((s, position) => ({ ...s, sessionId, position }))
     checkSteps(ordered)
@@ -104,7 +111,7 @@ export const useTrainingStore = defineStore('training', () => {
     getProgram: (id: string) => repo.getProgram(id),
     createProgram,
     updateProgram,
-    deleteProgram: (id: string) => repo.deleteProgram(id),
+    deleteProgram,
     listSessions: (programId: string) => repo.listSessions(programId),
     getSession: (id: string) => repo.getSession(id),
     saveSession,

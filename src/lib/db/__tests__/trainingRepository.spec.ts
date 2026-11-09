@@ -3,7 +3,8 @@ import type { ProgramSession, SessionStep, TrainingProgram } from '@/lib/trainin
 import { createMemoryTrainingRepository } from '../memoryTrainingRepository'
 import { createSqliteTrainingRepository } from '../sqliteTrainingRepository'
 import { createSqliteRunRepository } from '../sqliteRunRepository'
-import { MIGRATIONS, migrate } from '../migrations'
+import { MIGRATIONS, migrate, type SqlConnection } from '../migrations'
+import type { RunRecord } from '../runRepository'
 import { createQueue, serialized } from '../runRepository'
 import {
   nextUpdatedAt,
@@ -47,6 +48,34 @@ const step = (id: string, sessionId: string, over: Partial<SessionStep> = {}): S
   span: null,
   ...over,
 })
+
+/** A finished run as an older schema stored it: no session link */
+const oldRun = (id: string): RunRecord => ({
+  id,
+  name: null,
+  status: 'finished',
+  startedAt: 1,
+  finishedAt: 2,
+  elapsedMs: 1,
+  segment: 0,
+  segmentStartedAt: null,
+  movingMs: 1,
+  distanceM: 10,
+  sessionId: null,
+})
+
+/** Writes `oldRun(id)` and one point with the columns every schema version has */
+async function insertOldRun(db: SqlConnection, id: string) {
+  await db.run(
+    `INSERT INTO runs (id, status, started_at, finished_at, elapsed_ms, segment, moving_ms,
+      distance_m, created_at, updated_at) VALUES (?, 'finished', 1, 2, 1, 0, 1, 10, 0, 0)`,
+    [id],
+  )
+  await db.run(
+    'INSERT INTO track_points (run_id, segment, timestamp, lat, lon) VALUES (?, 0, 1, 52, 4)',
+    [id],
+  )
+}
 
 async function sqliteRepo() {
   const db = openTestDb()
@@ -267,27 +296,95 @@ describe.skipIf(!nodeSqlite)('training tables on real SQLite', () => {
     for (const [i, sql] of MIGRATIONS.slice(0, 2).entries()) {
       await db.execute(`${sql}PRAGMA user_version = ${i + 1};\n`)
     }
-    const runs = createSqliteRunRepository(db)
-    const run = {
-      id: 'r',
-      name: null,
-      status: 'finished' as const,
-      startedAt: 1,
-      finishedAt: 2,
-      elapsedMs: 1,
-      segment: 0,
-      segmentStartedAt: null,
-      movingMs: 1,
-      distanceM: 10,
-    }
-    await runs.importRun(run, [{ segment: 0, timestamp: 1, lat: 52, lon: 4 }])
+    // Raw SQL: today's repository writes columns this old schema doesn't have yet
+    await insertOldRun(db, 'r')
 
     expect(await migrate(db)).toBe(MIGRATIONS.length)
-    expect(await runs.getRun('r')).toEqual(run)
+    const runs = createSqliteRunRepository(db)
+    expect(await runs.getRun('r')).toEqual(oldRun('r'))
     expect(await runs.loadPoints('r')).toHaveLength(1)
     const training = createSqliteTrainingRepository(db)
     await training.createProgram(program('p'))
     expect(await training.listPrograms()).toHaveLength(1)
+  })
+
+  it('adds the run-to-session link on a phone with runs and programs, keeping every row (#40)', async () => {
+    const db = openTestDb()
+    for (const [i, sql] of MIGRATIONS.slice(0, 4).entries()) {
+      await db.execute(`${sql}PRAGMA user_version = ${i + 1};\n`)
+    }
+    await insertOldRun(db, 'r')
+    const before = createSqliteTrainingRepository(db)
+    await before.createProgram(program('p'))
+    await before.saveSession(session('s', 'p'))
+    await before.replaceSteps('s', [step('x', 's')])
+    const exported = await before.exportPrograms()
+
+    expect(await migrate(db)).toBe(MIGRATIONS.length)
+    const runs = createSqliteRunRepository(db)
+    expect(await runs.getRun('r')).toEqual(oldRun('r'))
+    expect(await runs.loadPoints('r')).toHaveLength(1)
+    expect(await createSqliteTrainingRepository(db).exportPrograms()).toEqual(exported)
+    expect((await db.query('PRAGMA foreign_key_check;')).values).toEqual([])
+  })
+})
+
+describe.skipIf(!nodeSqlite)('runs linked to sessions on real SQLite (#40)', () => {
+  async function setup() {
+    const db = openTestDb()
+    await migrate(db)
+    const training = createSqliteTrainingRepository(db)
+    await training.createProgram(program('p'))
+    await training.saveSession(session('s', 'p'))
+    await training.saveSession(session('t', 'p', { position: 1 }))
+    return { db, training, runs: createSqliteRunRepository(db) }
+  }
+  const linked = (id: string, sessionId: string | null, status: RunRecord['status'] = 'finished') => ({
+    ...oldRun(id),
+    status,
+    sessionId,
+  })
+
+  it('stores the link and counts the session done only once its run is finished', async () => {
+    const { runs } = await setup()
+    expect(await runs.createRun(linked('a', 's', 'running'))).toBe('s')
+    expect((await runs.getRun('a'))!.sessionId).toBe('s')
+    expect(await runs.doneSessionIds()).toEqual([])
+    await runs.updateRun({ ...linked('a', 's'), sessionId: null })
+    // updateRun never touches the link
+    expect((await runs.getRun('a'))!.sessionId).toBe('s')
+    expect(await runs.doneSessionIds()).toEqual(['s'])
+  })
+
+  it('saves the run without a link when the session is gone or already has a run', async () => {
+    const { runs } = await setup()
+    expect(await runs.createRun(linked('a', 'missing', 'running'))).toBeNull()
+    expect(await runs.createRun(linked('b', 's', 'running'))).toBe('s')
+    expect(await runs.createRun(linked('c', 's', 'running'))).toBeNull()
+    expect((await runs.getRun('c'))!.sessionId).toBeNull()
+    expect(await runs.importRun(linked('d', 's'), [])).toBe(true)
+    expect((await runs.getRun('d'))!.sessionId).toBeNull()
+    expect(await runs.importRun(linked('e', 't'), [])).toBe(true)
+    expect((await runs.getRun('e'))!.sessionId).toBe('t')
+  })
+
+  it('keeps the runs and clears their link when a session or the whole program is deleted', async () => {
+    const { runs, training } = await setup()
+    await runs.importRun(linked('a', 's'), [])
+    await runs.importRun(linked('b', 't'), [])
+    await training.deleteSession('s')
+    expect((await runs.getRun('a'))!.sessionId).toBeNull()
+    await training.deleteProgram('p')
+    expect((await runs.getRun('b'))!.sessionId).toBeNull()
+    expect(await runs.listFinished()).toHaveLength(2)
+    expect(await runs.doneSessionIds()).toEqual([])
+  })
+
+  it('frees the session again when its run is discarded', async () => {
+    const { runs } = await setup()
+    await runs.createRun(linked('a', 's', 'running'))
+    await runs.deleteRun('a')
+    expect(await runs.createRun(linked('b', 's', 'running'))).toBe('s')
   })
 
   it('keeps every program, session and step when migration 4 rebuilds the tables (#100)', async () => {

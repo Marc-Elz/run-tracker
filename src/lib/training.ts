@@ -153,6 +153,22 @@ export function programWeek(startDate: string, weeks: number, today: string): Pr
   return week > weeks ? { kind: 'after' } : { kind: 'in', week }
 }
 
+/** A session that can be run now: not a rest day, and no finished run of it yet (#40) */
+export const isRunnable = (session: ProgramSession, done: ReadonlySet<string>) =>
+  session.type !== 'rest' && !done.has(session.id)
+
+/**
+ * The session to run next: the first runnable one by week, then position, or null when every
+ * session is done or a rest day. A missed session stays next until it is run (#95).
+ */
+export function nextSession(
+  sessions: readonly ProgramSession[],
+  done: ReadonlySet<string>,
+): ProgramSession | null {
+  const ordered = [...sessions].sort((a, b) => a.week - b.week || a.position - b.position)
+  return ordered.find((s) => isRunnable(s, done)) ?? null
+}
+
 const isWholeIn = (n: number, min: number, max: number) =>
   Number.isInteger(n) && n >= min && n <= max
 

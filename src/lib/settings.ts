@@ -40,3 +40,28 @@ export function setCueConfig(next: CueConfig) {
     console.warn('Could not save settings', err)
   }
 }
+
+const FOLLOWED_KEY = 'run-tracker.followed-program'
+
+/** The program whose next session the Run screen offers (#40); null when none is followed. */
+export function loadFollowedProgram(): string | null {
+  try {
+    const id = localStorage.getItem(FOLLOWED_KEY)
+    return id === null || id === '' ? null : id
+  } catch {
+    return null
+  }
+}
+
+/** Kept on this phone only; it can name a program that was deleted since, which reads as none. */
+export const followedProgramId = ref<string | null>(loadFollowedProgram())
+
+export function setFollowedProgram(id: string | null) {
+  followedProgramId.value = id
+  try {
+    if (id === null) localStorage.removeItem(FOLLOWED_KEY)
+    else localStorage.setItem(FOLLOWED_KEY, id)
+  } catch (err) {
+    console.warn('Could not save settings', err)
+  }
+}

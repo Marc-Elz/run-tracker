@@ -17,6 +17,7 @@ const runRecord = (
   segmentStartedAt: startedAt,
   movingMs: 0,
   distanceM: 0,
+  sessionId: null,
 })
 
 describe('memory run repository', () => {
@@ -61,6 +62,26 @@ describe('memory run repository', () => {
     await repo.renameRun('a', null)
     expect((await repo.getRun('a'))?.name).toBeNull()
     await expect(repo.renameRun('nope', 'x')).rejects.toThrow('not found')
+  })
+
+  it('keeps a session to one run, storing a second run without the link (#40)', async () => {
+    const repo = createMemoryRunRepository()
+    expect(await repo.createRun({ ...runRecord('a', 0), sessionId: 's' })).toBe('s')
+    expect(await repo.createRun({ ...runRecord('b', 1), sessionId: 's' })).toBeNull()
+    expect(await repo.importRun({ ...runRecord('c', 2, 'finished'), sessionId: 's' }, [])).toBe(true)
+    expect((await repo.getRun('c'))?.sessionId).toBeNull()
+    expect(await repo.createRun(runRecord('free', 3))).toBeNull()
+  })
+
+  it('counts a session done once its run is finished, and never changes the link on update', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun({ ...runRecord('a', 0), sessionId: 's' })
+    expect(await repo.doneSessionIds()).toEqual([])
+    await repo.updateRun(runRecord('a', 0, 'finished'))
+    expect((await repo.getRun('a'))?.sessionId).toBe('s')
+    expect(await repo.doneSessionIds()).toEqual(['s'])
+    await repo.deleteRun('a')
+    expect(await repo.doneSessionIds()).toEqual([])
   })
 
   it('deletes a run with its points', async () => {

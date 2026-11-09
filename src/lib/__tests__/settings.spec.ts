@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadCueConfig, setCueConfig, cueConfig } from '../settings'
+import {
+  cueConfig,
+  followedProgramId,
+  loadCueConfig,
+  loadFollowedProgram,
+  setCueConfig,
+  setFollowedProgram,
+} from '../settings'
 
 // Node's own experimental localStorage can shadow jsdom's, so use a plain in-memory one
 function memoryStorage(): Storage {
@@ -49,5 +56,27 @@ describe('cue settings', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     expect(() => setCueConfig({ distanceKm: 2, timeMin: 0 })).not.toThrow()
     expect(cueConfig.value.distanceKm).toBe(2)
+  })
+})
+
+describe('followed program (#40)', () => {
+  it('is none at first, survives a restart, and can be cleared', () => {
+    expect(loadFollowedProgram()).toBeNull()
+    setFollowedProgram('p1')
+    expect(followedProgramId.value).toBe('p1')
+    expect(loadFollowedProgram()).toBe('p1')
+    setFollowedProgram(null)
+    expect(followedProgramId.value).toBeNull()
+    expect(loadFollowedProgram()).toBeNull()
+  })
+
+  it('reads as none when storage is unavailable', () => {
+    vi.stubGlobal('localStorage', {
+      ...memoryStorage(),
+      getItem: () => {
+        throw new Error('blocked')
+      },
+    })
+    expect(loadFollowedProgram()).toBeNull()
   })
 })

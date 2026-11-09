@@ -31,6 +31,7 @@ const finished = (id: string, startedAt: number, name: string | null = null): Ru
   segmentStartedAt: null,
   movingMs: 600_000,
   distanceM: 2000,
+  sessionId: null,
 })
 
 async function addRun(repo: ReturnType<typeof createMemoryRunRepository>, run: RunRecord) {

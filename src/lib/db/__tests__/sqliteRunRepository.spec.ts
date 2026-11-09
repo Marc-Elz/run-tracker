@@ -121,6 +121,7 @@ describe('sqlite connection and run repository', () => {
       segmentStartedAt: null,
       movingMs: 8,
       distanceM: 12.5,
+      sessionId: null,
     })
   })
 
@@ -162,6 +163,7 @@ describe('sqlite connection and run repository', () => {
       segmentStartedAt: null,
       movingMs: 1,
       distanceM: 10,
+      sessionId: null,
     })
     expect(plugin.db.run.mock.lastCall![0]).not.toContain('name')
   })
@@ -203,6 +205,7 @@ describe('sqlite connection and run repository', () => {
       segmentStartedAt: null,
       movingMs: 1,
       distanceM: 10,
+      sessionId: null,
     }
     const points = [
       { segment: 0, timestamp: 5, lat: 1, lon: 2, accuracy: 3 },

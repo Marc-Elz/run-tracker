@@ -97,6 +97,46 @@ describe('run store persistence', () => {
     expect(await run.finish(20_000)).not.toBeNull()
   })
 
+  it('links a run started from a session, and keeps the link after the app is killed (#40)', async () => {
+    const run = store()
+    run.start(0, 's1')
+    expect(run.sessionId).toBe('s1')
+    run.addPoint(at(1_000, 0))
+    await settle()
+    expect((await repo.findUnfinished())[0]?.sessionId).toBe('s1')
+
+    const after = relaunch()
+    await after.recover()
+    expect(after.sessionId).toBe('s1')
+    expect(await after.finish(5_000)).not.toBeNull()
+    expect(after.sessionId).toBeNull()
+    expect(await repo.doneSessionIds()).toEqual(['s1'])
+  })
+
+  it('takes the link as stored: a session that already has a run makes this a free run', async () => {
+    await repo.importRun(
+      {
+        id: 'old',
+        name: null,
+        status: 'finished',
+        startedAt: 0,
+        finishedAt: 1,
+        elapsedMs: 1,
+        segment: 0,
+        segmentStartedAt: null,
+        movingMs: 1,
+        distanceM: 1,
+        sessionId: 's1',
+      },
+      [],
+    )
+    const run = store()
+    run.start(10, 's1')
+    await settle()
+    expect(run.sessionId).toBeNull()
+    expect(run.saveError).toBe(false)
+  })
+
   it('discard deletes the run and its points', async () => {
     const run = store()
     run.start(0)
