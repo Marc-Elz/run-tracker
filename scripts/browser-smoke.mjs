@@ -1,7 +1,7 @@
 // Browser smoke test of the flows that only need a browser: tab bar, a run with the dev GPS
-// simulator, the run summary with its map, History, GPX download, backup and restore, Settings. Starts the dev server itself, no setup beyond
+// simulator, the run summary with its map, History, GPX download, training programs, backup and restore, Settings. Starts the dev server itself, no setup beyond
 // `npx playwright install chromium`. Not part of the pre-PR checks; run it when a change touches these flows.
-// Usage: npm run test:browser   (SHOTS=<dir> saves screenshots of Settings and the finished run)
+// Usage: npm run test:browser   (SHOTS=<dir> saves screenshots of Settings, the training screens and the finished run)
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createServer } from 'vite'
@@ -56,7 +56,7 @@ try {
   await page.goto(url)
   await page.waitForSelector('main.run')
   const tabs = (await page.locator('nav a').allTextContents()).map((t) => t.trim())
-  check('tab bar has Run, History, Settings', tabs.join() === 'Run,History,Settings', tabs.join())
+  check('tab bar has Run, History, Training, Settings', tabs.join() === 'Run,History,Training,Settings', tabs.join())
 
   // Settings and History
   await page.locator('nav a', { hasText: 'Settings' }).click()
@@ -68,7 +68,7 @@ try {
     'Settings has no permission buttons in the browser',
     (await page.locator('.settings .row:not(.cues):not(.backup) button').count()) === 0,
   )
-  check('Back up runs is disabled before the first run', await page.getByRole('button', { name: 'Back up runs' }).isDisabled())
+  check('Back up is disabled before the first run or program', await page.getByRole('button', { name: 'Back up', exact: true }).isDisabled())
   check('no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
   if (shots) await page.screenshot({ path: join(shots, 'settings.png') })
   await page.locator('nav a', { hasText: 'History' }).click()
@@ -139,12 +139,38 @@ try {
   check('GPX has one segment per pause/resume', segments === 2, `${segments} segments, ${points} points`)
   check('GPX points have UTC times', points > 5 && !/<trkpt [^>]*><(?!ele|time)/.test(xml) && /<time>\d{4}-\d{2}-\d{2}T[\d:.]+Z<\/time>/.test(xml))
 
+  // Training: a program with one session, which the backup below then holds too
+  await page.locator('nav a', { hasText: 'Training' }).click()
+  await page.waitForSelector('main.page')
+  check('Training is empty at first', (await page.locator('main').innerText()).includes('No training programs yet'))
+  await page.getByRole('link', { name: '+ New program' }).click()
+  await page.locator('#program-name').fill('Half marathon')
+  await page.locator('#program-goal').fill('Sub 2:00')
+  if (shots) await page.screenshot({ path: join(shots, 'program-form.png') })
+  await page.locator('form').getByRole('button', { name: 'Save' }).click()
+  await page.getByText('Sub 2:00 · 8 weeks').waitFor()
+  check('a new program opens with its weeks', (await page.locator('.week').count()) === 8)
+  await page.getByRole('link', { name: '+ Add session to week 1' }).click()
+  await page.getByRole('button', { name: 'Intervals' }).click()
+  await page.locator('#session-title').fill('6×400 m')
+  check('session editor has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  if (shots) await page.screenshot({ path: join(shots, 'session-editor.png') })
+  await page.locator('form').getByRole('button', { name: 'Save' }).click()
+  await page.locator('.week').first().getByText('6×400 m').waitFor()
+  check('the session is listed in its week', (await page.locator('.week').first().innerText()).includes('Intervals'))
+  check('program has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  if (shots) await page.screenshot({ path: join(shots, 'program.png'), fullPage: true })
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.waitForSelector('main.page .row')
+  check('Training lists the program', (await page.locator('main .row').innerText()).includes('1 session'))
+  if (shots) await page.screenshot({ path: join(shots, 'training.png') })
+
   // Backup: download the file from Settings (checked below after Delete, by restoring it)
   await page.locator('nav a', { hasText: 'Settings' }).click()
   await page.waitForSelector('.settings')
   const [backupDownload] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('button', { name: 'Back up runs' }).click(),
+    page.getByRole('button', { name: 'Back up', exact: true }).click(),
   ])
   const backupName = backupDownload.suggestedFilename()
   check('backup file is run-tracker-backup-YYYY-MM-DD.json', /^run-tracker-backup-\d{4}-\d{2}-\d{2}\.json$/.test(backupName), backupName)
@@ -155,7 +181,11 @@ try {
     backup.format === 'run-tracker-backup' && backup.runs.length === 1 && backup.runs[0].points.length > 5,
     `${backup.runs.length} run(s)`,
   )
-  check('Settings says what was backed up', (await page.locator('.settings').innerText()).includes('Backed up 1 run'))
+  check(
+    'backup holds the program with its session',
+    backup.version === 2 && backup.programs.length === 1 && backup.programs[0].sessions.length === 1,
+  )
+  check('Settings says what was backed up', (await page.locator('.settings').innerText()).includes('Backed up 1 run and 1 program'))
 
   // The run is listed in History and opens from there; Delete asks first
   await page.locator('nav a', { hasText: 'History' }).click()
@@ -177,10 +207,11 @@ try {
   await page.locator('nav a', { hasText: 'Settings' }).click()
   await page.waitForSelector('.settings')
   await page.locator('.settings input[type="file"]').setInputFiles(backupPath)
-  await page.getByText('Restored 1 run', { exact: true }).waitFor()
+  // The program was never deleted, so it counts as already on this phone
+  await page.getByText('Restored 1 run, 1 already on this phone', { exact: true }).waitFor()
   check('restore brings the run back', true)
   await page.locator('.settings input[type="file"]').setInputFiles(backupPath)
-  await page.getByText('Restored 0 runs, 1 already on this phone').waitFor()
+  await page.getByText('Restored 0 runs, 2 already on this phone').waitFor()
   check('restoring the same file again adds nothing', true)
   await page.locator('nav a', { hasText: 'History' }).click()
   await page.waitForSelector('.history .row')

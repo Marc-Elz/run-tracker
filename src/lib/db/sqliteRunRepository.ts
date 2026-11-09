@@ -1,10 +1,7 @@
-import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite'
 import type { TrackPoint } from '@/lib/geo'
 import type { RouteOverview } from '@/lib/routeOverview'
-import { migrate } from './migrations'
+import type { SqlConnection } from './migrations'
 import type { RunRecord, RunRepository, StoredPoint, StoredRunStatus } from './runRepository'
-
-const DB_NAME = 'runtracker'
 
 type Row = Record<string, unknown>
 
@@ -55,22 +52,10 @@ export function toRouteOverview(row: Row): RouteOverview {
 }
 
 /**
- * Open the app database and bring its schema up to date. Every `run` call commits on its
- * own, so a killed app loses at most the write in flight.
+ * Runs on the app database (opened by `openDb`). Every `run` call commits on its own, so a killed
+ * app loses at most the write in flight.
  */
-export async function openSqliteRunRepository(): Promise<RunRepository> {
-  const sqlite = new SQLiteConnection(CapacitorSQLite)
-  // The native side outlives a WebView reload; this closes connections JS no longer knows
-  // about, so the create below doesn't fail with "Connection runtracker already exists"
-  const consistent = (await sqlite.checkConnectionsConsistency()).result
-  const exists = (await sqlite.isConnection(DB_NAME, false)).result
-  const db =
-    consistent && exists
-      ? await sqlite.retrieveConnection(DB_NAME, false)
-      : await sqlite.createConnection(DB_NAME, false, 'no-encryption', 1, false)
-  if (!(await db.isDBOpen()).result) await db.open()
-  await migrate(db)
-
+export function createSqliteRunRepository(db: SqlConnection): RunRepository {
   return {
     async createRun(run) {
       const now = Date.now()

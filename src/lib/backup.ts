@@ -1,15 +1,31 @@
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
+import {
+  checkProgram,
+  checkSession,
+  checkSteps,
+  TrainingError,
+  SESSION_TYPES,
+  STEP_KINDS,
+  TARGET_KINDS,
+  dayNumber,
+  type ProgramBundle,
+  type ProgramSession,
+  type SessionStep,
+  type TrainingProgram,
+} from '@/lib/training'
 
 /**
- * The backup file, version 1. One JSON object:
- *   { format: 'run-tracker-backup', version: 1, exportedAt: <epoch ms>,
- *     runs: [{ run: RunRecord, points: StoredPoint[] }] }
- * Only finished runs are in it. Field names are the ones of `RunRecord` and `StoredPoint`; times
- * are UTC epoch milliseconds. The sync to the home server (#24) builds on this format, so a change
- * that old files cannot satisfy needs a new `version`.
+ * The backup file, version 2. One JSON object:
+ *   { format: 'run-tracker-backup', version: 2, exportedAt: <epoch ms>,
+ *     runs: [{ run: RunRecord, points: StoredPoint[] }],
+ *     programs: [{ program: TrainingProgram, sessions: ProgramSession[], steps: SessionStep[] }] }
+ * Only finished runs are in it. Field names are the ones of those types; times are UTC epoch
+ * milliseconds. Version 1 is the same without `programs`, and is still read. The sync to the
+ * home server (#24) builds on this format, so a change that old files cannot satisfy needs a new
+ * `version`.
  */
 export const BACKUP_FORMAT = 'run-tracker-backup'
-export const BACKUP_VERSION = 1
+export const BACKUP_VERSION = 2
 
 export interface BackupRun {
   run: RunRecord
@@ -18,7 +34,8 @@ export interface BackupRun {
 
 export interface ParsedBackup {
   runs: BackupRun[]
-  /** Runs in the file that were malformed and left out */
+  programs: ProgramBundle[]
+  /** Runs and programs in the file that were malformed and left out */
   rejected: number
 }
 
@@ -28,11 +45,17 @@ export class BackupError extends Error {}
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /**
- * Changes whenever a backup of these runs would differ: a run added, deleted or renamed, or a new
- * day. Saved runs do not otherwise change, so an equal key means the same file content.
+ * Changes whenever a backup of these runs and programs would differ: a run added, deleted or
+ * renamed, a program added, deleted or changed anywhere inside (its `updatedAt` moves on every
+ * write), or a new day. Saved runs do not otherwise change, so an equal key means the same file
+ * content.
  */
-export const backupKey = (fileName: string, runs: RunRecord[]) =>
-  JSON.stringify([fileName, runs.map((r) => [r.id, r.name, r.finishedAt, r.distanceM, r.movingMs])])
+export const backupKey = (fileName: string, runs: RunRecord[], programs: TrainingProgram[]) =>
+  JSON.stringify([
+    fileName,
+    runs.map((r) => [r.id, r.name, r.finishedAt, r.distanceM, r.movingMs]),
+    programs.map((p) => [p.id, p.updatedAt]),
+  ])
 
 /** "run-tracker-backup-2026-10-28.json", local date */
 export function backupFileName(now: number): string {
@@ -42,17 +65,27 @@ export function backupFileName(now: number): string {
 
 /**
  * The file as pieces that join to one JSON text: header, one piece per run (with its separator),
- * footer. Writing them one by one keeps a large backup from ever being one huge string.
+ * the switch to programs, one piece per program, footer. Writing them one by one keeps a large
+ * backup from ever being one huge string.
  */
 export const backupHeader = (now: number) =>
   `{"format":"${BACKUP_FORMAT}","version":${BACKUP_VERSION},"exportedAt":${now},"runs":[`
 export const backupRunPiece = (entry: BackupRun, index: number) =>
   (index > 0 ? ',' : '') + JSON.stringify(entry)
+export const BACKUP_PROGRAMS_START = '],"programs":['
+export const backupProgramPiece = (bundle: ProgramBundle, index: number) =>
+  (index > 0 ? ',' : '') + JSON.stringify(bundle)
 export const BACKUP_FOOTER = ']}'
 
-/** The file text for these runs (compact: a backup of many runs is large). */
-export function buildBackup(runs: BackupRun[], now: number): string {
-  return backupHeader(now) + runs.map(backupRunPiece).join('') + BACKUP_FOOTER
+/** The file text for these runs and programs (compact: a backup of many runs is large). */
+export function buildBackup(runs: BackupRun[], programs: ProgramBundle[], now: number): string {
+  return (
+    backupHeader(now) +
+    runs.map(backupRunPiece).join('') +
+    BACKUP_PROGRAMS_START +
+    programs.map(backupProgramPiece).join('') +
+    BACKUP_FOOTER
+  )
 }
 
 type Json = Record<string, unknown>
@@ -61,6 +94,13 @@ const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.is
 const isCount = (v: unknown): v is number => isNumber(v) && Number.isInteger(v) && v >= 0
 const isNonNegative = (v: unknown): v is number => isNumber(v) && v >= 0
 const optionalNumber = (v: unknown) => v === undefined || isNumber(v)
+const isId = (v: unknown): v is string => typeof v === 'string' && v !== ''
+const isText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
+const isTextOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string'
+const isNumberOrNull = (v: unknown): v is number | null => v === null || isNumber(v)
+const isWhole = (v: unknown, min: number): v is number => isCount(v) && v >= min
+const oneOf = <T extends string>(list: readonly T[], v: unknown): v is T =>
+  (list as readonly unknown[]).includes(v)
 
 function toPoint(raw: unknown): StoredPoint | null {
   if (!isObject(raw)) return null
@@ -98,10 +138,93 @@ function toRun(raw: unknown): RunRecord | null {
   }
 }
 
+/** The result of a `lib/training` check, or null when the check refuses it */
+function obeys<T>(check: () => T): T | null {
+  try {
+    return check()
+  } catch (err) {
+    if (err instanceof TrainingError) return null
+    throw err
+  }
+}
+
+function toProgram(raw: unknown): TrainingProgram | null {
+  if (!isObject(raw)) return null
+  const { id, name, goal, weeks, startDate, createdAt, updatedAt } = raw
+  if (!isId(id) || !isText(name) || !isTextOrNull(goal) || !isWhole(weeks, 1)) return null
+  if (startDate !== null && (typeof startDate !== 'string' || dayNumber(startDate) === null)) {
+    return null
+  }
+  if (!isNumber(createdAt) || !isNumber(updatedAt)) return null
+  // The same rules as a program entered in the app (weeks, lengths, trimming)
+  const checked = obeys(() => checkProgram({ name, goal, weeks, startDate }))
+  return checked && { id, ...checked, createdAt, updatedAt }
+}
+
+function toSession(raw: unknown, program: TrainingProgram): ProgramSession | null {
+  if (!isObject(raw)) return null
+  const { id, programId, week, position, type, title, notes } = raw
+  if (!isId(id) || programId !== program.id) return null
+  if (!isWhole(week, 1) || week > program.weeks || !isNumber(position)) return null
+  if (!oneOf(SESSION_TYPES, type) || !isText(title) || !isTextOrNull(notes)) return null
+  const checked = obeys(() => checkSession({ week, type, title, notes }, program.weeks))
+  return checked && { id, programId, position, ...checked }
+}
+
+function toStep(raw: unknown, sessionIds: Set<string>): SessionStep | null {
+  if (!isObject(raw)) return null
+  const { id, sessionId, position, kind, targetKind, targetValue, paceMin, paceMax } = raw
+  const { repetitions, span } = raw
+  if (!isId(id) || typeof sessionId !== 'string' || !sessionIds.has(sessionId)) return null
+  if (!isNumber(position) || !oneOf(STEP_KINDS, kind) || !oneOf(TARGET_KINDS, targetKind)) {
+    return null
+  }
+  if (![targetValue, paceMin, paceMax, repetitions, span].every(isNumberOrNull)) return null
+  return {
+    id,
+    sessionId,
+    position,
+    kind,
+    targetKind,
+    targetValue: targetValue as number | null,
+    paceMin: paceMin as number | null,
+    paceMax: paceMax as number | null,
+    repetitions: repetitions as number | null,
+    span: span as number | null,
+  }
+}
+
+/**
+ * A program with valid sessions and steps, or null. `seen` holds the ids of the programs,
+ * sessions and steps accepted so far: an id used twice in one file would make the import fail on
+ * the phone, so that program is left out instead.
+ */
+function toBundle(raw: unknown, seen: Set<string>): ProgramBundle | null {
+  if (!isObject(raw) || !Array.isArray(raw.sessions) || !Array.isArray(raw.steps)) return null
+  const program = toProgram(raw.program)
+  if (program === null) return null
+  const sessions = raw.sessions.map((s) => toSession(s, program))
+  if (sessions.some((s) => s === null)) return null
+  const sessionIds = new Set((sessions as ProgramSession[]).map((s) => s.id))
+  const steps = raw.steps.map((s) => toStep(s, sessionIds))
+  if (steps.some((s) => s === null)) return null
+  const bundle = { program, sessions: sessions as ProgramSession[], steps: steps as SessionStep[] }
+  const ids = [program.id, ...bundle.sessions.map((s) => s.id), ...bundle.steps.map((s) => s.id)]
+  if (new Set(ids).size !== ids.length || ids.some((id) => seen.has(id))) return null
+  for (const session of bundle.sessions) {
+    const own = bundle.steps
+      .filter((s) => s.sessionId === session.id)
+      .sort((a, b) => a.position - b.position)
+    if (obeys(() => checkSteps(own)) === null) return null
+  }
+  for (const id of ids) seen.add(id)
+  return bundle
+}
+
 /**
  * Read a backup file. Throws `BackupError` when the file as a whole is not usable (not JSON, not
- * ours, from a newer app, or holding a run that never finished); a single malformed run is
- * left out and counted instead. Nothing is written here.
+ * ours, from a newer app, or holding a run that never finished); a single malformed run or
+ * program is left out and counted instead. Nothing is written here.
  */
 export function parseBackup(text: string): ParsedBackup {
   let data: unknown
@@ -118,6 +241,10 @@ export function parseBackup(text: string): ParsedBackup {
   }
   if (data.version > BACKUP_VERSION) {
     throw new BackupError('This backup was made by a newer version of the app. Update the app first.')
+  }
+  // After the version: a newer app may store programs differently
+  if (data.programs !== undefined && !Array.isArray(data.programs)) {
+    throw new BackupError('This backup is damaged: its training programs cannot be read.')
   }
 
   const runs: BackupRun[] = []
@@ -136,5 +263,13 @@ export function parseBackup(text: string): ParsedBackup {
     }
     runs.push({ run, points: points as StoredPoint[] })
   }
-  return { runs, rejected }
+
+  const programs: ProgramBundle[] = []
+  const seen = new Set<string>()
+  for (const entry of (data.programs as unknown[] | undefined) ?? []) {
+    const bundle = toBundle(entry, seen)
+    if (bundle === null) rejected++
+    else programs.push(bundle)
+  }
+  return { runs, programs, rejected }
 }

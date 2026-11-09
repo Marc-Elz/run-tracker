@@ -24,7 +24,7 @@ describe('App shell', () => {
   it('shows the tab bar and switches screens', async () => {
     const wrapper = mountApp()
     const nav = wrapper.find('nav')
-    expect(nav.findAll('a').map((a) => a.text())).toEqual(['Run', 'History', 'Settings'])
+    expect(nav.findAll('a').map((a) => a.text())).toEqual(['Run', 'History', 'Training', 'Settings'])
     await nav.findAll('a')[1]!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('History')

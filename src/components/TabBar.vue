@@ -2,6 +2,7 @@
 const tabs = [
   { to: '/', label: 'Run' },
   { to: '/history', label: 'History' },
+  { to: '/training', label: 'Training' },
   { to: '/settings', label: 'Settings' },
 ]
 </script>
