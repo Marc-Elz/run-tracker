@@ -13,6 +13,7 @@ const run = (startedAt: number, distanceM: number, elapsedMs = 600_000): RunReco
   segmentStartedAt: null,
   movingMs: elapsedMs,
   distanceM,
+  sessionId: null,
 })
 
 // Local-time dates so the tests hold in any time zone. 2026-10-28 is a Wednesday.

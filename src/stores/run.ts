@@ -27,6 +27,8 @@ export const useRunStore = defineStore('run', () => {
   const runId = ref<string | null>(null)
   const startedAt = ref<number | null>(null)
   const finishedAt = ref<number | null>(null)
+  // The training session this run was started from (#40), as stored; null for a free run
+  const sessionId = ref<string | null>(null)
   // Brought back after the app was killed mid-run; cleared on resume
   const recovered = ref(false)
   // A write to the database failed: the run goes on, but may not survive the app closing
@@ -83,6 +85,7 @@ export const useRunStore = defineStore('run', () => {
       segmentStartedAt: segmentStart.value,
       movingMs: movingMs.value,
       distanceM: distanceM.value,
+      sessionId: sessionId.value,
     }
   }
 
@@ -114,18 +117,24 @@ export const useRunStore = defineStore('run', () => {
     }
   }
 
-  function start(t: number = Date.now()) {
+  /** Start a run, linked to a training session when one is given (#40) */
+  function start(t: number = Date.now(), session: string | null = null) {
     if (status.value !== 'idle') return
     reset()
     status.value = 'running'
     runId.value = crypto.randomUUID()
+    sessionId.value = session
     startedAt.value = t
     segmentStart.value = t
     segments.value.push([])
     tick(t)
     startTimer()
     const run = record()
-    persist((r) => r.createRun(run))
+    persist(async (r) => {
+      const stored = await r.createRun(run)
+      // The session may be gone or already run: then this is a free run after all
+      if (runId.value === run.id) sessionId.value = stored
+    })
   }
 
   function pause(t: number = Date.now()) {
@@ -190,6 +199,7 @@ export const useRunStore = defineStore('run', () => {
   const loadOverviews = (onProgress?: (done: number, total: number) => void) =>
     loadRouteOverviews(repo, onProgress)
   const importRun = (run: RunRecord, points: StoredPoint[]) => repo.importRun(run, points)
+  const doneSessionIds = () => repo.doneSessionIds()
 
   /** Name a saved run; blank clears the name. Resolves with the name as stored. */
   async function renameRun(id: string, name: string): Promise<string | null> {
@@ -203,6 +213,7 @@ export const useRunStore = defineStore('run', () => {
     stopTimer()
     status.value = 'idle'
     runId.value = null
+    sessionId.value = null
     startedAt.value = null
     finishedAt.value = null
     recovered.value = false
@@ -247,6 +258,7 @@ export const useRunStore = defineStore('run', () => {
     const restored = toSegments(await repo.loadPoints(latest.id), latest.segment)
     const totals = summarizeTrack(restored)
     runId.value = latest.id
+    sessionId.value = latest.sessionId
     startedAt.value = latest.startedAt
     segments.value = restored
     segmentAccepted.value = []
@@ -279,6 +291,7 @@ export const useRunStore = defineStore('run', () => {
   return {
     status,
     runId,
+    sessionId,
     startedAt,
     recovered,
     saveError,
@@ -302,6 +315,7 @@ export const useRunStore = defineStore('run', () => {
     loadOverviews,
     deleteRun,
     importRun,
+    doneSessionIds,
     renameRun,
     reset,
     discard,

@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import type { TrackPoint } from '@/lib/geo'
 import { GpsError, startGps } from '@/lib/gps'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
+import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
+import { setFollowedProgram } from '@/lib/settings'
 import { useRunStore } from '@/stores/run'
+import { useTrainingStore } from '@/stores/training'
 import RunView from '../RunView.vue'
 
 vi.mock('@capacitor-community/keep-awake', () => ({
@@ -33,8 +36,11 @@ vi.mock('@/lib/gps', async (importOriginal) => ({
   openAppSettings: vi.fn<() => Promise<void>>(async () => {}),
 }))
 
-const nav = vi.hoisted(() => ({ push: vi.fn<(to: unknown) => Promise<void>>(async () => {}) }))
-vi.mock('vue-router', () => ({ useRouter: () => nav }))
+const nav = vi.hoisted(() => ({
+  push: vi.fn<(to: unknown) => Promise<void>>(async () => {}),
+  query: {} as Record<string, string>,
+}))
+vi.mock('vue-router', () => ({ useRouter: () => nav, useRoute: () => ({ query: nav.query }) }))
 
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>
   wrapper.findAll('button').find((b) => b.text() === label)
@@ -44,10 +50,15 @@ async function start(wrapper: ReturnType<typeof mount>) {
   await flushPromises()
 }
 
+// A screen left mounted would keep watching the shared settings and reach into the next test
+enableAutoUnmount(afterEach)
+
 describe('RunView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    nav.query = {}
+    setFollowedProgram(null)
   })
 
   it('walks through start, pause, resume and stop', async () => {
@@ -166,6 +177,7 @@ describe('RunView', () => {
       segmentStartedAt: 0,
       movingMs: 0,
       distanceM: 0,
+      sessionId: null,
     })
     await repo.addPoint('r1', 0, { lat: 52, lon: 4, timestamp: 1000, accuracy: 5 })
     const run = useRunStore()
@@ -182,6 +194,112 @@ describe('RunView', () => {
     expect(wrapper.attributes('data-status')).toBe('running')
     expect(startGps).toHaveBeenCalledOnce()
     expect(wrapper.text()).not.toContain('Run recovered')
+  })
+
+  describe('training sessions (#40)', () => {
+    /** A followed program: week 1 easy (done when `doneFirst`), a rest day, week 2 intervals */
+    async function followed({ doneFirst = false, follow = true } = {}) {
+      const training = useTrainingStore()
+      const run = useRunStore()
+      const programId = await training.createProgram({
+        name: 'Half marathon',
+        goal: null,
+        weeks: 2,
+        startDate: null,
+      })
+      const easy = await training.saveSession(programId, {
+        week: 1,
+        type: 'easy',
+        title: '30 min easy',
+        notes: null,
+      })
+      await training.saveSession(programId, { week: 1, type: 'rest', title: 'Rest', notes: null })
+      const intervals = await training.saveSession(programId, {
+        week: 2,
+        type: 'intervals',
+        title: '6×400 m',
+        notes: null,
+      })
+      if (doneFirst) run.start(0, easy)
+      if (doneFirst) await run.finish(1_000)
+      if (follow) setFollowedProgram(programId)
+      return { programId, easy, intervals }
+    }
+
+    it('offers the next session of the followed program next to a free run', async () => {
+      const { easy } = await followed()
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.text()).toContain('Next session · Week 1')
+      expect(wrapper.text()).toContain('30 min easy')
+      expect(wrapper.text()).toContain('Half marathon')
+      expect(button(wrapper, 'Free run')).toBeDefined()
+
+      await button(wrapper, 'Start session')!.trigger('click')
+      await flushPromises()
+      expect(useRunStore().sessionId).toBe(easy)
+      expect(wrapper.text()).toContain('Week 1 · 30 min easy')
+    })
+
+    it('moves on to the next session once one is done, skipping rest days', async () => {
+      await followed({ doneFirst: true })
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.text()).toContain('Next session · Week 2')
+      expect(wrapper.text()).toContain('6×400 m')
+    })
+
+    it('starts a free run without a link', async () => {
+      await followed()
+      const wrapper = mount(RunView)
+      await flushPromises()
+      await button(wrapper, 'Free run')!.trigger('click')
+      await flushPromises()
+      expect(useRunStore().status).toBe('running')
+      expect(useRunStore().sessionId).toBeNull()
+    })
+
+    it('offers the session picked with "Run this session", even when it is not the next one', async () => {
+      const { intervals } = await followed({ follow: false })
+      nav.query = { session: intervals }
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.text()).toContain('Session · Week 2')
+      await button(wrapper, 'Start session')!.trigger('click')
+      await flushPromises()
+      expect(useRunStore().sessionId).toBe(intervals)
+    })
+
+    it('says when every session is done, and offers a plain Start', async () => {
+      const { intervals } = await followed({ doneFirst: true })
+      const run = useRunStore()
+      run.start(2_000, intervals)
+      await run.finish(3_000)
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.text()).toContain('All sessions done')
+      expect(button(wrapper, 'Start')).toBeDefined()
+      expect(button(wrapper, 'Start session')).toBeUndefined()
+    })
+
+    it('points to Training when no program is followed', async () => {
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.text()).toContain('Follow a program in Training')
+      expect(button(wrapper, 'Start')).toBeDefined()
+    })
+
+    it('still starts a free run when the programs cannot be read', async () => {
+      useTrainingStore().useRepository(unavailableTrainingRepository('broken'))
+      setFollowedProgram('p')
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.find('.session-card').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Follow a program')
+      await start(wrapper)
+      expect(useRunStore().status).toBe('running')
+    })
   })
 
   it('warns when the run is not being saved', async () => {

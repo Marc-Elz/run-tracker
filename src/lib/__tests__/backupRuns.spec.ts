@@ -46,6 +46,7 @@ const finished = (id: string, startedAt: number): RunRecord => ({
   segmentStartedAt: null,
   movingMs: 10,
   distanceM: 5,
+  sessionId: null,
 })
 const point = (timestamp: number) => ({ segment: 0, timestamp, lat: 1, lon: 2 })
 
@@ -280,6 +281,24 @@ describe('backup and restore of runs', () => {
         programsAdded: 0,
         programsSkipped: 1,
       })
+    })
+
+    it('restores programs before runs, so a run finds its session, and keeps the link (#40)', async () => {
+      const source = repos()
+      await source.training.createProgram(program('p'))
+      await source.training.saveSession(session('s', 'p'))
+      await source.importRun({ ...finished('a', 1), sessionId: 's' }, [])
+      await backUpRuns(source, 0)
+
+      const target = repos()
+      const order: string[] = []
+      const importRun = target.importRun
+      const importProgram = target.importProgram
+      target.importRun = (run, points) => (order.push('run'), importRun(run, points))
+      target.importProgram = (bundle) => (order.push('program'), importProgram(bundle))
+      await restoreRuns(target, share.shared.text)
+      expect(order).toEqual(['program', 'run'])
+      expect(await target.doneSessionIds()).toEqual(['s'])
     })
 
     it('counts a program whose ids clash with another one here as rejected, and restores the rest', async () => {

@@ -14,6 +14,7 @@ const run = (over: Partial<RunRecord> = {}): RunRecord => ({
   segmentStartedAt: null,
   movingMs: 0,
   distanceM: 0,
+  sessionId: null,
   ...over,
 })
 

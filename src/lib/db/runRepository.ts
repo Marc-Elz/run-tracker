@@ -20,6 +20,8 @@ export interface RunRecord {
   segmentStartedAt: number | null
   movingMs: number
   distanceM: number
+  /** The training session the run was started from (#40), null for a free run */
+  sessionId: string | null
 }
 
 export interface StoredPoint extends TrackPoint {
@@ -27,7 +29,11 @@ export interface StoredPoint extends TrackPoint {
 }
 
 export interface RunRepository {
-  createRun(run: RunRecord): Promise<void>
+  /**
+   * Resolves with the session link as stored: null when the run's session no longer exists or
+   * already has a run, so a link problem never stops a run from being saved.
+   */
+  createRun(run: RunRecord): Promise<string | null>
   updateRun(run: RunRecord): Promise<void>
   addPoint(runId: string, segment: number, point: TrackPoint): Promise<void>
   /** Sets or clears (null) the name; the rest of the run is untouched */
@@ -44,13 +50,16 @@ export interface RunRepository {
   loadPoints(runId: string): Promise<StoredPoint[]>
   /**
    * Store a finished run with its name and all its points as one unit, points in the given order.
-   * Returns false and writes nothing when a run with this id already exists.
+   * Returns false and writes nothing when a run with this id already exists. The session link is
+   * kept only when that session exists and has no run yet, as in `createRun`.
    */
   importRun(run: RunRecord, points: StoredPoint[]): Promise<boolean>
   /** Stored route overviews of finished runs (a cache; see `loadRouteOverviews`) */
   readOverviews(): Promise<RouteOverview[]>
   /** Stores or replaces the overview of a run */
   saveOverview(overview: RouteOverview): Promise<void>
+  /** Sessions that have a finished run: the done sessions of every program */
+  doneSessionIds(): Promise<string[]>
 }
 
 /** Runs each operation strictly after the previous one finished */
@@ -84,6 +93,7 @@ export function serialized(repo: RunRepository, enqueue: Queue = createQueue()):
     importRun: (run, points) => enqueue(() => repo.importRun(run, points)),
     readOverviews: () => enqueue(() => repo.readOverviews()),
     saveOverview: (overview) => enqueue(() => repo.saveOverview(overview)),
+    doneSessionIds: () => enqueue(() => repo.doneSessionIds()),
   }
 }
 
@@ -105,5 +115,6 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     importRun: fail,
     readOverviews: fail,
     saveOverview: fail,
+    doneSessionIds: fail,
   }
 }

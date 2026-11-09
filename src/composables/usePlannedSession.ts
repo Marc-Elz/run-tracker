@@ -1,0 +1,67 @@
+import { ref, watch, type Ref } from 'vue'
+import { followedProgramId } from '@/lib/settings'
+import {
+  isRunnable,
+  nextSession,
+  type ProgramSession,
+  type TrainingProgram,
+} from '@/lib/training'
+import { useRunStore } from '@/stores/run'
+import { useTrainingStore } from '@/stores/training'
+
+/**
+ * What the Run screen offers to start (#40): a session picked with "Run this session", else the
+ * next session of the followed program. `session` is null when that program is complete.
+ */
+export interface PlannedSession {
+  program: TrainingProgram
+  session: ProgramSession | null
+  /** Picked from the session editor rather than being the next one */
+  chosen: boolean
+}
+
+/**
+ * `planned` is null while loading, when nothing is followed, or when the training data can't be
+ * read: a free run must always stay possible, so a failure only leaves the card out.
+ * `following` tells "nothing followed" (show the hint) apart from those other cases.
+ */
+export function usePlannedSession(requested: Ref<string | null>) {
+  const run = useRunStore()
+  const training = useTrainingStore()
+  const planned = ref<PlannedSession | null>(null)
+  const following = ref(true)
+  let latest = 0
+
+  async function find(): Promise<PlannedSession | null> {
+    const done = new Set(await run.doneSessionIds())
+    if (requested.value !== null) {
+      const session = await training.getSession(requested.value)
+      if (session && isRunnable(session, done)) {
+        const program = await training.getProgram(session.programId)
+        if (program) return { program, session, chosen: true }
+      }
+    }
+    const id = followedProgramId.value
+    if (id === null) return null
+    const program = await training.getProgram(id)
+    if (!program) return null
+    return { program, session: nextSession(await training.listSessions(id), done), chosen: false }
+  }
+
+  async function reload() {
+    const call = ++latest
+    planned.value = null
+    try {
+      const found = await find()
+      if (call !== latest) return
+      planned.value = found
+      // A followed program that no longer exists counts as nothing followed
+      following.value = found !== null
+    } catch (err) {
+      console.warn('[db] could not load the next session', err)
+    }
+  }
+
+  watch([requested, followedProgramId], reload, { immediate: true })
+  return { planned, following, reload }
+}

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { TrainingError, type SessionStep } from '@/lib/training'
 import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
+import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import { useTrainingStore } from '../training'
 
 const program = { name: 'Half', goal: null, weeks: 3, startDate: null }
@@ -16,6 +17,17 @@ describe('training store', () => {
     const stored = (await training.getProgram(id))!
     expect(stored.name).toBe('Half')
     expect(stored.createdAt).toBe(stored.updatedAt)
+  })
+
+  it('stops following a program when it is deleted, and only that one (#40)', async () => {
+    const training = useTrainingStore()
+    const a = await training.createProgram(program)
+    const b = await training.createProgram(program)
+    setFollowedProgram(a)
+    await training.deleteProgram(b)
+    expect(followedProgramId.value).toBe(a)
+    await training.deleteProgram(a)
+    expect(followedProgramId.value).toBeNull()
   })
 
   it('refuses to save a program that breaks a rule, writing nothing', async () => {

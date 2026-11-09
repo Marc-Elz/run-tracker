@@ -30,6 +30,7 @@ const finished = (
   segmentStartedAt: null,
   movingMs: 60_000,
   distanceM,
+  sessionId: null,
 })
 
 const mountView = async () => {

@@ -3,8 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useTrainingStore } from '@/stores/training'
+import { useRunStore } from '@/stores/run'
+import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import {
   localDate,
+  nextSession,
   programWeek,
   SESSION_TYPE_LABELS,
   type ProgramSession,
@@ -14,12 +17,21 @@ import {
 const route = useRoute()
 const router = useRouter()
 const training = useTrainingStore()
+const run = useRunStore()
 const id = computed(() => route.params.id as string)
 const leave = useLeaveScreen(() => ({ name: 'training' }))
 
 const program = ref<TrainingProgram | null>(null)
 const sessions = ref<ProgramSession[]>([])
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>('loading')
+// Sessions with a finished run (#40); empty when they could not be read, so no marks show
+const done = ref<ReadonlySet<string>>(new Set())
+const next = computed(() => nextSession(sessions.value, done.value))
+const following = computed(() => followedProgramId.value === id.value)
+
+function toggleFollow() {
+  setFollowedProgram(following.value ? null : id.value)
+}
 
 /** Every week of the program, empty ones included, with its sessions in order */
 const weeks = computed(() =>
@@ -56,6 +68,11 @@ async function load() {
     program.value = found
     sessions.value = await training.listSessions(id.value)
     state.value = 'ready'
+    try {
+      done.value = new Set(await run.doneSessionIds())
+    } catch (err) {
+      console.warn('[db] could not load the done sessions', err)
+    }
   } catch (err) {
     console.warn('[db] could not load program', err)
     state.value = 'error'
@@ -94,6 +111,14 @@ onMounted(load)
       <h1 class="title">{{ program.name }}</h1>
       <p class="message subtitle">{{ subtitle }}</p>
       <p v-if="where" class="where">{{ where }}</p>
+      <button
+        class="btn btn--wide follow"
+        :class="{ 'follow--on': following }"
+        :aria-pressed="following"
+        @click="toggleFollow()"
+      >
+        {{ following ? '✓ Following' : 'Follow this program' }}
+      </button>
 
       <section v-for="w in weeks" :key="w.week" class="week" :aria-labelledby="`week-${w.week}`">
         <h2 :id="`week-${w.week}`" class="week__title">Week {{ w.week }}</h2>
@@ -102,11 +127,13 @@ onMounted(load)
             <RouterLink
               :to="{ name: 'session-edit', params: { id, sid: s.id } }"
               class="row"
-              :class="{ 'row--rest': s.type === 'rest' }"
+              :class="{ 'row--rest': s.type === 'rest', 'row--done': done.has(s.id) }"
             >
-              <span class="session__number">{{ i + 1 }}</span>
+              <span v-if="done.has(s.id)" class="session__number" aria-label="Done">✓</span>
+              <span v-else class="session__number">{{ i + 1 }}</span>
               <span class="session__type">{{ SESSION_TYPE_LABELS[s.type] }}</span>
               <span class="row__title session__title">{{ s.title }}</span>
+              <span v-if="next?.id === s.id" class="next">Next</span>
               <span class="row__chevron" aria-hidden="true">›</span>
             </RouterLink>
           </li>
@@ -178,6 +205,36 @@ onMounted(load)
 
 .row--rest {
   opacity: 0.6;
+}
+
+.row--done .session__number {
+  color: #1f9d55;
+  font-weight: 700;
+}
+
+.row--done .session__title {
+  color: #9aa5b1;
+}
+
+.next {
+  flex-shrink: 0;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.5rem;
+  background: #1f9d55;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.follow {
+  margin-top: 0.75rem;
+  background: #1a2027;
+}
+
+.follow--on {
+  background: #1f6b42;
 }
 
 .empty-week {

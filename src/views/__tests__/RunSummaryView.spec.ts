@@ -35,6 +35,7 @@ const record: RunRecord = {
   segmentStartedAt: null,
   movingMs: 3000,
   distanceM: 33,
+  sessionId: null,
 }
 
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>

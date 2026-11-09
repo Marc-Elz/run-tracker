@@ -6,6 +6,7 @@ import { useBackInterceptor } from '@/composables/useBackButton'
 import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useSortableSteps } from '@/composables/useSortableSteps'
 import { useTrainingStore } from '@/stores/training'
+import { useRunStore } from '@/stores/run'
 import {
   MAX_NAME_LENGTH,
   MAX_NOTES_LENGTH,
@@ -23,6 +24,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const training = useTrainingStore()
+const run = useRunStore()
 
 const programId = computed(() => route.params.id as string)
 // No session id: a new session
@@ -47,6 +49,8 @@ const confirming = ref(false)
 const deleting = ref(false)
 const deleteError = ref<string | null>(null)
 const confirmingRest = ref(false)
+// This session has a finished run (#40); null until known, or when it could not be read
+const done = ref<boolean | null>(null)
 
 const blocks = ref<StepBlock[]>([])
 const stepsRoot = ref<HTMLElement | null>(null)
@@ -67,6 +71,15 @@ const dirty = computed(() => {
 })
 const showSteps = computed(() => stored.value !== null && stored.value.type !== 'rest')
 const stepsLocked = computed(() => dirty.value || saving.value || stepsBusy.value)
+// "Run this session": a saved session that isn't a rest day and has no run yet
+const canRun = computed(
+  () =>
+    sessionId.value !== undefined &&
+    stored.value !== null &&
+    stored.value.type !== 'rest' &&
+    done.value === false &&
+    run.status === 'idle',
+)
 
 useBackInterceptor(confirming, () => {
   if (!deleting.value) confirming.value = false
@@ -103,6 +116,11 @@ async function load() {
       form.value = { week, type, title, notes }
       stored.value = { week, type, title, notes }
       blocks.value = await training.loadBlocks(session.id)
+      try {
+        done.value = (await run.doneSessionIds()).includes(session.id)
+      } catch (err) {
+        console.warn('[db] could not tell whether this session was run', err)
+      }
     } else {
       form.value.week = Math.min(form.value.week, program.weeks)
     }
@@ -146,6 +164,12 @@ async function store() {
   } finally {
     saving.value = false
   }
+}
+
+/** To the Run screen with this session ready to start; leaving is safe, nothing is unsaved */
+function runSession() {
+  if (!canRun.value || dirty.value || saving.value) return
+  void router.push({ name: 'run', query: { session: sessionId.value } })
 }
 
 async function onDelete() {
@@ -353,6 +377,18 @@ onMounted(load)
         </button>
       </section>
 
+      <template v-if="canRun">
+        <button
+          class="btn btn--primary btn--wide"
+          :disabled="dirty || saving"
+          @click="runSession()"
+        >
+          Run this session
+        </button>
+        <p v-if="dirty" class="hint run-hint">Save your changes first to run this session.</p>
+      </template>
+      <p v-else-if="done" class="done">✓ Done</p>
+
       <button
         v-if="sessionId"
         class="btn btn--danger btn--wide"
@@ -372,6 +408,7 @@ onMounted(load)
       @confirm="onDelete()"
     >
       {{ form.title || 'It' }} is removed from week {{ form.week }}.
+      <template v-if="done">Your run for it is kept.</template>
     </ConfirmDialog>
 
     <ConfirmDialog
@@ -388,3 +425,15 @@ onMounted(load)
 </template>
 
 <style scoped src="./training.css"></style>
+
+<style scoped>
+.run-hint {
+  margin-top: 0;
+}
+
+.done {
+  margin: 1rem 1.5rem 0;
+  color: #1f9d55;
+  font-weight: 700;
+}
+</style>

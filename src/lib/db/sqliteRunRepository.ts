@@ -20,6 +20,8 @@ export function toRunRecord(row: Row): RunRecord {
     segmentStartedAt: optional(row.segment_started_at) ?? null,
     movingMs: Number(row.moving_ms),
     distanceM: Number(row.distance_m),
+    sessionId:
+      row.session_id === null || row.session_id === undefined ? null : String(row.session_id),
   }
 }
 
@@ -52,6 +54,14 @@ export function toRouteOverview(row: Row): RouteOverview {
 }
 
 /**
+ * The value written to `runs.session_id`: the session when it exists and has no run yet, else
+ * NULL. Takes the session id as its one value. A dangling or second link would fail the whole
+ * insert, and a run must never go unsaved over its link.
+ */
+const SESSION_LINK = `(SELECT s.id FROM program_sessions s WHERE s.id = ?
+  AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.session_id = s.id))`
+
+/**
  * Runs on the app database (opened by `openDb`). Every `run` call commits on its own, so a killed
  * app loses at most the write in flight.
  */
@@ -61,8 +71,8 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       const now = Date.now()
       await db.run(
         `INSERT INTO runs (id, status, started_at, finished_at, elapsed_ms, segment,
-          segment_started_at, moving_ms, distance_m, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          segment_started_at, moving_ms, distance_m, created_at, updated_at, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SESSION_LINK})`,
         [
           run.id,
           run.status,
@@ -75,8 +85,12 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
           run.distanceM,
           now,
           now,
+          run.sessionId,
         ],
       )
+      const stored = await db.query('SELECT session_id FROM runs WHERE id = ?', [run.id])
+      const link = stored.values?.[0]?.session_id
+      return link === null || link === undefined ? null : String(link)
     },
     async updateRun(run) {
       await db.run(
@@ -153,8 +167,8 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
         [
           {
             statement: `INSERT INTO runs (id, name, status, started_at, finished_at, elapsed_ms,
-              segment, segment_started_at, moving_ms, distance_m, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              segment, segment_started_at, moving_ms, distance_m, created_at, updated_at, session_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SESSION_LINK})`,
             values: [
               run.id,
               run.name,
@@ -168,6 +182,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
               run.distanceM,
               now,
               now,
+              run.sessionId,
             ],
           },
           ...points.map((p) => ({
@@ -195,6 +210,12 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
          JOIN runs r ON r.id = o.run_id WHERE r.status = 'finished'`,
       )
       return (result.values ?? []).map(toRouteOverview)
+    },
+    async doneSessionIds() {
+      const result = await db.query(
+        `SELECT session_id FROM runs WHERE status = 'finished' AND session_id IS NOT NULL`,
+      )
+      return (result.values ?? []).map((row) => String(row.session_id))
     },
     async saveOverview(o) {
       await db.run(

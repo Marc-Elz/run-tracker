@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 import type { ProgramBundle } from '@/lib/training'
-import { BackupError, backupFileName, buildBackup, parseBackup } from '../backup'
+import { BackupError, backupFileName, backupKey, buildBackup, parseBackup } from '../backup'
 
 const run = (id: string, over: Partial<RunRecord> = {}): RunRecord => ({
   id,
@@ -14,6 +14,7 @@ const run = (id: string, over: Partial<RunRecord> = {}): RunRecord => ({
   segmentStartedAt: null,
   movingMs: 55_000,
   distanceM: 150.5,
+  sessionId: null,
   ...over,
 })
 const point = (over: Partial<StoredPoint> = {}): StoredPoint => ({
@@ -44,6 +45,29 @@ describe('buildBackup and parseBackup', () => {
     const text = buildBackup(runs, [], 5_000)
     expect(JSON.parse(text)).toMatchObject({ format: 'run-tracker-backup', version: 2, exportedAt: 5_000 })
     expect(parseBackup(text)).toEqual({ runs, programs: [], rejected: 0 })
+  })
+
+  it('keeps the session a run was started from, and reads a run without one as a free run (#40)', () => {
+    const linked = { run: run('a', { sessionId: 's1' }), points: [] }
+    expect(parseBackup(buildBackup([linked], [], 0)).runs).toEqual([linked])
+
+    // Files made before #40 have no sessionId at all
+    const { sessionId: _, ...old } = run('b')
+    const text = JSON.stringify({
+      format: 'run-tracker-backup',
+      version: 1,
+      exportedAt: 0,
+      runs: [{ run: old, points: [] }, { run: { ...old, id: 'c', sessionId: 7 }, points: [] }],
+    })
+    const parsed = parseBackup(text)
+    expect(parsed.runs.map((r) => r.run)).toEqual([run('b')])
+    expect(parsed.rejected).toBe(1)
+  })
+
+  it('changes the backup key when a run gets or loses its session', () => {
+    expect(backupKey('f', [run('a')], [])).not.toBe(
+      backupKey('f', [run('a', { sessionId: 's1' })], []),
+    )
   })
 
   it('keeps the order of the points', () => {

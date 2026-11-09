@@ -111,7 +111,8 @@ export async function backUpRuns(
  * never overwritten. A program whose session or step ids belong to something else on this phone
  * (only possible with a hand-edited file) is counted as rejected and the rest goes on. A storage
  * failure stops the restore, for programs as for runs, so it is reported as a failure and not as
- * a damaged file.
+ * a damaged file. A run keeps its session link only when that session is on the phone and has
+ * no run yet.
  */
 export async function restoreRuns(
   target: BackupTarget,
@@ -120,13 +121,7 @@ export async function restoreRuns(
 ): Promise<RestoreResult> {
   const parsed = parseBackup(text)
   let { rejected } = parsed
-  let added = 0
-  let skipped = 0
-  for (const { run, points } of parsed.runs) {
-    if (await target.importRun(run, points)) added++
-    else skipped++
-    onProgress?.(added + skipped, parsed.runs.length)
-  }
+  // Programs first, so the session a run is linked to is there when the run comes in
   let programsAdded = 0
   let programsSkipped = 0
   for (const bundle of parsed.programs) {
@@ -134,6 +129,13 @@ export async function restoreRuns(
     if (outcome === 'added') programsAdded++
     else if (outcome === 'exists') programsSkipped++
     else rejected++
+  }
+  let added = 0
+  let skipped = 0
+  for (const { run, points } of parsed.runs) {
+    if (await target.importRun(run, points)) added++
+    else skipped++
+    onProgress?.(added + skipped, parsed.runs.length)
   }
   return { added, skipped, programsAdded, programsSkipped, rejected }
 }

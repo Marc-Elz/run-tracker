@@ -188,6 +188,7 @@ describe('SettingsView', () => {
       segmentStartedAt: null,
       movingMs: 60_000,
       distanceM: 100,
+      sessionId: null,
     })
     const backupFile = (text: string) => ({ text: async () => text }) as unknown as File
     const pick = async (wrapper: ReturnType<typeof mount>, text: string) => {

@@ -1,22 +1,34 @@
 import type { RouteOverview } from '@/lib/routeOverview'
 import type { RunRecord, RunRepository, StoredPoint } from './runRepository'
 
-/** Keeps runs in memory: used in the browser and in unit tests. */
+/**
+ * Keeps runs in memory: used in the browser and in unit tests. It can't see the training
+ * sessions (a separate repository), so a link to a deleted session stays; it only keeps a
+ * session to one run, as the SQLite index does.
+ */
 export function createMemoryRunRepository(): RunRepository {
   const runs = new Map<string, RunRecord>()
   const points = new Map<string, StoredPoint[]>()
   const overviews = new Map<string, RouteOverview>()
+  /** The link as stored: dropped when another run already has the session */
+  const link = (sessionId: string | null) =>
+    sessionId !== null && [...runs.values()].some((r) => r.sessionId === sessionId)
+      ? null
+      : sessionId
 
   return {
     async createRun(run) {
       if (runs.has(run.id)) throw new Error(`Run ${run.id} already exists`)
-      runs.set(run.id, { ...run })
+      const sessionId = link(run.sessionId)
+      runs.set(run.id, { ...run, sessionId })
       points.set(run.id, [])
+      return sessionId
     },
     async updateRun(run) {
       if (!runs.has(run.id)) throw new Error(`Run ${run.id} not found`)
-      // The name is changed only by renameRun, as in SQLite
-      runs.set(run.id, { ...run, name: runs.get(run.id)!.name })
+      // The name is changed only by renameRun and the link only by createRun, as in SQLite
+      const stored = runs.get(run.id)!
+      runs.set(run.id, { ...run, name: stored.name, sessionId: stored.sessionId })
     },
     async addPoint(runId, segment, point) {
       const list = points.get(runId)
@@ -54,7 +66,7 @@ export function createMemoryRunRepository(): RunRepository {
     },
     async importRun(run, imported) {
       if (runs.has(run.id)) return false
-      runs.set(run.id, { ...run })
+      runs.set(run.id, { ...run, sessionId: link(run.sessionId) })
       points.set(
         run.id,
         imported.map((p) => ({ ...p })),
@@ -63,6 +75,11 @@ export function createMemoryRunRepository(): RunRepository {
     },
     async readOverviews() {
       return [...overviews.values()].filter((o) => runs.get(o.runId)?.status === 'finished')
+    },
+    async doneSessionIds() {
+      return [...runs.values()]
+        .filter((r) => r.status === 'finished' && r.sessionId !== null)
+        .map((r) => r.sessionId!)
     },
     async saveOverview(overview) {
       if (!runs.has(overview.runId)) throw new Error(`Run ${overview.runId} not found`)
