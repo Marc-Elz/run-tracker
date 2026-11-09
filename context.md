@@ -81,6 +81,7 @@ Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low
 - Training programs (#95, decided 2026-11-06): a week/session template like a Run2Day schedule (weeks 1..N, ordered sessions of structured steps), not a dated agenda. Sessions have no calendar date, so a missed day needs no rescheduling; the next undone session is the one to run (#40). A comeback run after a gap is #96.
 - Session types for run/walk plans (#100, decided 2026-11-06): add `walk` and `runwalk` session types and a `walk` step kind, separate from `recovery`, as migration 4 in #39 PR 2. With only runner types a beginner plan reads as all "intervals", and #66's cues need walking told apart from a recovery jog.
 - Drag to reorder (#108, decided 2026-11-09): `sortablejs` used directly through `useSortableSteps.ts`, steps also dragged into and out of a repeat; on a drop Sortable's DOM move is undone and the blocks model redraws the list, so Vue alone owns the DOM. #107 reuses it for sessions.
+- Activity scope (#110, decided 2026-11-09): the app tracks more than runs. Rides, road and mountain bike, are recorded with GPS (#111), and home exercise is logged and planned without measuring it (#112), so history and planned vs. done cover all training. The storage shape of the activity type is decided in the plan of whichever goes first.
 
 ## Pending decisions
 - **Voice quality for audio cues** (#75): keep the system voice / pick an installed voice in Settings / bundled clips / cloud TTS.
