@@ -36,6 +36,9 @@ export function useSortableSteps(
       delay: 250,
       delayOnTouchOnly: true,
       animation: 150,
+      // Pointer events everywhere instead of HTML5 drag and drop: touch always works this way,
+      // so a mouse drag in the browser test takes the same path as a finger on the phone
+      forceFallback: true,
       fallbackOnBody: true,
       swapThreshold: 0.65,
       disabled: !options.enabled.value,

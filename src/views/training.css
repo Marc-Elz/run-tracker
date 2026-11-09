@@ -265,7 +265,7 @@ textarea.input {
 /* Room to drop a step into an empty-looking repeat */
 .step-list--inner {
   min-height: 3.5rem;
-  padding-left: 1rem;
+  padding: 0 0.75rem 0 1rem;
 }
 
 .step {
@@ -324,7 +324,9 @@ textarea.input {
 }
 
 .step__add {
+  width: calc(100% - 1.75rem);
   margin: 0.5rem 0.75rem 0 1rem;
+  background: #222a33;
 }
 
 /* Sortable's placeholder where the step will land */

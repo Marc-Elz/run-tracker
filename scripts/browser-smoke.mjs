@@ -160,6 +160,58 @@ try {
   check('the session is listed in its week', (await page.locator('.week').first().innerText()).includes('Intervals'))
   check('program has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
   if (shots) await page.screenshot({ path: join(shots, 'program.png'), fullPage: true })
+
+  // Steps: warm-up, a repeat (starts with one run), cool-down; then drag the cool-down into the repeat
+  await page.locator('.week').first().getByText('6×400 m').click()
+  await page.getByRole('heading', { name: 'Edit session' }).waitFor()
+  const addStep = async (kind, time) => {
+    await page.getByRole('button', { name: '+ Add step', exact: true }).click()
+    await page.getByRole('button', { name: kind, exact: true }).click()
+    if (time) {
+      await page.getByRole('button', { name: 'Time', exact: true }).click()
+      await page.locator('#step-target-value').fill(time)
+    }
+    await page.locator('form').getByRole('button', { name: 'Save' }).click()
+    await page.getByRole('heading', { name: 'Edit session' }).waitFor()
+  }
+  await addStep('Warm-up', '10:00')
+  await addStep('Repeat')
+  await addStep('Cool-down', '5:00')
+  const stepTexts = () => page.locator('.step__text').allInnerTexts()
+  check(
+    'steps are listed, the repeat holding its run',
+    (await stepTexts()).join('|') === 'Warm-up 10:00|2× · 1 step|Run|Cool-down 5:00',
+    (await stepTexts()).join('|'),
+  )
+  // The screen scrolls inside .page: bring both handles on screen before measuring them
+  await page.locator('.step__handle').last().scrollIntoViewIfNeeded()
+  const from = await page.locator('.step__handle').last().boundingBox()
+  const to = await page.locator('.step-list--inner .step__handle').first().boundingBox()
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  for (let i = 1; i <= 10; i++) {
+    await page.mouse.move(from.x + from.width / 2, from.y + ((to.y - from.y) * i) / 10 + 4)
+    await page.waitForTimeout(30)
+  }
+  await page.mouse.up()
+  await page.getByText('2× · 2 steps').waitFor()
+  check(
+    'dragging the cool-down into the repeat saves the new order',
+    (await stepTexts()).join('|') === 'Warm-up 10:00|2× · 2 steps|Cool-down 5:00|Run',
+    (await stepTexts()).join('|'),
+  )
+  check('session editor with steps has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  if (shots) await page.screenshot({ path: join(shots, 'session-steps.png'), fullPage: true })
+  await page.getByRole('button', { name: '‹ Cancel' }).click()
+  await page.locator('.week').first().waitFor()
+  await page.locator('.week').first().getByText('6×400 m').click()
+  check(
+    'the order is still there when the session is opened again',
+    (await stepTexts()).join('|') === 'Warm-up 10:00|2× · 2 steps|Cool-down 5:00|Run',
+    (await stepTexts()).join('|'),
+  )
+  await page.getByRole('button', { name: '‹ Cancel' }).click()
+  await page.locator('.week').first().waitFor()
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.waitForSelector('main.page .row')
   check('Training lists the program', (await page.locator('main .row').innerText()).includes('1 session'))
