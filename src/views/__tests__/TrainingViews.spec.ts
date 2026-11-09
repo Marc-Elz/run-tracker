@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { routes } from '@/router'
 import { useTrainingStore } from '@/stores/training'
+import { useRunStore } from '@/stores/run'
+import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
 import type { SessionStep } from '@/lib/training'
 
@@ -155,6 +157,96 @@ describe('training screens', () => {
   it('says a program is gone when it was deleted', async () => {
     const { wrapper } = await open('/training/missing')
     expect(wrapper.text()).toContain('This program no longer exists')
+  })
+})
+
+describe('running sessions (#40)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    document.body.innerHTML = ''
+    setFollowedProgram(null)
+  })
+
+  /** A program with an easy run (done when `doneFirst`), a rest day and a long run */
+  async function program({ doneFirst = false } = {}) {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const easy = await training.saveSession(id, { week: 1, type: 'easy', title: 'Easy', notes: null })
+    const rest = await training.saveSession(id, { week: 1, type: 'rest', title: 'Rest', notes: null })
+    const long = await training.saveSession(id, { week: 2, type: 'long', title: '12 km', notes: null })
+    if (doneFirst) {
+      const run = useRunStore()
+      run.start(0, easy)
+      await run.finish(1_000)
+    }
+    return { id, easy, rest, long }
+  }
+
+  it('follows a program and stops following it', async () => {
+    const { id } = await program()
+    const { wrapper } = await open(`/training/${id}`)
+    await click(button(wrapper, 'Follow this program'))
+    expect(followedProgramId.value).toBe(id)
+    await click(button(wrapper, '✓ Following'))
+    expect(followedProgramId.value).toBeNull()
+  })
+
+  it('ticks done sessions and marks the next one, past rest days', async () => {
+    const { id } = await program({ doneFirst: true })
+    const { wrapper } = await open(`/training/${id}`)
+    const rows = wrapper.findAll('.row')
+    expect(rows[0]!.classes()).toContain('row--done')
+    expect(rows[0]!.text()).toContain('✓')
+    expect(rows[1]!.text()).not.toContain('Next')
+    expect(rows[2]!.text()).toContain('Next')
+  })
+
+  it('opens the Run screen with the session ready, from the session editor', async () => {
+    const { id, long } = await program()
+    const { wrapper, router } = await open(`/training/${id}/session/${long}`)
+    await click(button(wrapper, 'Run this session'))
+    expect(router.currentRoute.value.name).toBe('run')
+    expect(router.currentRoute.value.query).toEqual({ session: long })
+  })
+
+  it('waits for unsaved changes before running a session', async () => {
+    const { id, long } = await program()
+    const { wrapper, router } = await open(`/training/${id}/session/${long}`)
+    await wrapper.get('#session-title').setValue('14 km')
+    expect(button(wrapper, 'Run this session').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Save your changes first to run this session')
+    expect(router.currentRoute.value.name).toBe('session-edit')
+  })
+
+  it('offers no run for a done session or a rest day', async () => {
+    const { id, easy, rest } = await program({ doneFirst: true })
+    const done = await open(`/training/${id}/session/${easy}`)
+    expect(done.wrapper.text()).toContain('✓ Done')
+    expect(done.wrapper.findAll('button').some((b) => b.text() === 'Run this session')).toBe(false)
+    const restDay = await open(`/training/${id}/session/${rest}`)
+    expect(restDay.wrapper.findAll('button').some((b) => b.text() === 'Run this session')).toBe(
+      false,
+    )
+  })
+
+  it('names the runs done for a program before deleting it, and keeps them', async () => {
+    const { id } = await program({ doneFirst: true })
+    const { wrapper } = await open(`/training/${id}/edit`)
+    await click(button(wrapper, 'Delete program'))
+    expect(wrapper.get('[role="alertdialog"]').text()).toContain(
+      'Its 3 sessions go too. The run you did for it is kept.',
+    )
+    await click(button(wrapper, 'Delete'))
+    const runs = await useRunStore().listFinished()
+    expect(runs).toHaveLength(1)
+    expect(followedProgramId.value).toBeNull()
+  })
+
+  it('says the run is kept when deleting a done session', async () => {
+    const { id, easy } = await program({ doneFirst: true })
+    const { wrapper } = await open(`/training/${id}/session/${easy}`)
+    await click(button(wrapper, 'Delete session'))
+    expect(wrapper.get('[role="alertdialog"]').text()).toContain('Your run for it is kept.')
   })
 })
 

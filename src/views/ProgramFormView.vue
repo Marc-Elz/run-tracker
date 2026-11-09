@@ -5,11 +5,13 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useBackInterceptor } from '@/composables/useBackButton'
 import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useTrainingStore } from '@/stores/training'
+import { useRunStore } from '@/stores/run'
 import { MAX_NAME_LENGTH, MAX_WEEKS, TrainingError, type ProgramInput } from '@/lib/training'
 
 const route = useRoute()
 const router = useRouter()
 const training = useTrainingStore()
+const run = useRunStore()
 
 // No id: a new program
 const id = computed(() => (route.params.id as string | undefined) ?? null)
@@ -22,6 +24,8 @@ const leave = useLeaveScreen(
 
 const form = ref<ProgramInput>({ name: '', goal: null, weeks: 8, startDate: null })
 const sessionCount = ref(0)
+// Runs done for this program's sessions; null when they could not be counted
+const runCount = ref<number | null>(null)
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>(id.value ? 'loading' : 'ready')
 const error = ref<string | null>(null)
 const confirming = ref(false)
@@ -43,11 +47,24 @@ async function load() {
     }
     const { name, goal, weeks, startDate } = program
     form.value = { name, goal, weeks, startDate }
-    sessionCount.value = (await training.listSessions(id.value)).length
+    const sessions = await training.listSessions(id.value)
+    sessionCount.value = sessions.length
     state.value = 'ready'
+    await countRuns(sessions.map((s) => s.id))
   } catch (err) {
     console.warn('[db] could not load program', err)
     state.value = 'error'
+  }
+}
+
+/** The runs are only named in the delete confirmation, so failing here costs nothing else */
+async function countRuns(sessionIds: string[]) {
+  try {
+    const done = new Set(await run.doneSessionIds())
+    runCount.value = sessionIds.filter((s) => done.has(s)).length
+  } catch (err) {
+    console.warn('[db] could not count the runs of this program', err)
+    runCount.value = null
   }
 }
 
@@ -98,6 +115,13 @@ const sessionsText = computed(() =>
     ? 'Its 1 session goes too.'
     : `Its ${sessionCount.value} sessions go too.`,
 )
+
+// Every done session has exactly one run (#40)
+const runsText = computed(() => {
+  const n = runCount.value
+  if (n === null || n === 0) return 'Your runs are kept.'
+  return n === 1 ? 'The run you did for it is kept.' : `The ${n} runs you did for it are kept.`
+})
 
 onMounted(load)
 </script>
@@ -202,7 +226,7 @@ onMounted(load)
       @keep="confirming = false"
       @confirm="onDelete()"
     >
-      {{ sessionsText }} Your runs are kept.
+      {{ sessionsText }} {{ runsText }}
     </ConfirmDialog>
   </main>
 </template>

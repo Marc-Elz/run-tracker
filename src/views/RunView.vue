@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
+import { useTrainingStore } from '@/stores/training'
 import { useKeepAwake } from '@/composables/useKeepAwake'
 import { useAudioCues } from '@/composables/useAudioCues'
+import { usePlannedSession } from '@/composables/usePlannedSession'
 import { cueConfig } from '@/lib/settings'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatPace } from '@/lib/format'
+import { SESSION_TYPE_LABELS, type ProgramSession } from '@/lib/training'
 
 const run = useRunStore()
+const training = useTrainingStore()
 const router = useRouter()
+const route = useRoute()
 const {
   status,
+  sessionId,
   hasFix,
   recovered,
   saveError,
@@ -22,6 +28,30 @@ const {
   averagePaceSecPerKm,
   currentPaceSecPerKm,
 } = storeToRefs(run)
+
+// The session to offer: one picked with "Run this session" (?session=), else the next one
+const requested = computed(() =>
+  typeof route.query.session === 'string' ? route.query.session : null,
+)
+const { planned, following, reload: reloadPlanned } = usePlannedSession(requested)
+const nextUp = computed(() => planned.value?.session ?? null)
+
+// The session the current run belongs to, for the line at the top (#101 builds on it)
+const linked = ref<ProgramSession | null>(null)
+watch(
+  sessionId,
+  async (id) => {
+    linked.value = null
+    if (id === null) return
+    try {
+      const found = await training.getSession(id)
+      if (sessionId.value === id) linked.value = found
+    } catch (err) {
+      console.warn('[db] could not load the session of this run', err)
+    }
+  },
+  { immediate: true },
+)
 
 useKeepAwake(computed(() => status.value === 'running' || status.value === 'paused'))
 useAudioCues(cueConfig)
@@ -73,10 +103,11 @@ async function beginTracking(advance: () => void, undo: () => void) {
   }
 }
 
-function onStart() {
+/** Start a free run, or a run of the given training session */
+function onStart(session: string | null = null) {
   if (starting.value || status.value !== 'idle') return
   return beginTracking(
-    () => run.start(),
+    () => run.start(Date.now(), session),
     () => run.discard(),
   )
 }
@@ -106,12 +137,33 @@ async function onStop() {
 // GPS stays on while paused (the store ignores those fixes) and stops with the run
 watch(status, (s) => {
   if (s === 'finished' || s === 'idle') endGps()
+  // Back on the start screen without leaving it (a discarded run): offer the session again
+  if (s === 'idle') void reloadPlanned()
 })
 onBeforeUnmount(endGps)
 </script>
 
 <template>
   <main class="run" :data-status="status">
+    <section v-if="status === 'idle' && planned" class="session-card" aria-label="Training session">
+      <template v-if="nextUp">
+        <p class="session-card__label">
+          {{ planned.chosen ? 'Session' : 'Next session' }} · Week {{ nextUp.week }}
+        </p>
+        <p class="session-card__type">{{ SESSION_TYPE_LABELS[nextUp.type] }}</p>
+        <p class="session-card__title">{{ nextUp.title }}</p>
+        <p class="session-card__program">{{ planned.program.name }}</p>
+      </template>
+      <template v-else>
+        <p class="session-card__title">{{ planned.program.name }}</p>
+        <p class="session-card__program">All sessions done</p>
+      </template>
+    </section>
+
+    <p v-if="status !== 'idle' && linked" class="session-line">
+      Week {{ linked.week }} · {{ linked.title }}
+    </p>
+
     <p v-if="status === 'running' && !hasFix && !gpsFailure" class="gps-status">Acquiring GPS…</p>
 
     <section class="stats" aria-live="off">
@@ -156,9 +208,22 @@ onBeforeUnmount(endGps)
       Background usage limits › Never sleeping apps, add Run Tracker.
     </p>
 
-    <section class="controls">
+    <p v-if="status === 'idle' && !following" class="hint">
+      Follow a program in Training to run its sessions
+    </p>
+
+    <section class="controls" :class="{ 'controls--session': status === 'idle' && nextUp }">
+      <template v-if="status === 'idle' && nextUp">
+        <button class="btn btn--primary" :disabled="starting" @click="onStart(nextUp.id)">
+          Start session
+        </button>
+        <button class="btn btn--secondary" :disabled="starting" @click="onStart()">
+          Free run
+        </button>
+      </template>
+
       <button
-        v-if="status === 'idle'"
+        v-else-if="status === 'idle'"
         class="btn btn--primary"
         :disabled="starting"
         @click="onStart()"
@@ -252,8 +317,67 @@ onBeforeUnmount(endGps)
   color: #fff;
 }
 
+/* Side by side, so both stay in view on a 360 px phone with the session card above */
+.controls--session .btn--primary {
+  flex: 3;
+}
+
+.controls--session .btn--secondary {
+  flex: 2;
+  font-size: 1.15rem;
+}
+
 .btn--primary {
   background: #1f9d55;
+}
+
+/* The training session on offer (#40): read at a glance, before the stats */
+.session-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 1rem 1.25rem;
+  border-radius: 1rem;
+  background: #1a2027;
+}
+
+.session-card p {
+  margin: 0;
+}
+
+.session-card__label {
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa5b1;
+}
+
+.session-card__type,
+.session-card__program {
+  color: #9aa5b1;
+}
+
+.session-card__title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-line {
+  margin: 0;
+  text-align: center;
+  color: #9aa5b1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint {
+  margin: 0;
+  text-align: center;
+  color: #9aa5b1;
 }
 
 .btn--secondary {
