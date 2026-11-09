@@ -4,7 +4,16 @@
  * one not yet run is the one to do (#40), so a missed day needs no rescheduling.
  */
 
-export const SESSION_TYPES = ['easy', 'long', 'intervals', 'tempo', 'free', 'rest'] as const
+export const SESSION_TYPES = [
+  'easy',
+  'long',
+  'intervals',
+  'tempo',
+  'free',
+  'walk',
+  'runwalk',
+  'rest',
+] as const
 export type SessionType = (typeof SESSION_TYPES)[number]
 
 export const SESSION_TYPE_LABELS: Record<SessionType, string> = {
@@ -13,11 +22,22 @@ export const SESSION_TYPE_LABELS: Record<SessionType, string> = {
   intervals: 'Intervals',
   tempo: 'Tempo',
   free: 'Free run',
+  walk: 'Walk',
+  runwalk: 'Run/walk',
   rest: 'Rest',
 }
 
-export const STEP_KINDS = ['warmup', 'run', 'recovery', 'repeat', 'cooldown'] as const
+export const STEP_KINDS = ['warmup', 'run', 'walk', 'recovery', 'repeat', 'cooldown'] as const
 export type StepKind = (typeof STEP_KINDS)[number]
+
+export const STEP_KIND_LABELS: Record<StepKind, string> = {
+  warmup: 'Warm-up',
+  run: 'Run',
+  walk: 'Walk',
+  recovery: 'Recovery',
+  repeat: 'Repeat',
+  cooldown: 'Cool-down',
+}
 
 export const TARGET_KINDS = ['none', 'duration', 'distance'] as const
 export type TargetKind = (typeof TARGET_KINDS)[number]

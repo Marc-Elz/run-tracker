@@ -289,6 +289,50 @@ describe.skipIf(!nodeSqlite)('training tables on real SQLite', () => {
     await training.createProgram(program('p'))
     expect(await training.listPrograms()).toHaveLength(1)
   })
+
+  it('keeps every program, session and step when migration 4 rebuilds the tables (#100)', async () => {
+    const db = openTestDb()
+    for (const [i, sql] of MIGRATIONS.slice(0, 3).entries()) {
+      await db.execute(`${sql}PRAGMA user_version = ${i + 1};\n`)
+    }
+    // A program as PR 1 stored it: two sessions, one with a repeat and its steps
+    const before = createSqliteTrainingRepository(db)
+    await before.createProgram(program('p'))
+    await before.saveSession(session('s', 'p', { type: 'intervals' }))
+    await before.saveSession(session('t', 'p', { week: 2, notes: 'Hilly' }))
+    const steps = [
+      step('r', 's', {
+        kind: 'repeat',
+        targetKind: 'none',
+        targetValue: null,
+        paceMin: null,
+        paceMax: null,
+        repetitions: 6,
+        span: 2,
+      }),
+      step('run', 's', { position: 1 }),
+      step('rec', 's', { position: 2, kind: 'recovery', paceMin: null, paceMax: null }),
+    ]
+    await before.replaceSteps('s', steps)
+    const exported = await before.exportPrograms()
+
+    expect(await migrate(db)).toBe(MIGRATIONS.length)
+    const after = createSqliteTrainingRepository(db)
+    expect(await after.exportPrograms()).toEqual(exported)
+    expect((await db.query('PRAGMA foreign_key_check;')).values).toEqual([])
+    const indexes = await db.query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;")
+    expect(indexes.values?.map((r) => r.name)).toEqual(
+      expect.arrayContaining(['program_sessions_program', 'session_steps_session']),
+    )
+
+    // The new values are allowed, and the cascade still works
+    await after.saveSession(session('w', 'p', { type: 'runwalk', week: 3 }))
+    await after.saveSession(session('x', 'p', { type: 'walk', week: 3, position: 1 }))
+    await after.replaceSteps('w', [step('wk', 'w', { kind: 'walk', paceMin: null, paceMax: null })])
+    expect((await after.loadSteps('w'))[0]!.kind).toBe('walk')
+    await after.deleteProgram('p')
+    expect((await db.query('SELECT COUNT(*) AS n FROM session_steps;')).values?.[0]?.n).toBe(0)
+  })
 })
 
 describe('serializedTraining', () => {
