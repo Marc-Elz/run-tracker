@@ -320,7 +320,9 @@ describe.skipIf(!nodeSqlite)('training tables on real SQLite', () => {
     const after = createSqliteTrainingRepository(db)
     expect(await after.exportPrograms()).toEqual(exported)
     expect((await db.query('PRAGMA foreign_key_check;')).values).toEqual([])
-    const indexes = await db.query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;")
+    const indexes = await db.query(
+      "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;",
+    )
     expect(indexes.values?.map((r) => r.name)).toEqual(
       expect.arrayContaining(['program_sessions_program', 'session_steps_session']),
     )

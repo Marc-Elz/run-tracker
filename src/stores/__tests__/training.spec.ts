@@ -109,7 +109,13 @@ describe('training store', () => {
     const before = (await training.getProgram(id))!.updatedAt
     await training.saveBlocks(sid, [
       {
-        step: step({ id: 'r', kind: 'repeat', repetitions: 6, targetKind: 'none', targetValue: null }),
+        step: step({
+          id: 'r',
+          kind: 'repeat',
+          repetitions: 6,
+          targetKind: 'none',
+          targetValue: null,
+        }),
         children: [step({ id: 'run' }), step({ id: 'walk', kind: 'walk', targetValue: 120 })],
       },
     ])

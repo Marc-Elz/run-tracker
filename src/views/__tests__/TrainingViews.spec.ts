@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { routes } from '@/router'
 import { useTrainingStore } from '@/stores/training'
 import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
+import type { SessionStep } from '@/lib/training'
 
 // The real routes on an in-memory history: these tests walk the screens the way a tap would
 async function open(path: string) {
@@ -154,5 +155,171 @@ describe('training screens', () => {
   it('says a program is gone when it was deleted', async () => {
     const { wrapper } = await open('/training/missing')
     expect(wrapper.text()).toContain('This program no longer exists')
+  })
+})
+
+describe('session steps', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    document.body.innerHTML = ''
+  })
+
+  const plain = (id: string, over: Partial<SessionStep> = {}): SessionStep => ({
+    id,
+    sessionId: '',
+    position: 0,
+    kind: 'run',
+    targetKind: 'duration',
+    targetValue: 60,
+    paceMin: null,
+    paceMax: null,
+    repetitions: null,
+    span: null,
+    ...over,
+  })
+
+  // A run/walk session: warm-up walk, 6× (run 1:00, walk 2:00)
+  async function runWalk() {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const sid = await training.saveSession(id, {
+      week: 1,
+      type: 'runwalk',
+      title: 'Run/walk',
+      notes: null,
+    })
+    await training.saveBlocks(sid, [
+      { step: plain('warm', { kind: 'warmup', targetValue: 300 }), children: [] },
+      {
+        step: plain('rep', {
+          kind: 'repeat',
+          targetKind: 'none',
+          targetValue: null,
+          repetitions: 6,
+        }),
+        children: [plain('run'), plain('walk', { kind: 'walk', targetValue: 120 })],
+      },
+    ])
+    return { training, id, sid, base: `/training/${id}/session/${sid}` }
+  }
+  const stepTexts = (wrapper: Wrapper) => wrapper.findAll('.step__text').map((s) => s.text())
+
+  it('lists the steps, with a repeat as a box holding its own', async () => {
+    const { base } = await runWalk()
+    const { wrapper } = await open(base)
+    expect(stepTexts(wrapper)).toEqual(['Warm-up 5:00', '6× · 2 steps', 'Run 1:00', 'Walk 2:00'])
+    const repeat = wrapper.get('.step--repeat')
+    expect(repeat.findAll('.step-list--inner .step__text').map((s) => s.text())).toEqual([
+      'Run 1:00',
+      'Walk 2:00',
+    ])
+    expect(wrapper.text()).toContain('Steps are saved as you change them.')
+    expect(button(wrapper, 'Run/walk').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('asks to save a new session before adding steps', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const { wrapper } = await open(`/training/${id}/session/new`)
+    expect(wrapper.text()).toContain('Save the session to add steps.')
+    expect(wrapper.findAll('button').some((b) => b.text() === '+ Add step')).toBe(false)
+  })
+
+  it('locks the steps while the session has unsaved changes, so none get lost', async () => {
+    const { base } = await runWalk()
+    const { wrapper, router } = await open(base)
+    await wrapper.get('#session-title').setValue('Changed')
+    expect(wrapper.text()).toContain('Save your changes first to edit steps.')
+    expect(button(wrapper, '+ Add step').attributes('disabled')).toBeDefined()
+    await click(wrapper.findAll('.step__main')[0]!)
+    expect(router.currentRoute.value.name).toBe('session-edit')
+  })
+
+  it('adds a walk step with a time, and a step inside the repeat', async () => {
+    const { base } = await runWalk()
+    const { wrapper, router } = await open(base)
+    await click(button(wrapper, '+ Add step'))
+    expect(router.currentRoute.value.name).toBe('step-new')
+    await click(button(wrapper, 'Walk'))
+    await click(button(wrapper, 'Time'))
+    await wrapper.get('#step-target-value').setValue('3:30')
+    await click(button(wrapper, 'Save'))
+    expect(router.currentRoute.value.name).toBe('session-edit')
+    expect(stepTexts(wrapper).slice(-1)[0]).toBe('Walk 3:30')
+
+    await click(button(wrapper, '+ Add step to repeat'))
+    expect(wrapper.text()).toContain('New step in repeat')
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Repeat')).toBe(false)
+    await click(button(wrapper, 'Save'))
+    expect(stepTexts(wrapper)).toContain('6× · 3 steps')
+  })
+
+  it('starts a new repeat with one run step', async () => {
+    const { base } = await runWalk()
+    const { wrapper } = await open(`${base}/step/new`)
+    await click(button(wrapper, 'Repeat'))
+    await click(button(wrapper, '+'))
+    await click(button(wrapper, 'Save'))
+    expect(stepTexts(wrapper).slice(-2)).toEqual(['3× · 1 step', 'Run'])
+  })
+
+  it('shows a broken rule instead of saving, and keeps a repeat a repeat', async () => {
+    const { base, training, sid } = await runWalk()
+    const { wrapper } = await open(`${base}/step/run`)
+    expect(button(wrapper, 'Run').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Repeat')).toBe(false)
+    await wrapper.get('[aria-label="Fastest pace"]').setValue('5:30')
+    await wrapper.get('[aria-label="Slowest pace"]').setValue('5:00')
+    await click(button(wrapper, 'Save'))
+    expect(wrapper.get('[role="alert"]').text()).toContain('the faster pace comes first')
+    await wrapper.get('[aria-label="Slowest pace"]').setValue('5:x')
+    await click(button(wrapper, 'Save'))
+    expect(wrapper.get('[role="alert"]').text()).toContain('min:s per km')
+    expect((await training.loadSteps(sid)).find((s) => s.id === 'run')!.paceMin).toBeNull()
+
+    const repeat = await open(`${base}/step/rep`)
+    expect(repeat.wrapper.find('.step-kind--locked').text()).toBe('Repeat')
+    expect(repeat.wrapper.text()).toContain('Repeats its 2 steps.')
+  })
+
+  it('deletes a repeat with its steps, and the last step of a repeat with the repeat', async () => {
+    const { base, training, sid } = await runWalk()
+    const first = await open(`${base}/step/run`)
+    await click(button(first.wrapper, 'Delete step'))
+    expect(first.wrapper.text()).toContain('It is removed from the session.')
+    await click(button(first.wrapper, 'Delete'))
+    expect((await training.loadSteps(sid)).map((s) => s.id)).toEqual(['warm', 'rep', 'walk'])
+
+    document.body.innerHTML = ''
+    const last = await open(`${base}/step/walk`)
+    await click(button(last.wrapper, 'Delete step'))
+    expect(last.wrapper.text()).toContain("the repeat's last step, so the repeat goes too")
+    await click(button(last.wrapper, 'Delete'))
+    expect((await training.loadSteps(sid)).map((s) => s.id)).toEqual(['warm'])
+  })
+
+  it('asks before a session with steps becomes a rest day', async () => {
+    const { base, training, sid } = await runWalk()
+    const { wrapper, router } = await open(base)
+    await click(button(wrapper, 'Rest'))
+    await click(wrapper.findAll('button').filter((b) => b.text() === 'Save')[0]!)
+    expect(wrapper.text()).toContain('Its 4 steps go too.')
+    expect(await training.loadSteps(sid)).toHaveLength(4)
+    await click(button(wrapper, 'Make rest day'))
+    expect(router.currentRoute.value.name).toBe('program')
+    expect(await training.loadSteps(sid)).toEqual([])
+  })
+
+  it('says a step is gone when it, its session or its repeat no longer exists', async () => {
+    const { base, id } = await runWalk()
+    for (const path of [
+      `${base}/step/missing`,
+      `${base}/step/new?repeat=missing`,
+      `/training/${id}/session/new/step/new`,
+    ]) {
+      document.body.innerHTML = ''
+      const { wrapper } = await open(path)
+      expect(wrapper.text()).toContain('This step no longer exists')
+    }
   })
 })

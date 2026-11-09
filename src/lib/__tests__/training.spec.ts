@@ -213,7 +213,10 @@ describe('step blocks', () => {
   it('refuses a repeat inside a repeat, and the last step out of a repeat', () => {
     const two = [
       ...toBlocks(stored),
-      { step: step({ id: 'r2', kind: 'repeat', repetitions: 2 }), children: [step({ id: 'only' })] },
+      {
+        step: step({ id: 'r2', kind: 'repeat', repetitions: 2 }),
+        children: [step({ id: 'only' })],
+      },
     ]
     expect(moveStep(two, { list: null, index: 3 }, { list: 'r', index: 0 })).toBeNull()
     expect(moveStep(two, { list: 'r2', index: 0 }, { list: null, index: 0 })).toBeNull()
@@ -229,7 +232,10 @@ describe('step blocks', () => {
     blocks = addStep(blocks, step({ id: 't' }), null)
     expect(ids(blocks)).toEqual(['w', ['r', ['run', 'walk', 'n']], 'c', 't'])
     blocks = replaceStep(blocks, step({ id: 'n', kind: 'walk' }))
-    expect(findStep(blocks, 'n')).toMatchObject({ step: { kind: 'walk' }, parent: { step: { id: 'r' } } })
+    expect(findStep(blocks, 'n')).toMatchObject({
+      step: { kind: 'walk' },
+      parent: { step: { id: 'r' } },
+    })
     expect(findStep(blocks, 'r')?.children).toHaveLength(3)
     expect(findStep(blocks, 'gone')).toBeNull()
     expect(ids(removeStep(blocks, 'r'))).toEqual(['w', 'c', 't'])
