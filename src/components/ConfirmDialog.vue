@@ -1,5 +1,8 @@
 <script setup lang="ts">
-defineProps<{ title: string; busy?: boolean; error?: string | null }>()
+withDefaults(
+  defineProps<{ title: string; busy?: boolean; error?: string | null; confirmLabel?: string }>(),
+  { confirmLabel: 'Delete' },
+)
 defineEmits<{ keep: []; confirm: [] }>()
 </script>
 
@@ -13,7 +16,9 @@ defineEmits<{ keep: []; confirm: [] }>()
         <button class="btn btn--secondary" :disabled="busy" autofocus @click="$emit('keep')">
           Keep
         </button>
-        <button class="btn btn--danger" :disabled="busy" @click="$emit('confirm')">Delete</button>
+        <button class="btn btn--danger" :disabled="busy" @click="$emit('confirm')">
+          {{ confirmLabel }}
+        </button>
       </div>
     </div>
   </div>

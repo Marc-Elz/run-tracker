@@ -4,7 +4,10 @@ import {
   checkSession,
   checkSteps,
   checkWeeksKeepSessions,
+  fromBlocks,
+  toBlocks,
   TrainingError,
+  type StepBlock,
   type ProgramBundle,
   type ProgramInput,
   type ProgramSession,
@@ -80,6 +83,21 @@ export const useTrainingStore = defineStore('training', () => {
     await repo.replaceSteps(sessionId, ordered)
   }
 
+  /**
+   * Store a session's steps as the editor holds them. Every step change (drag, step editor,
+   * delete) writes the whole list at once, so the screen and storage can't drift apart.
+   */
+  async function saveBlocks(sessionId: string, blocks: StepBlock[]) {
+    if (!(await repo.getSession(sessionId))) {
+      throw new TrainingError('This session no longer exists.')
+    }
+    await replaceSteps(sessionId, fromBlocks(sessionId, blocks))
+  }
+
+  async function loadBlocks(sessionId: string): Promise<StepBlock[]> {
+    return toBlocks(await repo.loadSteps(sessionId))
+  }
+
   return {
     useRepository,
     listPrograms: () => repo.listPrograms(),
@@ -93,6 +111,8 @@ export const useTrainingStore = defineStore('training', () => {
     deleteSession: (id: string) => repo.deleteSession(id),
     loadSteps: (sessionId: string) => repo.loadSteps(sessionId),
     replaceSteps,
+    saveBlocks,
+    loadBlocks,
     exportPrograms: () => repo.exportPrograms(),
     importProgram: (bundle: ProgramBundle) => repo.importProgram(bundle),
   }

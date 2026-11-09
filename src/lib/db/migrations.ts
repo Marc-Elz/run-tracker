@@ -92,6 +92,44 @@ CREATE TABLE session_steps (
 );
 CREATE INDEX session_steps_session ON session_steps (session_id, position);
 `,
+  // Session types walk and runwalk, step kind walk (#100). A CHECK can't be altered, so both
+  // tables are rebuilt. Foreign keys stay on inside the plugin's transaction, and dropping
+  // program_sessions would cascade into session_steps, so the rows wait in plain copies without
+  // foreign keys, the child table is dropped first, and parents are copied back before children.
+  `CREATE TABLE program_sessions_copy AS SELECT * FROM program_sessions;
+CREATE TABLE session_steps_copy AS SELECT * FROM session_steps;
+DROP TABLE session_steps;
+DROP TABLE program_sessions;
+CREATE TABLE program_sessions (
+  id TEXT PRIMARY KEY NOT NULL,
+  program_id TEXT NOT NULL REFERENCES training_programs(id) ON DELETE CASCADE,
+  week INTEGER NOT NULL CHECK (week >= 1),
+  position INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('easy', 'long', 'intervals', 'tempo', 'free', 'walk', 'runwalk', 'rest')),
+  title TEXT NOT NULL,
+  notes TEXT
+);
+CREATE TABLE session_steps (
+  id TEXT PRIMARY KEY NOT NULL,
+  session_id TEXT NOT NULL REFERENCES program_sessions(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('warmup', 'run', 'walk', 'recovery', 'repeat', 'cooldown')),
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('none', 'duration', 'distance')),
+  target_value REAL,
+  pace_min REAL,
+  pace_max REAL,
+  repetitions INTEGER,
+  span INTEGER
+);
+INSERT INTO program_sessions (id, program_id, week, position, type, title, notes)
+  SELECT id, program_id, week, position, type, title, notes FROM program_sessions_copy;
+INSERT INTO session_steps (id, session_id, position, kind, target_kind, target_value, pace_min, pace_max, repetitions, span)
+  SELECT id, session_id, position, kind, target_kind, target_value, pace_min, pace_max, repetitions, span FROM session_steps_copy;
+DROP TABLE session_steps_copy;
+DROP TABLE program_sessions_copy;
+CREATE INDEX program_sessions_program ON program_sessions (program_id, week, position);
+CREATE INDEX session_steps_session ON session_steps (session_id, position);
+`,
 ]
 
 export async function schemaVersion(db: SqlDb): Promise<number> {

@@ -4,7 +4,16 @@
  * one not yet run is the one to do (#40), so a missed day needs no rescheduling.
  */
 
-export const SESSION_TYPES = ['easy', 'long', 'intervals', 'tempo', 'free', 'rest'] as const
+export const SESSION_TYPES = [
+  'easy',
+  'long',
+  'intervals',
+  'tempo',
+  'free',
+  'walk',
+  'runwalk',
+  'rest',
+] as const
 export type SessionType = (typeof SESSION_TYPES)[number]
 
 export const SESSION_TYPE_LABELS: Record<SessionType, string> = {
@@ -13,11 +22,22 @@ export const SESSION_TYPE_LABELS: Record<SessionType, string> = {
   intervals: 'Intervals',
   tempo: 'Tempo',
   free: 'Free run',
+  walk: 'Walk',
+  runwalk: 'Run/walk',
   rest: 'Rest',
 }
 
-export const STEP_KINDS = ['warmup', 'run', 'recovery', 'repeat', 'cooldown'] as const
+export const STEP_KINDS = ['warmup', 'run', 'walk', 'recovery', 'repeat', 'cooldown'] as const
 export type StepKind = (typeof STEP_KINDS)[number]
+
+export const STEP_KIND_LABELS: Record<StepKind, string> = {
+  warmup: 'Warm-up',
+  run: 'Run',
+  walk: 'Walk',
+  recovery: 'Recovery',
+  repeat: 'Repeat',
+  cooldown: 'Cool-down',
+}
 
 export const TARGET_KINDS = ['none', 'duration', 'distance'] as const
 export type TargetKind = (typeof TARGET_KINDS)[number]
@@ -233,4 +253,170 @@ export function checkSteps(steps: SessionStep[]) {
       throw new TrainingError(`Step ${n}: the faster pace comes first.`)
     }
   })
+}
+
+/**
+ * The step list as the editor shows it: a repeat holds the steps it covers, so a span can't be
+ * wrong and repeats can't nest. Storage keeps the flat list with `span` (`fromBlocks`).
+ */
+export interface StepBlock {
+  step: SessionStep
+  /** The steps a repeat covers; always empty for any other step */
+  children: SessionStep[]
+}
+
+/** Where a step sits: the top-level list (`list` null) or the list of the repeat with that id */
+export interface StepPlace {
+  list: string | null
+  index: number
+}
+
+/** Stored steps (valid, in order) as blocks */
+export function toBlocks(steps: SessionStep[]): StepBlock[] {
+  const blocks: StepBlock[] = []
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!
+    const span = step.kind === 'repeat' ? (step.span ?? 0) : 0
+    blocks.push({ step, children: steps.slice(i + 1, i + 1 + span) })
+    i += span
+  }
+  return blocks
+}
+
+/**
+ * Blocks back to the flat list to store. Ids stay, positions are numbered from 0 (imported ones
+ * may have gaps), a repeat's span is counted from its steps, and a repeat never has a target.
+ */
+export function fromBlocks(sessionId: string, blocks: StepBlock[]): SessionStep[] {
+  const steps: SessionStep[] = []
+  const add = (step: SessionStep) => steps.push({ ...step, sessionId, position: steps.length })
+  for (const { step, children } of blocks) {
+    if (step.kind === 'repeat') {
+      add({
+        ...step,
+        targetKind: 'none',
+        targetValue: null,
+        paceMin: null,
+        paceMax: null,
+        span: children.length,
+      })
+      children.forEach((child) => add({ ...child, repetitions: null, span: null }))
+    } else {
+      add({ ...step, repetitions: null, span: null })
+    }
+  }
+  return steps
+}
+
+/**
+ * A step dragged from one place to another, as the drag list reports it: `to.index` counts in
+ * the target list after the step left its old place. Null when the move is not allowed: a repeat
+ * into a repeat, or a repeat's last step out of it (an empty repeat can't be stored).
+ */
+export function moveStep(blocks: StepBlock[], from: StepPlace, to: StepPlace): StepBlock[] | null {
+  const next = blocks.map((b) => ({ step: b.step, children: [...b.children] }))
+  const repeatOf = (list: string) =>
+    next.find((b) => b.step.id === list && b.step.kind === 'repeat')
+  // Take the step out of its list
+  let moving: StepBlock
+  if (from.list === null) {
+    if (from.index < 0 || from.index >= next.length) return null
+    moving = next[from.index]!
+    if (moving.step.kind === 'repeat' && to.list !== null) return null
+    next.splice(from.index, 1)
+  } else {
+    const repeat = repeatOf(from.list)
+    if (!repeat || from.index < 0 || from.index >= repeat.children.length) return null
+    if (to.list !== from.list && repeat.children.length === 1) return null
+    moving = { step: repeat.children[from.index]!, children: [] }
+    repeat.children.splice(from.index, 1)
+  }
+  // And put it in its new one
+  if (to.list === null) {
+    if (to.index < 0 || to.index > next.length) return null
+    next.splice(to.index, 0, moving)
+  } else {
+    const repeat = repeatOf(to.list)
+    if (!repeat || to.index < 0 || to.index > repeat.children.length) return null
+    repeat.children.splice(to.index, 0, moving.step)
+  }
+  return next
+}
+
+/** Add a step at the end of the top level, or of the repeat with id `list` */
+export function addStep(blocks: StepBlock[], step: SessionStep, list: string | null): StepBlock[] {
+  if (list === null) return [...blocks, { step, children: [] }]
+  return blocks.map((b) =>
+    b.step.id === list ? { step: b.step, children: [...b.children, step] } : b,
+  )
+}
+
+/** Put an edited step in place of the one with the same id */
+export function replaceStep(blocks: StepBlock[], step: SessionStep): StepBlock[] {
+  return blocks.map((b) =>
+    b.step.id === step.id
+      ? { step, children: b.children }
+      : { step: b.step, children: b.children.map((c) => (c.id === step.id ? step : c)) },
+  )
+}
+
+/** Remove a step; a repeat goes with its steps, and a repeat whose last step goes goes too */
+export function removeStep(blocks: StepBlock[], id: string): StepBlock[] {
+  return blocks
+    .filter((b) => b.step.id !== id)
+    .map((b) => ({ step: b.step, children: b.children.filter((c) => c.id !== id) }))
+    .filter((b) => b.step.kind !== 'repeat' || b.children.length > 0)
+}
+
+/** A step, its children when it is a repeat, and the repeat it sits in (null at the top level) */
+export function findStep(
+  blocks: StepBlock[],
+  id: string,
+): { step: SessionStep; children: SessionStep[]; parent: StepBlock | null } | null {
+  for (const b of blocks) {
+    if (b.step.id === id) return { step: b.step, children: b.children, parent: null }
+    const child = b.children.find((c) => c.id === id)
+    if (child) return { step: child, children: [], parent: b }
+  }
+  return null
+}
+
+/** Seconds as "2:00", "45:30" or "1:05:00" */
+export function formatMinSec(seconds: number): string {
+  const total = Math.round(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = String(total % 60).padStart(2, '0')
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`
+}
+
+/** "4:50", or "12" for whole minutes, as seconds; null when it is not a time above 0 */
+export function parseMinSec(text: string): number | null {
+  const m = /^\s*(\d{1,3})(?::([0-5]\d))?\s*$/.exec(text)
+  if (!m) return null
+  const seconds = Number(m[1]) * 60 + (m[2] === undefined ? 0 : Number(m[2]))
+  return seconds > 0 ? seconds : null
+}
+
+const formatMetres = (m: number) =>
+  m < 1000 ? `${Math.round(m)} m` : `${Number((m / 1000).toFixed(2))} km`
+
+/** One line for a step in the list: "Walk 2:00", "Run 400 m · 4:50–5:00 /km", "6× · 2 steps" */
+export function stepSummary(step: SessionStep, children = 0): string {
+  if (step.kind === 'repeat') {
+    return `${step.repetitions ?? 1}× · ${children} ${children === 1 ? 'step' : 'steps'}`
+  }
+  let text = STEP_KIND_LABELS[step.kind]
+  if (step.targetKind === 'duration' && step.targetValue !== null) {
+    text += ` ${formatMinSec(step.targetValue)}`
+  } else if (step.targetKind === 'distance' && step.targetValue !== null) {
+    text += ` ${formatMetres(step.targetValue)}`
+  }
+  const { paceMin, paceMax } = step
+  if (paceMin !== null && paceMax !== null && paceMin !== paceMax) {
+    text += ` · ${formatMinSec(paceMin)}–${formatMinSec(paceMax)} /km`
+  } else if (paceMin !== null || paceMax !== null) {
+    text += ` · ${formatMinSec((paceMin ?? paceMax)!)} /km`
+  }
+  return text
 }
