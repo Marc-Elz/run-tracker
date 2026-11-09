@@ -5,11 +5,22 @@ import {
   checkSteps,
   checkWeeksKeepSessions,
   dayNumber,
+  addStep,
+  findStep,
+  formatMinSec,
+  fromBlocks,
   localDate,
+  moveStep,
+  parseMinSec,
   programWeek,
+  removeStep,
+  replaceStep,
+  stepSummary,
+  toBlocks,
   TrainingError,
   type ProgramSession,
   type SessionStep,
+  type StepBlock,
 } from '../training'
 
 const step = (over: Partial<SessionStep> = {}): SessionStep => ({
@@ -125,5 +136,134 @@ describe('dates', () => {
     expect(programWeek('2027-01-04', 2, '2027-01-18')).toEqual({ kind: 'after' })
     // Across the switch to summer time a day is still a day
     expect(programWeek('2027-03-22', 2, '2027-03-29')).toEqual({ kind: 'in', week: 2 })
+  })
+})
+
+describe('step blocks', () => {
+  // warm-up, 6× (run, walk), cool-down, with gaps in the imported positions
+  const stored = [
+    step({ id: 'w', kind: 'warmup', position: 0 }),
+    step({ id: 'r', kind: 'repeat', position: 3, repetitions: 6, span: 2 }),
+    step({ id: 'run', position: 4, targetKind: 'duration', targetValue: 60 }),
+    step({ id: 'walk', kind: 'walk', position: 7, targetKind: 'duration', targetValue: 120 }),
+    step({ id: 'c', kind: 'cooldown', position: 9 }),
+  ]
+  const ids = (blocks: StepBlock[]) =>
+    blocks.map((b) => (b.children.length ? [b.step.id, b.children.map((c) => c.id)] : b.step.id))
+
+  it('groups a repeat with the steps it covers, and flattens back keeping ids', () => {
+    const blocks = toBlocks(stored)
+    expect(ids(blocks)).toEqual(['w', ['r', ['run', 'walk']], 'c'])
+    const flat = fromBlocks('s', blocks)
+    expect(flat.map((s) => s.id)).toEqual(['w', 'r', 'run', 'walk', 'c'])
+    expect(flat.map((s) => s.position)).toEqual([0, 1, 2, 3, 4])
+    expect(flat).toEqual(stored.map((s, position) => ({ ...s, position })))
+    expect(() => checkSteps(flat)).not.toThrow()
+  })
+
+  it('counts the span from the steps and gives a repeat no target', () => {
+    const blocks = toBlocks(stored)
+    blocks[1] = {
+      step: { ...blocks[1]!.step, span: 9, targetKind: 'duration', targetValue: 5, paceMin: 300 },
+      children: [...blocks[1]!.children, step({ id: 'extra' })],
+    }
+    const flat = fromBlocks('other', blocks)
+    expect(flat[1]).toMatchObject({
+      span: 3,
+      targetKind: 'none',
+      targetValue: null,
+      paceMin: null,
+      sessionId: 'other',
+    })
+    expect(() => checkSteps(flat)).not.toThrow()
+  })
+
+  it('moves a step within a list, into a repeat and out of it', () => {
+    const blocks = toBlocks(stored)
+    expect(ids(moveStep(blocks, { list: null, index: 2 }, { list: null, index: 0 })!)).toEqual([
+      'c',
+      'w',
+      ['r', ['run', 'walk']],
+    ])
+    expect(ids(moveStep(blocks, { list: 'r', index: 1 }, { list: 'r', index: 0 })!)).toEqual([
+      'w',
+      ['r', ['walk', 'run']],
+      'c',
+    ])
+    // The warm-up into the repeat: the repeat is at index 0 once the warm-up left
+    expect(ids(moveStep(blocks, { list: null, index: 0 }, { list: 'r', index: 2 })!)).toEqual([
+      ['r', ['run', 'walk', 'w']],
+      'c',
+    ])
+    expect(ids(moveStep(blocks, { list: 'r', index: 0 }, { list: null, index: 3 })!)).toEqual([
+      'w',
+      ['r', ['walk']],
+      'c',
+      'run',
+    ])
+    expect(ids(blocks)).toEqual(['w', ['r', ['run', 'walk']], 'c'])
+    for (const moved of [
+      moveStep(blocks, { list: null, index: 0 }, { list: 'r', index: 2 })!,
+      moveStep(blocks, { list: 'r', index: 0 }, { list: null, index: 3 })!,
+    ]) {
+      expect(() => checkSteps(fromBlocks('s', moved))).not.toThrow()
+    }
+  })
+
+  it('refuses a repeat inside a repeat, and the last step out of a repeat', () => {
+    const two = [
+      ...toBlocks(stored),
+      { step: step({ id: 'r2', kind: 'repeat', repetitions: 2 }), children: [step({ id: 'only' })] },
+    ]
+    expect(moveStep(two, { list: null, index: 3 }, { list: 'r', index: 0 })).toBeNull()
+    expect(moveStep(two, { list: 'r2', index: 0 }, { list: null, index: 0 })).toBeNull()
+    expect(moveStep(two, { list: 'r2', index: 0 }, { list: 'r', index: 0 })).toBeNull()
+    expect(moveStep(two, { list: 'r2', index: 0 }, { list: 'r2', index: 0 })).not.toBeNull()
+    expect(moveStep(two, { list: null, index: 9 }, { list: null, index: 0 })).toBeNull()
+    expect(moveStep(two, { list: 'nope', index: 0 }, { list: null, index: 0 })).toBeNull()
+  })
+
+  it('adds, replaces, finds and removes steps; a repeat goes with its steps and when emptied', () => {
+    let blocks = toBlocks(stored)
+    blocks = addStep(blocks, step({ id: 'n' }), 'r')
+    blocks = addStep(blocks, step({ id: 't' }), null)
+    expect(ids(blocks)).toEqual(['w', ['r', ['run', 'walk', 'n']], 'c', 't'])
+    blocks = replaceStep(blocks, step({ id: 'n', kind: 'walk' }))
+    expect(findStep(blocks, 'n')).toMatchObject({ step: { kind: 'walk' }, parent: { step: { id: 'r' } } })
+    expect(findStep(blocks, 'r')?.children).toHaveLength(3)
+    expect(findStep(blocks, 'gone')).toBeNull()
+    expect(ids(removeStep(blocks, 'r'))).toEqual(['w', 'c', 't'])
+    const single = toBlocks([
+      step({ id: 'r', kind: 'repeat', repetitions: 2, span: 1 }),
+      step({ id: 'a' }),
+    ])
+    expect(removeStep(single, 'a')).toEqual([])
+  })
+})
+
+describe('min:s and step summaries', () => {
+  it('reads min:s or whole minutes, and refuses anything else', () => {
+    expect(parseMinSec('4:50')).toBe(290)
+    expect(parseMinSec(' 12 ')).toBe(720)
+    expect(parseMinSec('90:00')).toBe(5400)
+    for (const bad of ['', '0', '0:00', '4:5', '4:60', '-1', 'abc', '1:2:3']) {
+      expect(parseMinSec(bad)).toBeNull()
+    }
+    expect(formatMinSec(120)).toBe('2:00')
+    expect(formatMinSec(3900)).toBe('1:05:00')
+  })
+
+  it('sums a step up in one line', () => {
+    expect(stepSummary(step({ kind: 'walk', targetKind: 'duration', targetValue: 120 }))).toBe(
+      'Walk 2:00',
+    )
+    expect(
+      stepSummary(step({ targetKind: 'distance', targetValue: 400, paceMin: 290, paceMax: 300 })),
+    ).toBe('Run 400 m · 4:50–5:00 /km')
+    expect(stepSummary(step({ kind: 'cooldown', targetKind: 'distance', targetValue: 1500 }))).toBe(
+      'Cool-down 1.5 km',
+    )
+    expect(stepSummary(step({ paceMax: 330 }))).toBe('Run · 5:30 /km')
+    expect(stepSummary(step({ kind: 'repeat', repetitions: 6 }), 2)).toBe('6× · 2 steps')
   })
 })

@@ -89,6 +89,42 @@ describe('training store', () => {
     expect(await training.loadSteps(sid)).toEqual([])
   })
 
+  it('saves steps as blocks, moving the program forward, and refuses a session that is gone', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(program)
+    const sid = await training.saveSession(id, { ...easy(1), type: 'runwalk' })
+    const step = (over: Partial<SessionStep>): SessionStep => ({
+      id: 'x',
+      sessionId: 'ignored',
+      position: 9,
+      kind: 'run',
+      targetKind: 'duration',
+      targetValue: 60,
+      paceMin: null,
+      paceMax: null,
+      repetitions: null,
+      span: null,
+      ...over,
+    })
+    const before = (await training.getProgram(id))!.updatedAt
+    await training.saveBlocks(sid, [
+      {
+        step: step({ id: 'r', kind: 'repeat', repetitions: 6, targetKind: 'none', targetValue: null }),
+        children: [step({ id: 'run' }), step({ id: 'walk', kind: 'walk', targetValue: 120 })],
+      },
+    ])
+    expect(await training.loadSteps(sid)).toMatchObject([
+      { id: 'r', span: 2, position: 0, sessionId: sid },
+      { id: 'run', position: 1 },
+      { id: 'walk', kind: 'walk', position: 2 },
+    ])
+    expect((await training.loadBlocks(sid)).map((b) => b.children.length)).toEqual([2])
+    expect((await training.getProgram(id))!.updatedAt).toBeGreaterThan(before)
+
+    await training.deleteSession(sid)
+    await expect(training.saveBlocks(sid, [])).rejects.toThrow('no longer exists')
+  })
+
   it('passes the failure on when the database is unavailable', async () => {
     const training = useTrainingStore()
     training.useRepository(unavailableTrainingRepository(new Error('no db')))
