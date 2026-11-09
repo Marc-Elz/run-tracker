@@ -229,7 +229,9 @@ describe('session steps', () => {
     const { base } = await runWalk()
     const { wrapper, router } = await open(base)
     await wrapper.get('#session-title').setValue('Changed')
-    expect(wrapper.text()).toContain('Save your changes first to edit steps.')
+    expect(wrapper.get('.steps__locked').text()).toContain(
+      'Tap Save first, then you can edit its steps.',
+    )
     expect(button(wrapper, '+ Add step').attributes('disabled')).toBeDefined()
     await click(wrapper.findAll('.step__main')[0]!)
     expect(router.currentRoute.value.name).toBe('session-edit')

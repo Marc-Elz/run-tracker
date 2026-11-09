@@ -292,11 +292,11 @@ onMounted(load)
         aria-labelledby="steps-title"
       >
         <h2 id="steps-title" class="steps__title">Steps</h2>
-        <p class="hint">
-          {{
-            dirty ? 'Save your changes first to edit steps.' : 'Steps are saved as you change them.'
-          }}
+        <!-- Locked: a notice that stands out, not grey text, so the dimmed steps are explained -->
+        <p v-if="dirty" class="notice steps__locked" role="status">
+          You changed this session. Tap <strong>Save</strong> first, then you can edit its steps.
         </p>
+        <p v-else class="hint">Steps are saved as you change them.</p>
         <p v-if="stepError" class="field-error" role="alert">{{ stepError }}</p>
 
         <ol class="step-list" data-step-list="">
