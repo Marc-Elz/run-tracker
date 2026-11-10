@@ -19,7 +19,7 @@ beforeEach(() => vi.clearAllMocks())
 describe('speak', () => {
   it('speaks with audio focus held only meanwhile', async () => {
     await speak('1 kilometre')
-    expect(mocks.speak).toHaveBeenCalledWith(expect.objectContaining({ text: '1 kilometre' }))
+    expect(mocks.speak).toHaveBeenCalledWith(expect.objectContaining({ text: '1 kilometre', lang: 'en-US' }))
     expect(mocks.requestAudioFocus).toHaveBeenCalledOnce()
     expect(mocks.abandonAudioFocus).toHaveBeenCalledOnce()
   })

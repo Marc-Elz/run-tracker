@@ -8,7 +8,7 @@ import { abandonAudioFocus, requestAudioFocus } from '@/lib/runPower'
 export async function speak(text: string): Promise<void> {
   try {
     await requestAudioFocus()
-    await TextToSpeech.speak({ text, lang: 'en-GB' })
+    await TextToSpeech.speak({ text, lang: 'en-US' })
   } catch (err) {
     console.warn('Speech unavailable', err)
   } finally {

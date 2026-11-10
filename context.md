@@ -82,9 +82,9 @@ Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low
 - Session types for run/walk plans (#100, decided 2026-11-06): add `walk` and `runwalk` session types and a `walk` step kind, separate from `recovery`, as migration 4 in #39 PR 2. With only runner types a beginner plan reads as all "intervals", and #66's cues need walking told apart from a recovery jog.
 - Drag to reorder (#108, decided 2026-11-09): `sortablejs` used directly through `useSortableSteps.ts`, steps also dragged into and out of a repeat; on a drop Sortable's DOM move is undone and the blocks model redraws the list, so Vue alone owns the DOM. #107 reuses it for sessions.
 - Activity scope (#110, decided 2026-11-09): the app tracks more than runs. Rides, road and mountain bike, are recorded with GPS (#111), and home exercise is logged and planned without measuring it (#112), so history and planned vs. done cover all training. The storage shape of the activity type is decided in the plan of whichever goes first.
+- Voice for audio cues (#75, decided 2026-11-10): keep the phone's system speech and ask for English (US) (#130). On the phone the Samsung engine's US voice sounded best; Samsung UK was bad and Google's UK and US voices were only so-so. The plugin cannot pick an engine, so Samsung text-to-speech must be the phone's preferred engine (a per-phone setting). A Settings voice picker, bundled clips and cloud TTS were rejected as more than a voice already found needs; revisit if the app moves to a phone whose voices are poor. Cues stay English.
 
 ## Pending decisions
-- **Voice quality for audio cues** (#75): keep the system voice / pick an installed voice in Settings / bundled clips / cloud TTS.
 - **How much run recording moves to native code** (#83): decide on the screen-off evidence from #73.
 
 ## Open questions
