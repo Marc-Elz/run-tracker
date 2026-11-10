@@ -5,6 +5,7 @@ import { paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/ru
 import { toSegments } from '@/lib/runSummary'
 import { loadRouteOverviews } from '@/lib/routeOverview'
 import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
+import { applyChange, closeOpenStep, type RunStep, type StepChange } from '@/lib/stepProgress'
 import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runRepository'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 
@@ -29,6 +30,8 @@ export const useRunStore = defineStore('run', () => {
   const finishedAt = ref<number | null>(null)
   // The training session this run was started from (#40), as stored; null for a free run
   const sessionId = ref<string | null>(null)
+  // The session's steps as run so far (#101); empty for a free run
+  const runSteps = ref<RunStep[]>([])
   // Brought back after the app was killed mid-run; cleared on resume
   const recovered = ref(false)
   // A write to the database failed: the run goes on, but may not survive the app closing
@@ -99,6 +102,14 @@ export const useRunStore = defineStore('run', () => {
 
   function saveRun() {
     if (runId.value !== null) persist((r) => r.updateRun(record()))
+  }
+
+  /** A step ended or started (#101): kept here and written like a fix, so a failure shows "Not saving" */
+  function applyStepChange(change: StepChange) {
+    const id = runId.value
+    if (id === null || (status.value !== 'running' && status.value !== 'paused')) return
+    runSteps.value = applyChange(runSteps.value, change)
+    persist((r) => r.saveStepChange(id, change.ended, change.started))
   }
 
   function tick(t: number = Date.now()) {
@@ -177,7 +188,16 @@ export const useRunStore = defineStore('run', () => {
     stop(t)
     if (status.value !== 'finished') return null
     const id = runId.value!
+    // The open step ends where the run ended, so a finished run has no open step (#67, #102)
+    const closing = closeOpenStep(runSteps.value, {
+      elapsedMs: elapsedMs.value,
+      distanceM: distanceM.value,
+    })
     try {
+      if (closing) {
+        await repo.saveStepChange(id, closing, [])
+        runSteps.value = applyChange(runSteps.value, { ended: closing, started: [] })
+      }
       await repo.updateRun(record())
     } catch (err) {
       console.warn('[db] write failed', err)
@@ -198,7 +218,9 @@ export const useRunStore = defineStore('run', () => {
   /** Finished runs with their route for the all-routes map; builds missing overviews first. */
   const loadOverviews = (onProgress?: (done: number, total: number) => void) =>
     loadRouteOverviews(repo, onProgress)
-  const importRun = (run: RunRecord, points: StoredPoint[]) => repo.importRun(run, points)
+  const importRun = (run: RunRecord, points: StoredPoint[], steps: RunStep[] = []) =>
+    repo.importRun(run, points, steps)
+  const loadRunSteps = (id: string) => repo.loadRunSteps(id)
   const doneSessionIds = () => repo.doneSessionIds()
 
   /** Name a saved run; blank clears the name. Resolves with the name as stored. */
@@ -214,6 +236,7 @@ export const useRunStore = defineStore('run', () => {
     status.value = 'idle'
     runId.value = null
     sessionId.value = null
+    runSteps.value = []
     startedAt.value = null
     finishedAt.value = null
     recovered.value = false
@@ -244,11 +267,18 @@ export const useRunStore = defineStore('run', () => {
       const restored = toSegments(await repo.loadPoints(run.id), run.segment)
       const all = restored.flat()
       const lastFix = all[all.length - 1]
+      const totals = summarizeTrack(restored)
+      const elapsed = savedElapsedMs(run, restored)
+      const open = closeOpenStep(await repo.loadRunSteps(run.id), {
+        elapsedMs: elapsed,
+        distanceM: totals.distanceM,
+      })
+      if (open) await repo.saveStepChange(run.id, open, [])
       await repo.updateRun({
         ...run,
-        ...summarizeTrack(restored),
+        ...totals,
         status: 'finished',
-        elapsedMs: savedElapsedMs(run, restored),
+        elapsedMs: elapsed,
         segmentStartedAt: null,
         finishedAt: lastFix?.timestamp ?? run.segmentStartedAt ?? run.startedAt,
       })
@@ -257,8 +287,10 @@ export const useRunStore = defineStore('run', () => {
 
     const restored = toSegments(await repo.loadPoints(latest.id), latest.segment)
     const totals = summarizeTrack(restored)
+    const steps = await repo.loadRunSteps(latest.id)
     runId.value = latest.id
     sessionId.value = latest.sessionId
+    runSteps.value = steps
     startedAt.value = latest.startedAt
     segments.value = restored
     segmentAccepted.value = []
@@ -292,6 +324,7 @@ export const useRunStore = defineStore('run', () => {
     status,
     runId,
     sessionId,
+    runSteps,
     startedAt,
     recovered,
     saveError,
@@ -315,6 +348,8 @@ export const useRunStore = defineStore('run', () => {
     loadOverviews,
     deleteRun,
     importRun,
+    loadRunSteps,
+    applyStepChange,
     doneSessionIds,
     renameRun,
     reset,

@@ -73,7 +73,10 @@ describe('run store', () => {
     run.resume(200_000)
     for (let i = 0; i <= 5; i++) run.addPoint(at(200_000 + i * 30_000, 0.02 + i * 0.001))
     expect(run.segments).toHaveLength(2)
-    expect(summarizeTrack(run.segments)).toEqual({ distanceM: run.distanceM, movingMs: run.movingMs })
+    expect(summarizeTrack(run.segments)).toEqual({
+      distanceM: run.distanceM,
+      movingMs: run.movingMs,
+    })
   })
 
   it('ignores points when not running', () => {

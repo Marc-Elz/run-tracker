@@ -3,9 +3,42 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useRunStore } from '../run'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import { unavailableRunRepository, type RunRepository } from '@/lib/db/runRepository'
+import { advanceSteps, expandSteps, stepProgress, type TimelineStep } from '@/lib/stepProgress'
+import type { SessionStep } from '@/lib/training'
 
 // ~0.001 degrees of latitude is ~111 m
 const at = (t: number, latOffset: number) => ({ lat: 52 + latOffset, lon: 4, timestamp: t })
+
+/** Run 60 s, walk 90 s, then a cool-down without a target */
+const timeline: TimelineStep[] = expandSteps(
+  (
+    [
+      ['run', 'duration', 60],
+      ['walk', 'duration', 90],
+      ['cooldown', 'none', null],
+    ] as const
+  ).map(([kind, targetKind, targetValue], position): SessionStep => ({
+    id: `st${position}`,
+    sessionId: 's1',
+    position,
+    kind,
+    targetKind,
+    targetValue,
+    paceMin: null,
+    paceMax: null,
+    repetitions: null,
+    span: null,
+  })),
+)
+
+/** What the composable does on each tick */
+function followSteps(run: ReturnType<typeof useRunStore>) {
+  const change = advanceSteps(timeline, run.runSteps, {
+    elapsedMs: run.elapsedMs,
+    distanceM: run.distanceM,
+  })
+  if (change) run.applyStepChange(change)
+}
 
 const settle = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
@@ -88,7 +121,10 @@ describe('run store persistence', () => {
     const run = store()
     run.start(0)
     run.addPoint(at(0, 0))
-    run.useRepository({ ...repo, updateRun: vi.fn<() => Promise<void>>().mockRejectedValue(new Error('disk full')) })
+    run.useRepository({
+      ...repo,
+      updateRun: vi.fn<() => Promise<void>>().mockRejectedValue(new Error('disk full')),
+    })
     expect(await run.finish(10_000)).toBeNull()
     expect(run.status).toBe('paused')
     expect(run.saveError).toBe(true)
@@ -257,5 +293,87 @@ describe('run store persistence', () => {
     expect(run.saveError).toBe(true)
     run.discard()
     expect(run.saveError).toBe(false)
+  })
+
+  it('saves session steps as they change and shows the same step after the app is killed (#101)', async () => {
+    vi.setSystemTime(0)
+    const run = store()
+    run.start(0, 's1')
+    followSteps(run)
+    vi.advanceTimersByTime(70_000)
+    followSteps(run)
+    expect(run.runSteps.map((s) => s.position)).toEqual([0, 1])
+    await settle()
+
+    // Killed at 1:10, in the walk; relaunched later
+    const after = relaunch()
+    await after.recover()
+    expect(after.runSteps).toEqual(await repo.loadRunSteps(after.runId!))
+    const progress = stepProgress(timeline, after.runSteps, {
+      elapsedMs: after.elapsedMs,
+      distanceM: after.distanceM,
+    })
+    expect(progress?.current?.kind).toBe('walk')
+    expect(after.runSteps[1]).toMatchObject({ startedElapsedMs: 60_000, endedElapsedMs: null })
+  })
+
+  it('closes the open step at the final totals when the run is saved (#101)', async () => {
+    vi.setSystemTime(0)
+    const run = store()
+    run.start(0, 's1')
+    followSteps(run)
+    vi.advanceTimersByTime(65_000)
+    followSteps(run)
+    const id = await run.finish(65_000)
+    expect(run.runSteps).toEqual([])
+    const steps = await repo.loadRunSteps(id!)
+    expect(steps.map((s) => [s.position, s.endedElapsedMs])).toEqual([
+      [0, 60_000],
+      [1, 65_000],
+    ])
+  })
+
+  it('closes the open step of an older unfinished run when it is finished on recover', async () => {
+    const first = store()
+    first.start(0, 's1')
+    followSteps(first)
+    first.addPoint(at(0, 0))
+    first.addPoint(at(30_000, 0.001))
+    const oldId = first.runId!
+    await settle()
+
+    const second = relaunch()
+    second.start(100_000)
+    await settle()
+
+    const third = relaunch()
+    await third.recover()
+    expect(third.runSteps).toEqual([])
+    expect((await repo.loadRunSteps(oldId))[0]).toMatchObject({ endedElapsedMs: 30_000 })
+  })
+
+  it('keeps following the steps in memory when a step write fails', async () => {
+    const run = store()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    run.useRepository({
+      ...repo,
+      saveStepChange: vi.fn<() => Promise<void>>().mockRejectedValue(new Error('disk full')),
+    })
+    run.start(0, 's1')
+    followSteps(run)
+    await settle()
+    expect(run.saveError).toBe(true)
+    expect(run.runSteps).toHaveLength(1)
+  })
+
+  it('drops the steps with a discarded run', async () => {
+    const run = store()
+    run.start(0, 's1')
+    followSteps(run)
+    const id = run.runId!
+    run.discard()
+    expect(run.runSteps).toEqual([])
+    await settle()
+    expect(await repo.loadRunSteps(id)).toEqual([])
   })
 })
