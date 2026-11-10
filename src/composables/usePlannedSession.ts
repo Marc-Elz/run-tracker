@@ -41,7 +41,15 @@ export function usePlannedSession(requested: Ref<string | null>) {
     if (id === null) return null
     const program = await training.getProgram(id)
     if (!program) return null
-    return { program, session: nextSession(await training.listSessions(id), done), chosen: false }
+    // Skips are a nicety: if they can't be read, the next session is picked without them
+    const skipped = new Set(
+      await training.skippedSessionIds().catch((err) => {
+        console.warn('[db] could not read the skipped sessions', err)
+        return []
+      }),
+    )
+    const session = nextSession(await training.listSessions(id), done, skipped)
+    return { program, session, chosen: false }
   }
 
   async function reload() {

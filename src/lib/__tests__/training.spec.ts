@@ -292,6 +292,11 @@ describe('next session (#40)', () => {
     expect(nextSession(sessions, new Set(['w1a']))?.id).toBe('w1b')
   })
 
+  it('passes over skipped sessions, and a skipped one is not next even when it is the only one left (#102)', () => {
+    expect(nextSession(sessions, new Set(), new Set(['w1a']))?.id).toBe('w1b')
+    expect(nextSession(sessions, new Set(['w1a']), new Set(['w1b', 'w2a']))).toBeNull()
+  })
+
   it('skips rest days', () => {
     expect(nextSession(sessions, new Set(['w1a', 'w1b']))?.id).toBe('w2a')
     expect(isRunnable(sessions[2]!, new Set())).toBe(false)

@@ -55,6 +55,10 @@ const confirmingRest = ref(false)
 const done = ref<boolean | null>(null)
 // The finished runs linked to this session, newest first (#102)
 const runs = ref<RunRecord[]>([])
+// Marked skipped (#102); null until known, or when it could not be read
+const skipped = ref<boolean | null>(null)
+const skipBusy = ref(false)
+const skipError = ref<string | null>(null)
 
 const blocks = ref<StepBlock[]>([])
 const stepsRoot = ref<HTMLElement | null>(null)
@@ -84,6 +88,34 @@ const canRun = computed(
     stored.value.type !== 'rest' &&
     run.status === 'idle',
 )
+
+// "Skip this session": a saved session that isn't a rest day and has no run yet. A run still
+// makes it done, so skipping never blocks running it. A skip stays undoable after a run, so it
+// can't come back unseen if that run is deleted.
+const canSkip = computed(
+  () =>
+    sessionId.value !== undefined &&
+    stored.value !== null &&
+    stored.value.type !== 'rest' &&
+    (done.value === false || skipped.value === true) &&
+    skipped.value !== null,
+)
+
+async function toggleSkip() {
+  if (!canSkip.value || skipBusy.value || !sessionId.value) return
+  skipBusy.value = true
+  skipError.value = null
+  try {
+    const next = !skipped.value
+    await training.setSkipped(sessionId.value, next)
+    skipped.value = next
+  } catch (err) {
+    console.warn('[db] could not change the skip', err)
+    skipError.value = 'Could not change the skip'
+  } finally {
+    skipBusy.value = false
+  }
+}
 
 useBackInterceptor(confirming, () => {
   if (!deleting.value) confirming.value = false
@@ -125,6 +157,11 @@ async function load() {
         done.value = runs.value.length > 0
       } catch (err) {
         console.warn('[db] could not tell whether this session was run', err)
+      }
+      try {
+        skipped.value = (await training.skippedSessionIds()).includes(session.id)
+      } catch (err) {
+        console.warn('[db] could not tell whether this session was skipped', err)
       }
     } else {
       form.value.week = Math.min(form.value.week, program.weeks)
@@ -399,6 +436,19 @@ onMounted(load)
           </li>
         </ul>
       </section>
+
+      <template v-if="canSkip">
+        <p v-if="skipped && !done" class="hint">Skipped: "Start next session" passes over it.</p>
+        <button
+          class="btn btn--quiet"
+          :disabled="skipBusy || saving"
+          :aria-pressed="skipped === true"
+          @click="toggleSkip()"
+        >
+          {{ skipped ? 'Undo skip' : 'Skip this session' }}
+        </button>
+        <p v-if="skipError" class="field-error" role="alert">{{ skipError }}</p>
+      </template>
 
       <template v-if="canRun">
         <button

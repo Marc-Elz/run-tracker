@@ -12,7 +12,7 @@ import {
   unavailableTrainingRepository,
   type TrainingRepository,
 } from '../trainingRepository'
-import { nodeSqlite, openTestDb } from './nodeSqlite'
+import { nodeSqlite, openTestDb, programSnapshot } from './nodeSqlite'
 
 const program = (id: string, over: Partial<TrainingProgram> = {}): TrainingProgram => ({
   id,
@@ -253,7 +253,108 @@ describe.each(implementations)('%s training repository', (_name, open) => {
   })
 })
 
+describe.each(implementations)('%s skipped sessions (#102)', (_name, open) => {
+  async function seed() {
+    const repo = await open()
+    await repo.createProgram(program('p'))
+    await repo.createProgram(program('q', { createdAt: 2_000, updatedAt: 2_000 }))
+    await repo.saveSession(session('s', 'p'))
+    await repo.saveSession(session('t', 'p', { position: 1 }))
+    await repo.saveSession(session('u', 'q'))
+    return repo
+  }
+
+  it('marks sessions skipped in every program, and clears the mark', async () => {
+    const repo = await seed()
+    expect(await repo.skippedSessionIds()).toEqual([])
+    await repo.setSkipped('s', true)
+    await repo.setSkipped('u', true)
+    await repo.setSkipped('s', true)
+    expect(await repo.skippedSessionIds()).toEqual(['s', 'u'])
+    await repo.setSkipped('s', false)
+    expect(await repo.skippedSessionIds()).toEqual(['u'])
+  })
+
+  it('does nothing for a session that does not exist', async () => {
+    const repo = await seed()
+    await repo.setSkipped('nope', true)
+    expect(await repo.skippedSessionIds()).toEqual([])
+  })
+
+  it('moves the program forward, so a backup sees a skip', async () => {
+    const repo = await seed()
+    const before = (await repo.getProgram('p'))!.updatedAt
+    await repo.setSkipped('s', true)
+    const marked = (await repo.getProgram('p'))!.updatedAt
+    expect(marked).toBeGreaterThan(before)
+    await repo.setSkipped('s', false)
+    expect((await repo.getProgram('p'))!.updatedAt).toBeGreaterThan(marked)
+  })
+
+  it('drops the mark with its session or program', async () => {
+    const repo = await seed()
+    await repo.setSkipped('s', true)
+    await repo.setSkipped('u', true)
+    await repo.deleteSession('s')
+    expect(await repo.skippedSessionIds()).toEqual(['u'])
+    await repo.deleteProgram('q')
+    expect(await repo.skippedSessionIds()).toEqual([])
+  })
+
+  it('clears the mark when a session becomes a rest day, so it cannot return unasked', async () => {
+    const repo = await seed()
+    await repo.setSkipped('s', true)
+    await repo.saveSession(session('s', 'p', { type: 'rest', title: 'Rest' }))
+    expect(await repo.skippedSessionIds()).toEqual([])
+    await repo.saveSession(session('s', 'p'))
+    expect(await repo.skippedSessionIds()).toEqual([])
+  })
+
+  it("imports only the skips of the program's own sessions", async () => {
+    const source = await seed()
+    const [bundle] = await source.exportPrograms()
+    const target = await open()
+    expect(await target.importProgram({ ...bundle!, skipped: ['s', 'u', 'nope'] })).toBe('added')
+    expect(await target.skippedSessionIds()).toEqual(['s'])
+  })
+
+  it('exports the skipped ids with their program, and imports them back', async () => {
+    const repo = await seed()
+    await repo.setSkipped('t', true)
+    const exported = await repo.exportPrograms()
+    expect(exported.find((b) => b.program.id === 'p')?.skipped).toEqual(['t'])
+    expect(exported.find((b) => b.program.id === 'q')).not.toHaveProperty('skipped')
+
+    const target = await open()
+    for (const bundle of exported) expect(await target.importProgram(bundle)).toBe('added')
+    expect(await target.skippedSessionIds()).toEqual(['t'])
+    expect(await target.exportPrograms()).toEqual(exported)
+  })
+})
+
 describe.skipIf(!nodeSqlite)('training tables on real SQLite', () => {
+  it('adds the skipped sessions table on a phone with runs and programs, keeping every row (#102)', async () => {
+    const db = openTestDb()
+    for (const [i, sql] of MIGRATIONS.slice(0, 7).entries()) {
+      await db.execute(`${sql}PRAGMA user_version = ${i + 1};\n`)
+    }
+    const before = createSqliteTrainingRepository(db)
+    await before.createProgram(program('p'))
+    await before.saveSession(session('s', 'p'))
+    await before.replaceSteps('s', [step('x', 's')])
+    const runs = createSqliteRunRepository(db)
+    await runs.createRun({ ...oldRun('r'), sessionId: 's' })
+    const snapshot = await programSnapshot(before)
+
+    expect(await migrate(db)).toBe(MIGRATIONS.length)
+    expect(await programSnapshot(before)).toEqual(snapshot)
+    expect((await runs.getRun('r'))?.sessionId).toBe('s')
+    expect(await before.skippedSessionIds()).toEqual([])
+    await before.setSkipped('s', true)
+    expect(await before.skippedSessionIds()).toEqual(['s'])
+    expect((await db.query('PRAGMA foreign_key_check;')).values).toEqual([])
+  })
+
   it('stores nothing of a program whose import fails halfway', async () => {
     const repo = await sqliteRepo()
     // Two steps with one id: the second insert fails inside the transaction
@@ -318,13 +419,13 @@ describe.skipIf(!nodeSqlite)('training tables on real SQLite', () => {
     await before.createProgram(program('p'))
     await before.saveSession(session('s', 'p'))
     await before.replaceSteps('s', [step('x', 's')])
-    const exported = await before.exportPrograms()
+    const exported = await programSnapshot(before)
 
     expect(await migrate(db)).toBe(MIGRATIONS.length)
     const runs = createSqliteRunRepository(db)
     expect(await runs.getRun('r')).toEqual(oldRun('r'))
     expect(await runs.loadPoints('r')).toHaveLength(1)
-    expect(await createSqliteTrainingRepository(db).exportPrograms()).toEqual(exported)
+    expect(await programSnapshot(createSqliteTrainingRepository(db))).toEqual(exported)
     expect((await db.query('PRAGMA foreign_key_check;')).values).toEqual([])
   })
 })
@@ -438,11 +539,11 @@ describe.skipIf(!nodeSqlite)('runs linked to sessions on real SQLite (#40)', () 
       step('rec', 's', { position: 2, kind: 'recovery', paceMin: null, paceMax: null }),
     ]
     await before.replaceSteps('s', steps)
-    const exported = await before.exportPrograms()
+    const exported = await programSnapshot(before)
 
     expect(await migrate(db)).toBe(MIGRATIONS.length)
     const after = createSqliteTrainingRepository(db)
-    expect(await after.exportPrograms()).toEqual(exported)
+    expect(await programSnapshot(after)).toEqual(exported)
     expect((await db.query('PRAGMA foreign_key_check;')).values).toEqual([])
     const indexes = await db.query(
       "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;",

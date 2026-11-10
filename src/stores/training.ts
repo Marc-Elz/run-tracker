@@ -90,6 +90,17 @@ export const useTrainingStore = defineStore('training', () => {
     await repo.replaceSteps(sessionId, ordered)
   }
 
+  /** The skipped sessions of every program (#102) */
+  const skippedSessionIds = () => repo.skippedSessionIds()
+
+  /** Mark a session skipped or clear it. A rest day has nothing to skip. */
+  async function setSkipped(sessionId: string, skipped: boolean) {
+    const session = await repo.getSession(sessionId)
+    if (!session) throw new TrainingError('This session no longer exists.')
+    if (session.type === 'rest') throw new TrainingError('A rest day cannot be skipped.')
+    await repo.setSkipped(sessionId, skipped)
+  }
+
   /**
    * Store a session's steps as the editor holds them. Every step change (drag, step editor,
    * delete) writes the whole list at once, so the screen and storage can't drift apart.
@@ -117,6 +128,8 @@ export const useTrainingStore = defineStore('training', () => {
     saveSession,
     deleteSession: (id: string) => repo.deleteSession(id),
     loadSteps: (sessionId: string) => repo.loadSteps(sessionId),
+    skippedSessionIds,
+    setSkipped,
     replaceSteps,
     saveBlocks,
     loadBlocks,

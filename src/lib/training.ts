@@ -99,6 +99,8 @@ export interface ProgramBundle {
   program: TrainingProgram
   sessions: ProgramSession[]
   steps: SessionStep[]
+  /** Ids of the skipped sessions (#102); missing means none */
+  skipped?: string[]
 }
 
 /** What the user edits; ids and times are set by the store */
@@ -160,14 +162,16 @@ export const isRunnable = (session: ProgramSession, done: ReadonlySet<string>) =
 
 /**
  * The session to run next: the first runnable one by week, then position, or null when every
- * session is done or a rest day. A missed session stays next until it is run (#95).
+ * session is done, skipped or a rest day. A missed session stays next until it is run or
+ * skipped (#95, #102).
  */
 export function nextSession(
   sessions: readonly ProgramSession[],
   done: ReadonlySet<string>,
+  skipped: ReadonlySet<string> = new Set(),
 ): ProgramSession | null {
   const ordered = [...sessions].sort((a, b) => a.week - b.week || a.position - b.position)
-  return ordered.find((s) => isRunnable(s, done)) ?? null
+  return ordered.find((s) => isRunnable(s, done) && !skipped.has(s.id)) ?? null
 }
 
 const isWholeIn = (n: number, min: number, max: number) =>

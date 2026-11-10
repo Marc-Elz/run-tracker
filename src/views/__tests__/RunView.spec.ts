@@ -253,6 +253,15 @@ describe('RunView', () => {
       expect(wrapper.text()).toContain('6×400 m')
     })
 
+    it('passes over a skipped session when offering the next one (#102)', async () => {
+      const { easy } = await followed()
+      await useTrainingStore().setSkipped(easy, true)
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.text()).toContain('Next session · Week 2')
+      expect(wrapper.text()).toContain('6×400 m')
+    })
+
     it('starts a free run without a link', async () => {
       await followed()
       const wrapper = mount(RunView)

@@ -163,6 +163,15 @@ CREATE UNIQUE INDEX runs_session ON runs (session_id);
   `DROP INDEX runs_session;
 CREATE INDEX runs_session ON runs (session_id);
 `,
+  // Sessions marked skipped (#102): one row per skipped session, gone with the session. A table of
+  // its own, so program_sessions is not rebuilt. Note for later migrations: rebuilding
+  // program_sessions drops these rows (DROP TABLE runs the ON DELETE actions), so such a rebuild
+  // must copy this table first and put it back after.
+  `CREATE TABLE session_skips (
+  session_id TEXT PRIMARY KEY NOT NULL REFERENCES program_sessions(id) ON DELETE CASCADE,
+  skipped_at INTEGER NOT NULL
+);
+`,
 ]
 
 export async function schemaVersion(db: SqlDb): Promise<number> {
