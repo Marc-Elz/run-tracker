@@ -1,4 +1,5 @@
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
+import type { RunStep } from '@/lib/stepProgress'
 import {
   checkProgram,
   checkSession,
@@ -17,11 +18,12 @@ import {
 /**
  * The backup file, version 2. One JSON object:
  *   { format: 'run-tracker-backup', version: 2, exportedAt: <epoch ms>,
- *     runs: [{ run: RunRecord, points: StoredPoint[] }],
+ *     runs: [{ run: RunRecord, points: StoredPoint[], steps?: RunStep[] }],
  *     programs: [{ program: TrainingProgram, sessions: ProgramSession[], steps: SessionStep[] }] }
  * Only finished runs are in it. Field names are the ones of those types; times are UTC epoch
  * milliseconds. A run's `sessionId` (#40) links it to a session in `programs`; files made before
- * it have no `sessionId`, which reads as null. Version 1 is the same without `programs`, and is
+ * it have no `sessionId`, which reads as null. A run's `steps` (#101) are the session steps as
+ * run; files made before them have none, which reads as an empty list. Version 1 is the same without `programs`, and is
  * still read. The sync to the
  * home server (#24) builds on this format, so a change that old files cannot satisfy needs a new
  * `version`.
@@ -32,6 +34,8 @@ export const BACKUP_VERSION = 2
 export interface BackupRun {
   run: RunRecord
   points: StoredPoint[]
+  /** Session steps as run (#101); missing means none */
+  steps?: RunStep[]
 }
 
 export interface ParsedBackup {
@@ -127,7 +131,8 @@ function toRun(raw: unknown): RunRecord | null {
   if (name !== null && typeof name !== 'string') return null
   if (!isNumber(startedAt) || !isNumber(finishedAt)) return null
   if (!isCount(segment)) return null
-  if (!isNonNegative(elapsedMs) || !isNonNegative(movingMs) || !isNonNegative(distanceM)) return null
+  if (!isNonNegative(elapsedMs) || !isNonNegative(movingMs) || !isNonNegative(distanceM))
+    return null
   return {
     id,
     name,
@@ -141,6 +146,48 @@ function toRun(raw: unknown): RunRecord | null {
     distanceM,
     sessionId: isId(sessionId) ? sessionId : null,
   }
+}
+
+const RUN_STEP_KINDS = STEP_KINDS.filter((k) => k !== 'repeat')
+const isRoundOrNull = (v: unknown) => v === null || isWhole(v, 1)
+
+function toRunStep(raw: unknown): RunStep | null {
+  if (!isObject(raw)) return null
+  const { position, kind, targetKind, targetValue, paceMin, paceMax } = raw
+  const { repetition, repetitions, startedElapsedMs, startedDistanceM } = raw
+  const { endedElapsedMs, endedDistanceM } = raw
+  if (!isCount(position) || !oneOf(RUN_STEP_KINDS, kind) || !oneOf(TARGET_KINDS, targetKind)) {
+    return null
+  }
+  if (![targetValue, paceMin, paceMax].every(isNumberOrNull)) return null
+  if (!isRoundOrNull(repetition) || !isRoundOrNull(repetitions)) return null
+  if (!isNonNegative(startedElapsedMs) || !isNonNegative(startedDistanceM)) return null
+  const endOk = (v: unknown) => v === null || isNonNegative(v)
+  if (!endOk(endedElapsedMs) || !endOk(endedDistanceM)) return null
+  return {
+    position,
+    kind,
+    targetKind,
+    targetValue: targetValue as number | null,
+    paceMin: paceMin as number | null,
+    paceMax: paceMax as number | null,
+    repetition: repetition as number | null,
+    repetitions: repetitions as number | null,
+    startedElapsedMs,
+    startedDistanceM,
+    endedElapsedMs: endedElapsedMs as number | null,
+    endedDistanceM: endedDistanceM as number | null,
+  }
+}
+
+/** A run's steps: none when the field is missing, null when any step is bad or a position repeats */
+function toRunSteps(raw: unknown): RunStep[] | null {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) return null
+  const steps = raw.map(toRunStep)
+  if (steps.some((s) => s === null)) return null
+  const positions = new Set(steps.map((s) => s!.position))
+  return positions.size === steps.length ? (steps as RunStep[]) : null
 }
 
 /** The result of a `lib/training` check, or null when the check refuses it */
@@ -245,7 +292,9 @@ export function parseBackup(text: string): ParsedBackup {
     throw new BackupError('This backup has no valid version.')
   }
   if (data.version > BACKUP_VERSION) {
-    throw new BackupError('This backup was made by a newer version of the app. Update the app first.')
+    throw new BackupError(
+      'This backup was made by a newer version of the app. Update the app first.',
+    )
   }
   // After the version: a newer app may store programs differently
   if (data.programs !== undefined && !Array.isArray(data.programs)) {
@@ -257,16 +306,19 @@ export function parseBackup(text: string): ParsedBackup {
   for (const entry of data.runs) {
     const status = isObject(entry) && isObject(entry.run) ? entry.run.status : undefined
     if (status === 'running' || status === 'paused') {
-      throw new BackupError('This backup contains a run that was never finished, so it was not restored.')
+      throw new BackupError(
+        'This backup contains a run that was never finished, so it was not restored.',
+      )
     }
     const run = isObject(entry) && status === 'finished' ? toRun(entry.run) : null
     const rawPoints = isObject(entry) ? entry.points : undefined
     const points = Array.isArray(rawPoints) ? rawPoints.map(toPoint) : null
-    if (run === null || points === null || points.some((p) => p === null)) {
+    const steps = isObject(entry) ? toRunSteps(entry.steps) : null
+    if (run === null || points === null || points.some((p) => p === null) || steps === null) {
       rejected++
       continue
     }
-    runs.push({ run, points: points as StoredPoint[] })
+    runs.push({ run, points: points as StoredPoint[], steps })
   }
 
   const programs: ProgramBundle[] = []

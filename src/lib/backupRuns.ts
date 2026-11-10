@@ -9,6 +9,7 @@ import {
   parseBackup,
 } from '@/lib/backup'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
+import type { RunStep } from '@/lib/stepProgress'
 import type { ProgramBundle, TrainingProgram } from '@/lib/training'
 import type { ImportOutcome } from '@/lib/db/trainingRepository'
 import { reshareFile, shareFile } from '@/lib/shareRun'
@@ -17,6 +18,7 @@ import { reshareFile, shareFile } from '@/lib/shareRun'
 export interface BackupSource {
   listFinished(): Promise<RunRecord[]>
   loadPoints(runId: string): Promise<StoredPoint[]>
+  loadRunSteps(runId: string): Promise<RunStep[]>
   /** Enough to decide whether the last file can be shared again */
   listPrograms(): Promise<TrainingProgram[]>
   /** Everything inside the programs, read only when a new file is built */
@@ -24,7 +26,7 @@ export interface BackupSource {
 }
 
 export interface BackupTarget {
-  importRun(run: RunRecord, points: StoredPoint[]): Promise<boolean>
+  importRun(run: RunRecord, points: StoredPoint[], steps: RunStep[]): Promise<boolean>
   importProgram(bundle: ProgramBundle): Promise<ImportOutcome>
 }
 
@@ -53,7 +55,9 @@ export async function* backupPieces(
   yield backupHeader(now)
   let done = 0
   for (const run of [...runs].reverse()) {
-    yield backupRunPiece({ run, points: await source.loadPoints(run.id) }, done)
+    const points = await source.loadPoints(run.id)
+    const steps = await source.loadRunSteps(run.id)
+    yield backupRunPiece({ run, points, steps }, done)
     done++
     onProgress?.(done, runs.length)
   }
@@ -132,8 +136,8 @@ export async function restoreRuns(
   }
   let added = 0
   let skipped = 0
-  for (const { run, points } of parsed.runs) {
-    if (await target.importRun(run, points)) added++
+  for (const { run, points, steps = [] } of parsed.runs) {
+    if (await target.importRun(run, points, steps)) added++
     else skipped++
     onProgress?.(added + skipped, parsed.runs.length)
   }

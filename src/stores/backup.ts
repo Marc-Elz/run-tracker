@@ -34,7 +34,8 @@ export const useBackupStore = defineStore('backup', () => {
   const store: BackupSource & BackupTarget = {
     listFinished: () => run.listFinished(),
     loadPoints: (runId) => run.loadPoints(runId),
-    importRun: (r, points) => run.importRun(r, points),
+    loadRunSteps: (runId) => run.loadRunSteps(runId),
+    importRun: (r, points, steps) => run.importRun(r, points, steps),
     listPrograms: () => training.listPrograms(),
     exportPrograms: () => training.exportPrograms(),
     importProgram: (bundle) => training.importProgram(bundle),

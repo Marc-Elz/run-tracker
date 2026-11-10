@@ -14,7 +14,11 @@ const share = vi.hoisted(() => {
       async () => !shared.fileGone,
     ),
     shareFile: vi.fn<
-      (name: string, content: string | AsyncIterable<string>, mime: string) => Promise<string | null>
+      (
+        name: string,
+        content: string | AsyncIterable<string>,
+        mime: string,
+      ) => Promise<string | null>
     >(async (name, content, mime) => {
       shared.name = name
       shared.mime = mime
@@ -162,7 +166,27 @@ describe('backup and restore of runs', () => {
 
   it('restores into an empty repository exactly as it was, and a second restore adds nothing', async () => {
     const source = repos()
-    await source.importRun({ ...finished('a', 1), name: 'Haren' }, [point(5), point(5), point(2)])
+    const steps = [
+      {
+        position: 0,
+        kind: 'run' as const,
+        targetKind: 'duration' as const,
+        targetValue: 60,
+        paceMin: 300,
+        paceMax: 330,
+        repetition: 1,
+        repetitions: 3,
+        startedElapsedMs: 0,
+        startedDistanceM: 0,
+        endedElapsedMs: 60_000,
+        endedDistanceM: 180,
+      },
+    ]
+    await source.importRun(
+      { ...finished('a', 1), name: 'Haren' },
+      [point(5), point(5), point(2)],
+      steps,
+    )
     await backUpRuns(source, 0)
     const text = share.shared.text
 
@@ -178,6 +202,7 @@ describe('backup and restore of runs', () => {
     expect(seen).toEqual([[1, 1]])
     expect(await target.getRun('a')).toEqual(await source.getRun('a'))
     expect(await target.loadPoints('a')).toEqual(await source.loadPoints('a'))
+    expect(await target.loadRunSteps('a')).toEqual(steps)
     expect(await restoreRuns(target, text)).toMatchObject({ added: 0, skipped: 1, rejected: 0 })
     expect(await target.listFinished()).toHaveLength(1)
   })
