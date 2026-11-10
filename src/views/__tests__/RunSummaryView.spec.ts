@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import type { RunRecord } from '@/lib/db/runRepository'
 import { useRunStore } from '@/stores/run'
+import { useTrainingStore } from '@/stores/training'
+import type { SessionStep } from '@/lib/training'
 import RunSummaryView from '../RunSummaryView.vue'
 
 const nav = vi.hoisted(() => ({
@@ -22,7 +24,10 @@ const share = vi.hoisted(() => ({
 vi.mock('@/lib/shareRun', () => share)
 
 // MapLibre needs WebGL, which jsdom does not have; the map has its own checks in the browser
-const RouteMap = { props: ['route'], template: '<div class="map-stub">{{ route.lines.length }}</div>' }
+const RouteMap = {
+  props: ['route'],
+  template: '<div class="map-stub">{{ route.lines.length }}</div>',
+}
 
 const record: RunRecord = {
   id: 'r1',
@@ -41,14 +46,22 @@ const record: RunRecord = {
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>
   wrapper.findAll('button').find((b) => b.text() === label)
 const dialogButton = (wrapper: ReturnType<typeof mount>, label: string) =>
-  wrapper.find('.dialog').findAll('button').find((b) => b.text() === label)
+  wrapper
+    .find('.dialog')
+    .findAll('button')
+    .find((b) => b.text() === label)
 
 async function open(seed = true) {
   const repo = createMemoryRunRepository()
   if (seed) {
     await repo.createRun(record)
     for (let i = 0; i < 4; i++) {
-      await repo.addPoint('r1', 0, { lat: 52 + i * 0.0001, lon: 4, timestamp: i * 2000, accuracy: 5 })
+      await repo.addPoint('r1', 0, {
+        lat: 52 + i * 0.0001,
+        lon: 4,
+        timestamp: i * 2000,
+        accuracy: 5,
+      })
     }
   }
   useRunStore().useRepository(repo)
@@ -149,7 +162,10 @@ describe('RunSummaryView', () => {
 
   it('offers a retry when the run cannot be loaded', async () => {
     const repo = createMemoryRunRepository()
-    useRunStore().useRepository({ ...repo, getRun: vi.fn<() => Promise<never>>().mockRejectedValue(new Error('x')) })
+    useRunStore().useRepository({
+      ...repo,
+      getRun: vi.fn<() => Promise<never>>().mockRejectedValue(new Error('x')),
+    })
     const wrapper = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
     await flushPromises()
     expect(wrapper.text()).toContain('Could not load the run')
@@ -191,11 +207,98 @@ describe('RunSummaryView', () => {
 
   it('keeps the dialog open and says so when deleting fails', async () => {
     const { wrapper, repo } = await open()
-    useRunStore().useRepository({ ...repo, deleteRun: vi.fn<() => Promise<never>>().mockRejectedValue(new Error('x')) })
+    useRunStore().useRepository({
+      ...repo,
+      deleteRun: vi.fn<() => Promise<never>>().mockRejectedValue(new Error('x')),
+    })
     await button(wrapper, 'Delete')!.trigger('click')
     await dialogButton(wrapper, 'Delete')!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('Could not delete the run')
     expect(nav.replace).not.toHaveBeenCalled()
+  })
+
+  describe('session link (#102)', () => {
+    const planStep = (sessionId: string): SessionStep => ({
+      id: 'st1',
+      sessionId,
+      position: 0,
+      kind: 'run',
+      targetKind: 'duration',
+      targetValue: 5,
+      paceMin: null,
+      paceMax: null,
+      repetitions: null,
+      span: null,
+    })
+
+    /** A program with one session of 5 s (the seeded run took 3 s), and one rest day */
+    async function plan() {
+      const training = useTrainingStore()
+      const programId = await training.createProgram({
+        name: 'Beginner',
+        goal: null,
+        weeks: 2,
+        startDate: null,
+      })
+      const easy = await training.saveSession(programId, {
+        week: 1,
+        type: 'easy',
+        title: 'Easy 5 s',
+        notes: null,
+      })
+      await training.saveSession(programId, { week: 1, type: 'rest', title: 'Rest', notes: null })
+      await training.replaceSteps(easy, [planStep(easy)])
+      return { easy }
+    }
+
+    it('offers no link when there is no training program', async () => {
+      const { wrapper } = await open()
+      expect(wrapper.find('.session').exists()).toBe(false)
+    })
+
+    it('links a free run to a session and shows planned vs. done', async () => {
+      const { easy } = await plan()
+      const { wrapper, repo } = await open()
+      await button(wrapper, 'Link to a session')!.trigger('click')
+      await flushPromises()
+      const choices = wrapper.findAll('.choice')
+      // The rest day is not offered
+      expect(choices).toHaveLength(1)
+      await choices[0]!.trigger('click')
+      await flushPromises()
+
+      expect((await repo.getRun('r1'))?.sessionId).toBe(easy)
+      expect(wrapper.find('.dialog').exists()).toBe(false)
+      expect(wrapper.find('.session__name').text()).toContain('Easy 5 s')
+      expect(wrapper.find('.plan__row').text()).toContain('00:03')
+      expect(wrapper.find('.plan__row').text()).toContain('planned 00:05')
+    })
+
+    it('unlinks a run from its session', async () => {
+      const { easy } = await plan()
+      const { wrapper, repo } = await open()
+      await repo.setRunSession('r1', easy)
+      await wrapper.unmount()
+      const again = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      expect(again.find('.session__name').text()).toContain('Easy 5 s')
+
+      await button(again, 'Unlink from session')!.trigger('click')
+      await flushPromises()
+      expect((await repo.getRun('r1'))?.sessionId).toBeNull()
+      expect(button(again, 'Link to a session')).toBeDefined()
+    })
+
+    it('says so when the session has no planned total', async () => {
+      const { easy } = await plan()
+      await useTrainingStore().replaceSteps(easy, [])
+      const { wrapper, repo } = await open()
+      await repo.setRunSession('r1', easy)
+      await wrapper.unmount()
+      const again = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      expect(again.text()).toContain('no planned total')
+    })
   })
 })

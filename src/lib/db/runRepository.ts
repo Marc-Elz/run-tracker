@@ -65,6 +65,11 @@ export interface RunRepository {
   saveOverview(overview: RouteOverview): Promise<void>
   /** Sessions that have a finished run: the done sessions of every program */
   doneSessionIds(): Promise<string[]>
+  /**
+   * Links a run to a session afterwards (#102), or unlinks it with null. Resolves with the link
+   * as stored: null when the session no longer exists. Throws when the run does not exist.
+   */
+  setRunSession(runId: string, sessionId: string | null): Promise<string | null>
 }
 
 /** Runs each operation strictly after the previous one finished */
@@ -102,6 +107,7 @@ export function serialized(repo: RunRepository, enqueue: Queue = createQueue()):
     readOverviews: () => enqueue(() => repo.readOverviews()),
     saveOverview: (overview) => enqueue(() => repo.saveOverview(overview)),
     doneSessionIds: () => enqueue(() => repo.doneSessionIds()),
+    setRunSession: (runId, sessionId) => enqueue(() => repo.setRunSession(runId, sessionId)),
   }
 }
 
@@ -126,5 +132,6 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     readOverviews: fail,
     saveOverview: fail,
     doneSessionIds: fail,
+    setRunSession: fail,
   }
 }

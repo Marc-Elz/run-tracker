@@ -233,6 +233,23 @@ describe('running sessions (#40)', () => {
     expect(router.currentRoute.value.name).toBe('session-edit')
   })
 
+  it('lists the runs of a session, each opening its summary (#102)', async () => {
+    const { id, easy } = await program({ doneFirst: true })
+    const run = useRunStore()
+    run.start(5_000, easy)
+    await run.finish(9_000)
+    const { wrapper } = await open(`/training/${id}/session/${easy}`)
+    const rows = wrapper.findAll('.runs .row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.attributes('href')).toMatch(/^\/run\//)
+  })
+
+  it('lists no runs for a session that was not run', async () => {
+    const { id, long } = await program()
+    const { wrapper } = await open(`/training/${id}/session/${long}`)
+    expect(wrapper.find('.runs').exists()).toBe(false)
+  })
+
   it('offers "Run again" on a done session and opens the Run screen with it (#116)', async () => {
     const { id, easy } = await program({ doneFirst: true })
     const { wrapper, router } = await open(`/training/${id}/session/${easy}`)

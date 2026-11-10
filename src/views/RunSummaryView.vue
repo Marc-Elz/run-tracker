@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import RouteMap from '@/components/RouteMap.vue'
+import RunSessionLink from '@/components/RunSessionLink.vue'
 import { useRunStore } from '@/stores/run'
 import {
   formatClock,
@@ -16,7 +17,13 @@ import {
 import { useBackInterceptor } from '@/composables/useBackButton'
 import { buildGpx, gpxFileName } from '@/lib/gpx'
 import { shareGpx } from '@/lib/shareRun'
-import { buildRunSummary, buildSplits, toSegments, type RunSummary, type Split } from '@/lib/runSummary'
+import {
+  buildRunSummary,
+  buildSplits,
+  toSegments,
+  type RunSummary,
+  type Split,
+} from '@/lib/runSummary'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 
 const run = useRunStore()
@@ -173,7 +180,12 @@ onMounted(loadRun)
           :disabled="saving"
         />
         <div class="rename__actions">
-          <button type="button" class="btn btn--secondary" :disabled="saving" @click="cancelRename()">
+          <button
+            type="button"
+            class="btn btn--secondary"
+            :disabled="saving"
+            @click="cancelRename()"
+          >
             Cancel
           </button>
           <button type="submit" class="btn btn--primary" :disabled="saving">Save</button>
@@ -211,6 +223,14 @@ onMounted(loadRun)
           <span class="stat__label">Moving pace (min/km)</span>
         </div>
       </section>
+
+      <RunSessionLink
+        :run-id="record.id"
+        :session-id="record.sessionId"
+        :elapsed-ms="summary.elapsedMs"
+        :distance-m="summary.distanceM"
+        @linked="record.sessionId = $event"
+      />
 
       <section v-if="splits.length > 0" class="splits" aria-label="Splits">
         <h2 class="splits__heading">Splits</h2>

@@ -75,6 +75,17 @@ describe('memory run repository', () => {
     expect(await repo.createRun(runRecord('free', 3))).toBeNull()
   })
 
+  it('links a saved run to a session afterwards, and unlinks it (#102)', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun(runRecord('a', 0, 'finished'))
+    expect(await repo.setRunSession('a', 's')).toBe('s')
+    expect((await repo.getRun('a'))?.sessionId).toBe('s')
+    expect(await repo.doneSessionIds()).toEqual(['s'])
+    expect(await repo.setRunSession('a', null)).toBeNull()
+    expect(await repo.doneSessionIds()).toEqual([])
+    await expect(repo.setRunSession('nope', 's')).rejects.toThrow('not found')
+  })
+
   it('counts a session done once its run is finished, and never changes the link on update', async () => {
     const repo = createMemoryRunRepository()
     await repo.createRun({ ...runRecord('a', 0), sessionId: 's' })
