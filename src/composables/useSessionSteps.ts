@@ -64,5 +64,5 @@ export function useSessionSteps() {
       : null,
   )
 
-  return { progress, nextStep }
+  return { progress, nextStep, timeline }
 }

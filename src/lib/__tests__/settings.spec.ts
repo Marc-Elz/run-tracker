@@ -4,8 +4,11 @@ import {
   followedProgramId,
   loadCueConfig,
   loadFollowedProgram,
+  loadStepAnnouncements,
   setCueConfig,
   setFollowedProgram,
+  setStepAnnouncements,
+  stepAnnouncements,
 } from '../settings'
 
 // Node's own experimental localStorage can shadow jsdom's, so use a plain in-memory one
@@ -78,5 +81,25 @@ describe('followed program (#40)', () => {
       },
     })
     expect(loadFollowedProgram()).toBeNull()
+  })
+})
+
+describe('step announcements (#66)', () => {
+  it('is on by default and when storage is unreadable', () => {
+    expect(loadStepAnnouncements()).toBe(true)
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('blocked')
+      },
+    })
+    expect(loadStepAnnouncements()).toBe(true)
+  })
+
+  it('keeps an off choice', () => {
+    setStepAnnouncements(false)
+    expect(stepAnnouncements.value).toBe(false)
+    expect(loadStepAnnouncements()).toBe(false)
+    setStepAnnouncements(true)
+    expect(loadStepAnnouncements()).toBe(true)
   })
 })
