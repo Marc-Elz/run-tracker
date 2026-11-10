@@ -372,6 +372,26 @@ describe.skipIf(!nodeSqlite)('runs linked to sessions on real SQLite (#40)', () 
     expect((await runs.getRun('e'))!.sessionId).toBe('t')
   })
 
+  it('links a free run to a session afterwards, moves it and unlinks it (#102)', async () => {
+    const { runs } = await setup()
+    await runs.importRun(linked('a', null), [])
+    expect(await runs.setRunSession('a', 's')).toBe('s')
+    expect(await runs.doneSessionIds()).toEqual(['s'])
+    // Moving the run to another session leaves the first one without a run
+    expect(await runs.setRunSession('a', 't')).toBe('t')
+    expect(await runs.doneSessionIds()).toEqual(['t'])
+    expect(await runs.setRunSession('a', null)).toBeNull()
+    expect((await runs.getRun('a'))!.sessionId).toBeNull()
+    expect(await runs.doneSessionIds()).toEqual([])
+  })
+
+  it('stores no link for a session that does not exist, and refuses a run that does not exist (#102)', async () => {
+    const { runs } = await setup()
+    await runs.importRun(linked('a', null), [])
+    expect(await runs.setRunSession('a', 'missing')).toBeNull()
+    await expect(runs.setRunSession('nope', 's')).rejects.toThrow('not found')
+  })
+
   it('keeps the runs and clears their link when a session or the whole program is deleted', async () => {
     const { runs, training } = await setup()
     await runs.importRun(linked('a', 's'), [])

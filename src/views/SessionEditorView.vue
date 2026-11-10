@@ -7,6 +7,8 @@ import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useSortableSteps } from '@/composables/useSortableSteps'
 import { useTrainingStore } from '@/stores/training'
 import { useRunStore } from '@/stores/run'
+import { formatDistanceKm, formatDuration, formatRunDate } from '@/lib/format'
+import type { RunRecord } from '@/lib/db/runRepository'
 import {
   MAX_NAME_LENGTH,
   MAX_NOTES_LENGTH,
@@ -51,6 +53,8 @@ const deleteError = ref<string | null>(null)
 const confirmingRest = ref(false)
 // This session has a finished run (#40); null until known, or when it could not be read
 const done = ref<boolean | null>(null)
+// The finished runs linked to this session, newest first (#102)
+const runs = ref<RunRecord[]>([])
 
 const blocks = ref<StepBlock[]>([])
 const stepsRoot = ref<HTMLElement | null>(null)
@@ -117,7 +121,8 @@ async function load() {
       stored.value = { week, type, title, notes }
       blocks.value = await training.loadBlocks(session.id)
       try {
-        done.value = (await run.doneSessionIds()).includes(session.id)
+        runs.value = (await run.listFinished()).filter((r) => r.sessionId === session.id)
+        done.value = runs.value.length > 0
       } catch (err) {
         console.warn('[db] could not tell whether this session was run', err)
       }
@@ -378,6 +383,23 @@ onMounted(load)
       </section>
 
       <p v-if="done" class="done">✓ Done</p>
+      <section v-if="runs.length > 0" class="runs" aria-labelledby="runs-title">
+        <h2 id="runs-title" class="steps__title runs__title">Runs</h2>
+        <ul class="list">
+          <li v-for="r in runs" :key="r.id">
+            <RouterLink class="row" :to="{ name: 'run-summary', params: { id: r.id } }">
+              <span class="row__main">
+                <span class="row__title">{{ formatRunDate(r.startedAt) }}</span>
+                <span class="row__detail">
+                  {{ formatDistanceKm(r.distanceM) }} km · {{ formatDuration(r.elapsedMs) }}
+                </span>
+              </span>
+              <span class="row__chevron" aria-hidden="true">›</span>
+            </RouterLink>
+          </li>
+        </ul>
+      </section>
+
       <template v-if="canRun">
         <button
           class="btn btn--primary btn--wide"
@@ -427,6 +449,15 @@ onMounted(load)
 <style scoped src="./training.css"></style>
 
 <style scoped>
+.runs {
+  margin-top: 1.5rem;
+}
+
+.runs__title {
+  margin-bottom: 0.5rem;
+  padding: 0 1.5rem;
+}
+
 .run-hint {
   margin-top: 0;
 }

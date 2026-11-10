@@ -222,6 +222,8 @@ export const useRunStore = defineStore('run', () => {
     repo.importRun(run, points, steps)
   const loadRunSteps = (id: string) => repo.loadRunSteps(id)
   const doneSessionIds = () => repo.doneSessionIds()
+  /** Link a saved run to a session, or unlink it with null; resolves with the link as stored */
+  const linkRun = (id: string, session: string | null) => repo.setRunSession(id, session)
 
   /** Name a saved run; blank clears the name. Resolves with the name as stored. */
   async function renameRun(id: string, name: string): Promise<string | null> {
@@ -351,6 +353,7 @@ export const useRunStore = defineStore('run', () => {
     loadRunSteps,
     applyStepChange,
     doneSessionIds,
+    linkRun,
     renameRun,
     reset,
     discard,

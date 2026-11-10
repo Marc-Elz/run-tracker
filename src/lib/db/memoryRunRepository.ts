@@ -98,6 +98,12 @@ export function createMemoryRunRepository(): RunRepository {
         .map((r) => r.sessionId!)
       return [...new Set(ids)]
     },
+    async setRunSession(runId, sessionId) {
+      const run = runs.get(runId)
+      if (!run) throw new Error(`Run ${runId} not found`)
+      run.sessionId = sessionId
+      return sessionId
+    },
     async saveOverview(overview) {
       if (!runs.has(overview.runId)) throw new Error(`Run ${overview.runId} not found`)
       overviews.set(overview.runId, overview)

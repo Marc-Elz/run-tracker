@@ -275,6 +275,18 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       )
       return (result.values ?? []).map((row) => String(row.session_id))
     },
+    async setRunSession(runId, sessionId) {
+      await db.run(`UPDATE runs SET session_id = ${SESSION_LINK}, updated_at = ? WHERE id = ?`, [
+        sessionId,
+        Date.now(),
+        runId,
+      ])
+      const stored = await db.query('SELECT session_id FROM runs WHERE id = ?', [runId])
+      const rows = stored.values ?? []
+      if (rows.length === 0) throw new Error(`Run ${runId} not found`)
+      const link = rows[0]?.session_id
+      return link === null || link === undefined ? null : String(link)
+    },
     async saveOverview(o) {
       await db.run(
         `INSERT OR REPLACE INTO route_overview (run_id, algo, lines, bounds) VALUES (?, ?, ?, ?)`,
