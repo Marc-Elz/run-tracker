@@ -184,7 +184,10 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
     async saveSession(session) {
       const clearSteps: Statement[] =
         session.type === 'rest'
-          ? [{ statement: 'DELETE FROM session_steps WHERE session_id = ?', values: [session.id] }]
+          ? [
+              { statement: 'DELETE FROM session_steps WHERE session_id = ?', values: [session.id] },
+              { statement: 'DELETE FROM session_skips WHERE session_id = ?', values: [session.id] },
+            ]
           : []
       await db.executeSet(
         [upsertSession(session), ...clearSteps, touchProgram(session.programId)],
@@ -285,10 +288,12 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
           insertProgram(program),
           ...sessions.map(insertSession),
           ...steps.map(insertStep),
-          ...skipped.map((id): Statement => ({
-            statement: 'INSERT INTO session_skips (session_id, skipped_at) VALUES (?, ?)',
-            values: [id, Date.now()],
-          })),
+          ...skipped
+            .filter((id) => sessions.some((s) => s.id === id))
+            .map((id): Statement => ({
+              statement: 'INSERT INTO session_skips (session_id, skipped_at) VALUES (?, ?)',
+              values: [id, Date.now()],
+            })),
         ],
         true,
       )

@@ -253,6 +253,19 @@ describe('running sessions (#40)', () => {
     expect(await useTrainingStore().skippedSessionIds()).toEqual([])
   })
 
+  it('keeps Undo skip for a skipped session that was run, so the skip cannot return unseen (#102)', async () => {
+    const { id, easy } = await program()
+    await useTrainingStore().setSkipped(easy, true)
+    const run = useRunStore()
+    run.start(0, easy)
+    await run.finish(1_000)
+    const { wrapper } = await open(`/training/${id}/session/${easy}`)
+    expect(wrapper.text()).toContain('✓ Done')
+    expect(wrapper.text()).not.toContain('passes over it')
+    await click(button(wrapper, 'Undo skip'))
+    expect(await useTrainingStore().skippedSessionIds()).toEqual([])
+  })
+
   it('offers no skip for a rest day or a session that was run (#102)', async () => {
     const { id, easy, rest } = await program({ doneFirst: true })
     const labels = async (sid: string) =>

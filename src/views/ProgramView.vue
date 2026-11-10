@@ -64,6 +64,10 @@ function weekLine(weekSessions: ProgramSession[]): string | null {
   return parts.join(' · ')
 }
 
+const weekLines = computed(
+  () => new Map(weeks.value.map((w) => [w.week, weekLine(w.sessions)] as const)),
+)
+
 const where = computed(() => {
   const p = program.value
   if (!p?.startDate) return null
@@ -163,7 +167,7 @@ onMounted(load)
 
       <section v-for="w in weeks" :key="w.week" class="week" :aria-labelledby="`week-${w.week}`">
         <h2 :id="`week-${w.week}`" class="week__title">Week {{ w.week }}</h2>
-        <p v-if="weekLine(w.sessions)" class="week__summary">{{ weekLine(w.sessions) }}</p>
+        <p v-if="weekLines.get(w.week)" class="week__summary">{{ weekLines.get(w.week) }}</p>
         <ul class="list">
           <li v-for="(s, i) in w.sessions" :key="s.id">
             <RouterLink

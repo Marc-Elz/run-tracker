@@ -62,7 +62,10 @@ export function createMemoryTrainingRepository(): TrainingRepository {
         throw new Error(`Program ${session.programId} not found`)
       }
       sessions.set(session.id, { ...session })
-      if (session.type === 'rest') steps.delete(session.id)
+      if (session.type === 'rest') {
+        steps.delete(session.id)
+        skips.delete(session.id)
+      }
       touch(session.programId)
     },
     async deleteSession(id) {
@@ -127,7 +130,7 @@ export function createMemoryTrainingRepository(): TrainingRepository {
             .sort((a, b) => a.position - b.position),
         )
       }
-      for (const id of skipped) skips.add(id)
+      for (const id of skipped) if (imported.some((s) => s.id === id)) skips.add(id)
       return 'added'
     },
   }

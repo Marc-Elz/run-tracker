@@ -90,13 +90,14 @@ const canRun = computed(
 )
 
 // "Skip this session": a saved session that isn't a rest day and has no run yet. A run still
-// makes it done, so skipping never blocks running it.
+// makes it done, so skipping never blocks running it. A skip stays undoable after a run, so it
+// can't come back unseen if that run is deleted.
 const canSkip = computed(
   () =>
     sessionId.value !== undefined &&
     stored.value !== null &&
     stored.value.type !== 'rest' &&
-    done.value === false &&
+    (done.value === false || skipped.value === true) &&
     skipped.value !== null,
 )
 
@@ -437,7 +438,7 @@ onMounted(load)
       </section>
 
       <template v-if="canSkip">
-        <p v-if="skipped" class="hint">Skipped: "Start next session" passes over it.</p>
+        <p v-if="skipped && !done" class="hint">Skipped: "Start next session" passes over it.</p>
         <button
           class="btn btn--quiet"
           :disabled="skipBusy || saving"

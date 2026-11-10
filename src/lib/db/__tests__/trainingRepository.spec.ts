@@ -301,6 +301,23 @@ describe.each(implementations)('%s skipped sessions (#102)', (_name, open) => {
     expect(await repo.skippedSessionIds()).toEqual([])
   })
 
+  it('clears the mark when a session becomes a rest day, so it cannot return unasked', async () => {
+    const repo = await seed()
+    await repo.setSkipped('s', true)
+    await repo.saveSession(session('s', 'p', { type: 'rest', title: 'Rest' }))
+    expect(await repo.skippedSessionIds()).toEqual([])
+    await repo.saveSession(session('s', 'p'))
+    expect(await repo.skippedSessionIds()).toEqual([])
+  })
+
+  it("imports only the skips of the program's own sessions", async () => {
+    const source = await seed()
+    const [bundle] = await source.exportPrograms()
+    const target = await open()
+    expect(await target.importProgram({ ...bundle!, skipped: ['s', 'u', 'nope'] })).toBe('added')
+    expect(await target.skippedSessionIds()).toEqual(['s'])
+  })
+
   it('exports the skipped ids with their program, and imports them back', async () => {
     const repo = await seed()
     await repo.setSkipped('t', true)
