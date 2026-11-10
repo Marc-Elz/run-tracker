@@ -42,7 +42,7 @@ Personal-use app that doubles as a portfolio project; the source will be shared 
 - It does have Node Hunter (a red dot per unfinished node) and a manual Route Builder, and it is good at city boundaries, completion percentages and street lists. It has no automatic loop over unrun streets for a target distance and no guidance during a run: that gap is what #30, #31 and #32 build.
 - We compute coverage in the app ourselves, minimal scope (#29, decided 2026-11-03); see the next section.
 
-## Street coverage & route suggestions (Phase 4)
+## Street coverage & route suggestions (Map planning)
 - Street data: OpenStreetMap (regional extract on the home server).
 - Map-match GPS traces to OSM ways to know which streets are covered, with self-hosted GraphHopper (chosen in the #25 spike, see #91). The comparison tooling is in `scripts/map-matching-spike/`.
 - The in-app coverage view stays minimal (#29): a run vs. unrun colour layer, no boundaries, percentages or street lists. Coverage exists mainly to feed route suggestions (#31).
@@ -55,7 +55,7 @@ Work items live in GitHub issues, grouped by milestone: https://github.com/Marc-
 1.5. **Phase 1.5 - Run experience:** make a run nicer to do, starting with audio cues (#61).
 2. **Phase 2 - Strava:** OAuth + upload after a run (CityStrides follows via Strava). Parked, see #86.
 3. **Phase 3 - History:** run list, detail, heatmap, stats, backup, optional sync to the home server.
-4. **Phase 4 - Smart features:** home server + routing services, street coverage via map-matching, then route suggestions favouring new streets.
+4. **Map planning** (was Phase 4 - Smart features): routing services, street coverage via map-matching, then route suggestions favouring new streets. **Home server** (split out): old-laptop setup, remote access, sync, self-hosted tiles.
 5. **Phase 5 - Training programs:** week/session programs with structured steps, running the next session of the followed program, following a session's steps during a run, planned vs. done, voice coaching.
 
 What is done or next is not written here: it lives in the milestones and issues, so it does not need a PR each time.

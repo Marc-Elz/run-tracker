@@ -188,7 +188,7 @@ add(
   'Docker',
   !!docker,
   docker ? firstLine(docker) : 'not found',
-  'Docker Desktop (needed from Phase 4 for routing services)',
+  'Docker Desktop (needed from Map planning for routing services)',
 )
 if (docker) {
   const running = run('docker', ['info']) !== null
