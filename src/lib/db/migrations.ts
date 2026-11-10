@@ -130,10 +130,11 @@ DROP TABLE program_sessions_copy;
 CREATE INDEX program_sessions_program ON program_sessions (program_id, week, position);
 CREATE INDEX session_steps_session ON session_steps (session_id, position);
 `,
-  // The session a run was started from (#40); one run per session. Deleting the session or its
+  // The session a run was started from (#40); one run per session until migration 7. Deleting the session or its
   // program keeps the run and clears the link. Note for later migrations: rebuilding
   // program_sessions as migration 4 did now clears every run's link, because DROP TABLE runs the
   // ON DELETE actions, so such a rebuild must save runs.session_id first and put it back after.
+  // Migration 7 later allowed several runs per session.
   `ALTER TABLE runs ADD COLUMN session_id TEXT REFERENCES program_sessions(id) ON DELETE SET NULL;
 CREATE UNIQUE INDEX runs_session ON runs (session_id);
 `,
@@ -156,6 +157,11 @@ CREATE UNIQUE INDEX runs_session ON runs (session_id);
   ended_distance_m REAL,
   PRIMARY KEY (run_id, position)
 );
+`,
+  // Several runs per session (#116): a redo links to the same session as the first run. The
+  // unique index of migration 5 becomes a plain one; the column and every link stay as they are.
+  `DROP INDEX runs_session;
+CREATE INDEX runs_session ON runs (session_id);
 `,
 ]
 

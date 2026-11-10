@@ -94,12 +94,11 @@ const insertStep = (runId: string, s: RunStep) => ({
 })
 
 /**
- * The value written to `runs.session_id`: the session when it exists and has no run yet, else
- * NULL. Takes the session id as its one value. A dangling or second link would fail the whole
- * insert, and a run must never go unsaved over its link.
+ * The value written to `runs.session_id`: the session when it exists, else NULL. Takes the
+ * session id as its one value. A dangling link would fail the whole insert, and a run must never
+ * go unsaved over its link. A session may have several runs (#116).
  */
-const SESSION_LINK = `(SELECT s.id FROM program_sessions s WHERE s.id = ?
-  AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.session_id = s.id))`
+const SESSION_LINK = `(SELECT s.id FROM program_sessions s WHERE s.id = ?)`
 
 /**
  * Runs on the app database (opened by `openDb`). Every `run` call commits on its own, so a killed
@@ -272,7 +271,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
     },
     async doneSessionIds() {
       const result = await db.query(
-        `SELECT session_id FROM runs WHERE status = 'finished' AND session_id IS NOT NULL`,
+        `SELECT DISTINCT session_id FROM runs WHERE status = 'finished' AND session_id IS NOT NULL`,
       )
       return (result.values ?? []).map((row) => String(row.session_id))
     },

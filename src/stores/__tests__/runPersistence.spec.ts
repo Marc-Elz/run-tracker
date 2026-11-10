@@ -149,7 +149,7 @@ describe('run store persistence', () => {
     expect(await repo.doneSessionIds()).toEqual(['s1'])
   })
 
-  it('takes the link as stored: a session that already has a run makes this a free run', async () => {
+  it('keeps the link when the session already has a run: a run again (#116)', async () => {
     await repo.importRun(
       {
         id: 'old',
@@ -169,7 +169,7 @@ describe('run store persistence', () => {
     const run = store()
     run.start(10, 's1')
     await settle()
-    expect(run.sessionId).toBeNull()
+    expect(run.sessionId).toBe('s1')
     expect(run.saveError).toBe(false)
   })
 

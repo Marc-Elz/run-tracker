@@ -71,13 +71,13 @@ const dirty = computed(() => {
 })
 const showSteps = computed(() => stored.value !== null && stored.value.type !== 'rest')
 const stepsLocked = computed(() => dirty.value || saving.value || stepsBusy.value)
-// "Run this session": a saved session that isn't a rest day and has no run yet
+// "Run this session" or, once it has a finished run, "Run again" (#116): a saved session that
+// isn't a rest day
 const canRun = computed(
   () =>
     sessionId.value !== undefined &&
     stored.value !== null &&
     stored.value.type !== 'rest' &&
-    done.value === false &&
     run.status === 'idle',
 )
 
@@ -377,17 +377,17 @@ onMounted(load)
         </button>
       </section>
 
+      <p v-if="done" class="done">✓ Done</p>
       <template v-if="canRun">
         <button
           class="btn btn--primary btn--wide"
           :disabled="dirty || saving"
           @click="runSession()"
         >
-          Run this session
+          {{ done ? 'Run again' : 'Run this session' }}
         </button>
         <p v-if="dirty" class="hint run-hint">Save your changes first to run this session.</p>
       </template>
-      <p v-else-if="done" class="done">✓ Done</p>
 
       <button
         v-if="sessionId"

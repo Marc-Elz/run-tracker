@@ -64,12 +64,14 @@ describe('memory run repository', () => {
     await expect(repo.renameRun('nope', 'x')).rejects.toThrow('not found')
   })
 
-  it('keeps a session to one run, storing a second run without the link (#40)', async () => {
+  it('links several runs to one session, and none for a free run (#116)', async () => {
     const repo = createMemoryRunRepository()
     expect(await repo.createRun({ ...runRecord('a', 0), sessionId: 's' })).toBe('s')
-    expect(await repo.createRun({ ...runRecord('b', 1), sessionId: 's' })).toBeNull()
-    expect(await repo.importRun({ ...runRecord('c', 2, 'finished'), sessionId: 's' }, [])).toBe(true)
-    expect((await repo.getRun('c'))?.sessionId).toBeNull()
+    expect(await repo.createRun({ ...runRecord('b', 1), sessionId: 's' })).toBe('s')
+    expect(await repo.importRun({ ...runRecord('c', 2, 'finished'), sessionId: 's' }, [])).toBe(
+      true,
+    )
+    expect((await repo.getRun('c'))?.sessionId).toBe('s')
     expect(await repo.createRun(runRecord('free', 3))).toBeNull()
   })
 
@@ -82,6 +84,13 @@ describe('memory run repository', () => {
     expect(await repo.doneSessionIds()).toEqual(['s'])
     await repo.deleteRun('a')
     expect(await repo.doneSessionIds()).toEqual([])
+  })
+
+  it('lists a session once however many finished runs it has (#116)', async () => {
+    const repo = createMemoryRunRepository()
+    await repo.createRun({ ...runRecord('a', 0, 'finished'), sessionId: 's' })
+    await repo.createRun({ ...runRecord('b', 1, 'finished'), sessionId: 's' })
+    expect(await repo.doneSessionIds()).toEqual(['s'])
   })
 
   it('deletes a run with its points', async () => {
@@ -131,7 +140,11 @@ describe('unavailable repository', () => {
 })
 
 describe('importRun', () => {
-  const finished = (id: string) => ({ ...runRecord(id, 0, 'finished'), name: 'Haren', finishedAt: 9 })
+  const finished = (id: string) => ({
+    ...runRecord(id, 0, 'finished'),
+    name: 'Haren',
+    finishedAt: 9,
+  })
   const pts = [
     { segment: 0, timestamp: 5, lat: 1, lon: 2 },
     { segment: 0, timestamp: 5, lat: 3, lon: 4, accuracy: 6 },
@@ -166,6 +179,8 @@ describe('importRun', () => {
     })
     expect(await queued.importRun(finished('a'), [])).toBe(true)
     expect(calls).toEqual(['a'])
-    await expect(unavailableRunRepository('x').importRun(finished('a'), [])).rejects.toThrow(/unavailable/)
+    await expect(unavailableRunRepository('x').importRun(finished('a'), [])).rejects.toThrow(
+      /unavailable/,
+    )
   })
 })

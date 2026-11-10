@@ -174,3 +174,89 @@ describe.skipIf(!nodeSqlite)('run steps on real SQLite', () => {
     )
   })
 })
+
+describe.skipIf(!nodeSqlite)('several runs per session on real SQLite (#116)', () => {
+  async function open() {
+    const db = openTestDb()
+    await migrate(db)
+    const training = createSqliteTrainingRepository(db)
+    await training.createProgram({
+      id: 'p',
+      name: 'Plan',
+      goal: null,
+      weeks: 1,
+      startDate: null,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await training.saveSession({
+      id: 's',
+      programId: 'p',
+      week: 1,
+      position: 0,
+      type: 'easy',
+      title: 'Easy',
+      notes: null,
+    })
+    return { db, runs: createSqliteRunRepository(db) }
+  }
+
+  it('keeps both runs linked and the session done once', async () => {
+    const { runs } = await open()
+    const done = (id: string) => run(id, { status: 'finished', finishedAt: 5, sessionId: 's' })
+    expect(await runs.createRun(done('first'))).toBe('s')
+    expect(await runs.createRun(done('again'))).toBe('s')
+    expect(await runs.importRun(done('imported'), [])).toBe(true)
+    expect((await runs.getRun('again'))?.sessionId).toBe('s')
+    expect((await runs.getRun('imported'))?.sessionId).toBe('s')
+    expect(await runs.doneSessionIds()).toEqual(['s'])
+  })
+
+  it('still stores a run of a session that does not exist, without the link', async () => {
+    const { runs } = await open()
+    expect(await runs.createRun(run('r', { sessionId: 'gone' }))).toBeNull()
+  })
+
+  it('lets a phone with one linked run per session take the migration, keeping the link', async () => {
+    const db = openTestDb()
+    for (const [i, sql] of MIGRATIONS.slice(0, 6).entries()) {
+      await db.execute(`${sql}PRAGMA user_version = ${i + 1};\n`)
+    }
+    const training = createSqliteTrainingRepository(db)
+    await training.createProgram({
+      id: 'p',
+      name: 'Plan',
+      goal: null,
+      weeks: 1,
+      startDate: null,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await training.saveSession({
+      id: 's',
+      programId: 'p',
+      week: 1,
+      position: 0,
+      type: 'easy',
+      title: 'Easy',
+      notes: null,
+    })
+    const runs = createSqliteRunRepository(db)
+    // Before the migration the unique index refuses a second run of the session
+    await db.run(
+      'INSERT INTO runs (id, status, started_at, elapsed_ms, segment, moving_ms, distance_m, created_at, updated_at, session_id) VALUES (?, ?, 1, 0, 0, 0, 0, 1, 1, ?)',
+      ['one', 'finished', 's'],
+    )
+    await expect(
+      db.run(
+        'INSERT INTO runs (id, status, started_at, elapsed_ms, segment, moving_ms, distance_m, created_at, updated_at, session_id) VALUES (?, ?, 2, 0, 0, 0, 0, 1, 1, ?)',
+        ['two', 'finished', 's'],
+      ),
+    ).rejects.toThrow(/UNIQUE/)
+
+    expect(await migrate(db)).toBe(MIGRATIONS.length)
+    expect((await runs.getRun('one'))?.sessionId).toBe('s')
+    expect(await runs.createRun(run('two', { sessionId: 's' }))).toBe('s')
+    expect((await db.query('PRAGMA foreign_key_check;')).values).toEqual([])
+  })
+})
