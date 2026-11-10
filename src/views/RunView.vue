@@ -7,11 +7,19 @@ import { useTrainingStore } from '@/stores/training'
 import { useKeepAwake } from '@/composables/useKeepAwake'
 import { useAudioCues } from '@/composables/useAudioCues'
 import { usePlannedSession } from '@/composables/usePlannedSession'
+import { useSessionSteps } from '@/composables/useSessionSteps'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { cueConfig } from '@/lib/settings'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
-import { formatDistanceKm, formatDuration, formatPace } from '@/lib/format'
-import { SESSION_TYPE_LABELS, type ProgramSession } from '@/lib/training'
+import { formatDistanceKm, formatDuration, formatMetres, formatPace } from '@/lib/format'
+import {
+  SESSION_TYPE_LABELS,
+  STEP_KIND_LABELS,
+  formatMinSec,
+  type ProgramSession,
+} from '@/lib/training'
+import { nextStepLabel, stepKindLabel } from '@/lib/stepProgress'
 
 const run = useRunStore()
 const training = useTrainingStore()
@@ -52,6 +60,30 @@ watch(
   },
   { immediate: true },
 )
+
+// The session's step, in large type, while a run of a session with steps is going (#101)
+const { progress: steps, nextStep } = useSessionSteps()
+/** Time or metres left, or the time spent so far in a step without a target */
+const stepValue = computed(() => {
+  const p = steps.value
+  if (!p) return ''
+  // Rounded up, so a 1:00 step shows 1:00 at its start and 0:00 only once it is over
+  if (p.leftMs !== null) return formatMinSec(Math.ceil(p.leftMs / 1000))
+  if (p.leftM !== null) return formatMetres(Math.ceil(p.leftM))
+  return formatMinSec(Math.floor(p.inStepMs / 1000))
+})
+const canSkip = computed(
+  () => status.value === 'running' && steps.value?.current?.targetKind === 'none',
+)
+const confirmingNext = ref(false)
+// A pause (or the run ending) closes the question: Next step is only for a running step
+watch(canSkip, (on) => {
+  if (!on) confirmingNext.value = false
+})
+function onNextStep() {
+  nextStep()
+  confirmingNext.value = false
+}
 
 useKeepAwake(computed(() => status.value === 'running' || status.value === 'paused'))
 useAudioCues(cueConfig)
@@ -160,20 +192,59 @@ onBeforeUnmount(endGps)
       </template>
     </section>
 
-    <p v-if="status !== 'idle' && linked" class="session-line">
+    <section
+      v-if="steps"
+      class="step-panel"
+      :class="{ 'step-panel--done': steps.done }"
+      aria-label="Session step"
+    >
+      <p class="step-panel__top">
+        <span class="step-panel__kind">
+          {{ steps.current ? stepKindLabel(steps.current) : 'Session done' }}
+        </span>
+        <span class="step-panel__count">{{ steps.index + 1 }} / {{ steps.count }}</span>
+      </p>
+      <template v-if="steps.done">
+        <p class="step-panel__done">Session done</p>
+        <p class="step-panel__hint">Recording until you tap Stop</p>
+      </template>
+      <template v-else>
+        <span class="step-panel__value">{{ stepValue }}</span>
+        <span class="stat__label">
+          {{ steps.current?.targetKind === 'none' ? 'In this step' : 'Left' }}
+        </span>
+        <p v-if="steps.next" class="step-panel__next">Next: {{ nextStepLabel(steps.next) }}</p>
+        <button
+          v-if="canSkip"
+          class="btn btn--primary step-panel__btn"
+          @click="confirmingNext = true"
+        >
+          Next step
+        </button>
+      </template>
+    </section>
+
+    <p v-else-if="status !== 'idle' && linked" class="session-line">
       Week {{ linked.week }} · {{ linked.title }}
     </p>
 
     <p v-if="status === 'running' && !hasFix && !gpsFailure" class="gps-status">Acquiring GPS…</p>
 
     <section class="stats" aria-live="off">
-      <div class="stat stat--time">
-        <span class="stat__value">{{ formatDuration(elapsedMs) }}</span>
-        <span class="stat__label">Time</span>
-      </div>
-      <div class="stat stat--distance">
-        <span class="stat__value">{{ formatDistanceKm(distanceM) }}</span>
-        <span class="stat__label">Distance (km)</span>
+      <!-- With a step panel its number is the one big number; the totals step down a size -->
+      <div :class="steps ? 'stat-row' : 'stats__totals'">
+        <div class="stat stat--time">
+          <span class="stat__value" :class="{ 'stat__value--small': steps }">
+            {{ formatDuration(elapsedMs) }}
+          </span>
+          <span class="stat__label">Time</span>
+        </div>
+        <div class="stat stat--distance">
+          <span class="stat__value" :class="{ 'stat__value--small': steps }">
+            {{ formatDistanceKm(distanceM) }}
+          </span>
+          <span class="stat__label">Distance (km)</span>
+        </div>
       </div>
       <div class="stat-row">
         <div class="stat">
@@ -217,9 +288,7 @@ onBeforeUnmount(endGps)
         <button class="btn btn--primary" :disabled="starting" @click="onStart(nextUp.id)">
           Start session
         </button>
-        <button class="btn btn--secondary" :disabled="starting" @click="onStart()">
-          Free run
-        </button>
+        <button class="btn btn--secondary" :disabled="starting" @click="onStart()">Free run</button>
       </template>
 
       <button
@@ -240,6 +309,19 @@ onBeforeUnmount(endGps)
         <button class="btn btn--danger" :disabled="stopping" @click="onStop()">Stop</button>
       </template>
     </section>
+
+    <ConfirmDialog
+      v-if="confirmingNext && steps?.current"
+      :title="`End ${STEP_KIND_LABELS[steps.current.kind].toLowerCase()}?`"
+      confirm-label="Next step"
+      @keep="confirmingNext = false"
+      @confirm="onNextStep"
+    >
+      <template v-if="steps.next">
+        {{ nextStepLabel(steps.next) }} starts now. This can't be undone.
+      </template>
+      <template v-else>The session ends; the run keeps recording until you stop it.</template>
+    </ConfirmDialog>
 
     <label v-if="status === 'idle' && isDev" class="dev">
       <input v-model="simulate" type="checkbox" /> Simulate GPS (dev only)
@@ -268,6 +350,12 @@ onBeforeUnmount(endGps)
   flex-direction: column;
   gap: 2rem;
   text-align: center;
+}
+
+.stats__totals {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
 }
 
 .stat {
@@ -388,8 +476,82 @@ onBeforeUnmount(endGps)
   background: #d64545;
 }
 
-.run[data-status='paused'] .stat__value {
+.run[data-status='paused'] .stat__value,
+.run[data-status='paused'] .step-panel {
   opacity: 0.6;
+}
+
+/* The current session step (#101): read at a glance, so its number is the big one */
+.step-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-radius: 1rem;
+  background: #1a2027;
+  text-align: center;
+}
+
+.step-panel p {
+  margin: 0;
+}
+
+.step-panel__top {
+  align-self: stretch;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem !important;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.step-panel__kind {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-panel__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: #9aa5b1;
+}
+
+.step-panel__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+  font-size: clamp(3.5rem, 22vw, 6.5rem);
+}
+
+.step-panel__next {
+  align-self: stretch;
+  margin-top: 0.75rem !important;
+  text-align: left;
+  font-size: 1.1rem;
+  color: #c3ccd5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-panel__btn {
+  align-self: stretch;
+  flex: none;
+  min-height: 3.5rem;
+  margin-top: 0.75rem;
+}
+
+.step-panel__done {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.step-panel__hint {
+  color: #9aa5b1;
 }
 
 .gps-status {
@@ -444,6 +606,18 @@ onBeforeUnmount(endGps)
   .stat__label {
     margin-top: 0.2rem;
     font-size: 0.8rem;
+  }
+
+  .step-panel {
+    padding: 0.75rem 1rem;
+  }
+
+  .step-panel__value {
+    font-size: clamp(2.75rem, min(22vw, 13vh), 6.5rem);
+  }
+
+  .step-panel__btn {
+    min-height: 3.25rem;
   }
 
   .btn {

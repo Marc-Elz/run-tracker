@@ -1,11 +1,6 @@
 import { ref, watch, type Ref } from 'vue'
 import { followedProgramId } from '@/lib/settings'
-import {
-  isRunnable,
-  nextSession,
-  type ProgramSession,
-  type TrainingProgram,
-} from '@/lib/training'
+import { isRunnable, nextSession, type ProgramSession, type TrainingProgram } from '@/lib/training'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
 
