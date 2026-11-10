@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
+import type { RunStep } from '@/lib/stepProgress'
 import type { ProgramBundle } from '@/lib/training'
 import { BackupError, backupFileName, backupKey, buildBackup, parseBackup } from '../backup'
 
@@ -25,6 +26,22 @@ const point = (over: Partial<StoredPoint> = {}): StoredPoint => ({
   ...over,
 })
 
+const runStep = (position: number, over: Partial<RunStep> = {}): RunStep => ({
+  position,
+  kind: 'walk',
+  targetKind: 'duration',
+  targetValue: 90,
+  paceMin: null,
+  paceMax: null,
+  repetition: 1,
+  repetitions: 6,
+  startedElapsedMs: position * 90_000,
+  startedDistanceM: position * 120.5,
+  endedElapsedMs: (position + 1) * 90_000,
+  endedDistanceM: (position + 1) * 120.5,
+  ...over,
+})
+
 describe('backupFileName', () => {
   it('uses the local date', () => {
     expect(backupFileName(new Date(2026, 9, 28, 23, 59).getTime())).toBe(
@@ -39,16 +56,24 @@ describe('buildBackup and parseBackup', () => {
       {
         run: run('a', { name: 'Haren ✓' }),
         points: [point({ accuracy: 4, altitude: 1.5, speed: 2 }), point({ segment: 1, lat: 52.2 })],
+        steps: [
+          runStep(0),
+          runStep(1, { kind: 'cooldown', targetKind: 'none', targetValue: null }),
+        ],
       },
-      { run: run('b'), points: [] },
+      { run: run('b'), points: [], steps: [] },
     ]
     const text = buildBackup(runs, [], 5_000)
-    expect(JSON.parse(text)).toMatchObject({ format: 'run-tracker-backup', version: 2, exportedAt: 5_000 })
+    expect(JSON.parse(text)).toMatchObject({
+      format: 'run-tracker-backup',
+      version: 2,
+      exportedAt: 5_000,
+    })
     expect(parseBackup(text)).toEqual({ runs, programs: [], rejected: 0 })
   })
 
   it('keeps the session a run was started from, and reads a run without one as a free run (#40)', () => {
-    const linked = { run: run('a', { sessionId: 's1' }), points: [] }
+    const linked = { run: run('a', { sessionId: 's1' }), points: [], steps: [] }
     expect(parseBackup(buildBackup([linked], [], 0)).runs).toEqual([linked])
 
     // Files made before #40 have no sessionId at all
@@ -57,7 +82,10 @@ describe('buildBackup and parseBackup', () => {
       format: 'run-tracker-backup',
       version: 1,
       exportedAt: 0,
-      runs: [{ run: old, points: [] }, { run: { ...old, id: 'c', sessionId: 7 }, points: [] }],
+      runs: [
+        { run: old, points: [] },
+        { run: { ...old, id: 'c', sessionId: 7 }, points: [] },
+      ],
     })
     const parsed = parseBackup(text)
     expect(parsed.runs.map((r) => r.run)).toEqual([run('b')])
@@ -71,7 +99,11 @@ describe('buildBackup and parseBackup', () => {
   })
 
   it('keeps the order of the points', () => {
-    const points = [point({ timestamp: 5 }), point({ timestamp: 5, lat: 1 }), point({ timestamp: 3 })]
+    const points = [
+      point({ timestamp: 5 }),
+      point({ timestamp: 5, lat: 1 }),
+      point({ timestamp: 3 }),
+    ]
     const parsed = parseBackup(buildBackup([{ run: run('a'), points }], [], 0))
     expect(parsed.runs[0]!.points).toEqual(points)
   })
@@ -91,7 +123,10 @@ describe('buildBackup and parseBackup', () => {
   it('refuses a file holding a run that never finished', () => {
     for (const status of ['running', 'paused']) {
       const text = buildBackup(
-        [{ run: run('a'), points: [] }, { run: run('b', { status } as Partial<RunRecord>), points: [] }],
+        [
+          { run: run('a'), points: [] },
+          { run: run('b', { status } as Partial<RunRecord>), points: [] },
+        ],
         [],
         0,
       )
@@ -122,6 +157,33 @@ describe('buildBackup and parseBackup', () => {
     const parsed = parseBackup(text)
     expect(parsed.runs.map((r) => r.run.id)).toEqual(['good'])
     expect(parsed.rejected).toBe(9)
+  })
+
+  it('reads a run without steps as none, and rejects a run with a bad step list (#101)', () => {
+    const entry = (steps: unknown) => ({ run: run('x'), points: [], steps })
+    const text = JSON.stringify({
+      format: 'run-tracker-backup',
+      version: 2,
+      exportedAt: 0,
+      runs: [
+        { run: run('old'), points: [] },
+        entry([runStep(0)]),
+        entry('not a list'),
+        entry([runStep(0), runStep(0)]),
+        entry([runStep(0, { kind: 'repeat' as RunStep['kind'] })]),
+        entry([runStep(0, { targetKind: 'pace' as RunStep['targetKind'] })]),
+        entry([runStep(0, { startedElapsedMs: -1 })]),
+        entry([{ ...runStep(0), targetValue: '90' }]),
+        entry([runStep(0, { repetition: 0 })]),
+        entry([{ position: 0 }]),
+      ],
+    })
+    const parsed = parseBackup(text)
+    expect(parsed.runs.map((r) => [r.run.id, r.steps])).toEqual([
+      ['old', []],
+      ['x', [runStep(0)]],
+    ])
+    expect(parsed.rejected).toBe(8)
   })
 })
 
@@ -178,7 +240,7 @@ describe('training programs in the backup', () => {
     JSON.stringify({ format: 'run-tracker-backup', version, exportedAt: 0, runs: [], programs })
 
   it('round-trips programs with their sessions and steps next to the runs', () => {
-    const runs = [{ run: run('a'), points: [point()] }]
+    const runs = [{ run: run('a'), points: [point()], steps: [] }]
     const programs = [bundle('p'), bundle('q')]
     expect(parseBackup(buildBackup(runs, programs, 0))).toEqual({ runs, programs, rejected: 0 })
   })

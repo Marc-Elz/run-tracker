@@ -6,6 +6,7 @@ import { GpsError, startGps } from '@/lib/gps'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
 import { setFollowedProgram } from '@/lib/settings'
+import type { SessionStep } from '@/lib/training'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
 import RunView from '../RunView.vue'
@@ -151,7 +152,10 @@ describe('RunView', () => {
   it('stays on the run screen, paused, when saving on Stop fails', async () => {
     const repo = createMemoryRunRepository()
     const run = useRunStore()
-    run.useRepository({ ...repo, updateRun: vi.fn<() => Promise<void>>().mockRejectedValue(new Error('disk full')) })
+    run.useRepository({
+      ...repo,
+      updateRun: vi.fn<() => Promise<void>>().mockRejectedValue(new Error('disk full')),
+    })
     const wrapper = mount(RunView)
     await start(wrapper)
     await button(wrapper, 'Pause')!.trigger('click')
@@ -299,6 +303,129 @@ describe('RunView', () => {
       expect(wrapper.text()).not.toContain('Follow a program')
       await start(wrapper)
       expect(useRunStore().status).toBe('running')
+    })
+  })
+
+  describe('session steps (#101)', () => {
+    let ids = 0
+    const step = (over: Partial<SessionStep>): SessionStep => ({
+      id: `st${ids++}`,
+      sessionId: '',
+      position: 0,
+      kind: 'run',
+      targetKind: 'none',
+      targetValue: null,
+      paceMin: null,
+      paceMax: null,
+      repetitions: null,
+      span: null,
+      ...over,
+    })
+    const timed = (kind: SessionStep['kind'], seconds: number) =>
+      step({ kind, targetKind: 'duration', targetValue: seconds })
+
+    /** Start a run of a followed session with these steps */
+    async function runSession(steps: SessionStep[]) {
+      const training = useTrainingStore()
+      const programId = await training.createProgram({
+        name: 'Couch to 5K',
+        goal: null,
+        weeks: 1,
+        startDate: null,
+      })
+      const id = await training.saveSession(programId, {
+        week: 1,
+        type: 'runwalk',
+        title: 'Run/walk 1',
+        notes: null,
+      })
+      await training.replaceSteps(id, steps)
+      setFollowedProgram(programId)
+      const wrapper = mount(RunView)
+      await flushPromises()
+      await button(wrapper, 'Start session')!.trigger('click')
+      await flushPromises()
+      return wrapper
+    }
+
+    /** Move the run clock to this many seconds after the start */
+    async function at(seconds: number) {
+      const run = useRunStore()
+      run.tick(run.startedAt! + seconds * 1000)
+      await flushPromises()
+    }
+
+    const panel = (wrapper: ReturnType<typeof mount>) => wrapper.find('.step-panel')
+    const warmupThenRepeat = () => [
+      step({ kind: 'warmup' }),
+      step({ kind: 'repeat', repetitions: 2, span: 2 }),
+      timed('run', 60),
+      timed('walk', 90),
+    ]
+
+    it('shows the step in large type, with the next step and the count', async () => {
+      const wrapper = await runSession(warmupThenRepeat())
+      expect(panel(wrapper).text()).toContain('Warm-up')
+      expect(panel(wrapper).text()).toContain('1 / 5')
+      expect(panel(wrapper).text()).toContain('In this step')
+      expect(panel(wrapper).text()).toContain('Next: Run 1:00 · rep 1/2')
+      // The panel takes the session line's place, and the totals step down a size
+      expect(wrapper.find('.session-line').exists()).toBe(false)
+      expect(wrapper.find('.stat--time .stat__value--small').exists()).toBe(true)
+    })
+
+    it('waits for Next step on a step without a target, and asks first', async () => {
+      const wrapper = await runSession(warmupThenRepeat())
+      await button(wrapper, 'Next step')!.trigger('click')
+      const dialog = wrapper.find('.dialog')
+      expect(dialog.text()).toContain('End warm-up?')
+      expect(dialog.text()).toContain('Run 1:00 · rep 1/2 starts now')
+
+      await button(wrapper, 'Keep')!.trigger('click')
+      expect(wrapper.find('.dialog').exists()).toBe(false)
+      expect(panel(wrapper).text()).toContain('Warm-up')
+
+      await button(wrapper, 'Next step')!.trigger('click')
+      await wrapper.find('.dialog .btn--danger').trigger('click')
+      await flushPromises()
+      expect(panel(wrapper).text()).toContain('Run · rep 1/2')
+      expect(panel(wrapper).text()).toContain('2 / 5')
+      expect(panel(wrapper).find('.step-panel__value').text()).toBe('1:00')
+      // A step with a target moves on by itself: no button
+      expect(button(wrapper, 'Next step')).toBeUndefined()
+    })
+
+    it('moves a timed step on from the run clock', async () => {
+      const wrapper = await runSession([timed('run', 60), timed('walk', 90)])
+      await at(45)
+      expect(panel(wrapper).find('.step-panel__value').text()).toBe('0:15')
+      await at(70)
+      expect(panel(wrapper).text()).toContain('Walk')
+      expect(panel(wrapper).text()).toContain('2 / 2')
+      expect(panel(wrapper).find('.step-panel__value').text()).toBe('1:20')
+      expect(useRunStore().runSteps.map((s) => s.position)).toEqual([0, 1])
+    })
+
+    it('hides Next step while paused', async () => {
+      const wrapper = await runSession(warmupThenRepeat())
+      await button(wrapper, 'Pause')!.trigger('click')
+      expect(panel(wrapper).exists()).toBe(true)
+      expect(button(wrapper, 'Next step')).toBeUndefined()
+    })
+
+    it('says "Session done" after the last step and keeps recording', async () => {
+      const wrapper = await runSession([timed('run', 60)])
+      await at(61)
+      expect(panel(wrapper).text()).toContain('Session done')
+      expect(panel(wrapper).text()).toContain('1 / 1')
+      expect(useRunStore().status).toBe('running')
+      expect(button(wrapper, 'Pause')).toBeDefined()
+    })
+
+    it('shows no panel for a session without steps', async () => {
+      const wrapper = await runSession([])
+      expect(panel(wrapper).exists()).toBe(false)
+      expect(wrapper.text()).toContain('Week 1 · Run/walk 1')
     })
   })
 

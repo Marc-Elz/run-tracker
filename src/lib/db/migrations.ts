@@ -137,6 +137,26 @@ CREATE INDEX session_steps_session ON session_steps (session_id, position);
   `ALTER TABLE runs ADD COLUMN session_id TEXT REFERENCES program_sessions(id) ON DELETE SET NULL;
 CREATE UNIQUE INDEX runs_session ON runs (session_id);
 `,
+  // The steps of a session as they were run (#101): a copy of each step's plan, with where in the
+  // run it started and ended. No CHECK on kind, so a new step kind needs no table rebuild (the
+  // code checks it). Deleting the run deletes its steps.
+  `CREATE TABLE run_steps (
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  target_kind TEXT NOT NULL,
+  target_value REAL,
+  pace_min REAL,
+  pace_max REAL,
+  repetition INTEGER,
+  repetitions INTEGER,
+  started_elapsed_ms INTEGER NOT NULL,
+  started_distance_m REAL NOT NULL,
+  ended_elapsed_ms INTEGER,
+  ended_distance_m REAL,
+  PRIMARY KEY (run_id, position)
+);
+`,
 ]
 
 export async function schemaVersion(db: SqlDb): Promise<number> {

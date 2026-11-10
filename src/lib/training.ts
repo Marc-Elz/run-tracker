@@ -3,6 +3,7 @@
  * sessions in order, each session has structured steps. Sessions have no calendar date: the next
  * one not yet run is the one to do (#40), so a missed day needs no rescheduling.
  */
+import { formatMetres } from './format'
 
 export const SESSION_TYPES = [
   'easy',
@@ -413,9 +414,6 @@ export function parseMinSec(text: string): number | null {
   const seconds = Number(m[1]) * 60 + (m[2] === undefined ? 0 : Number(m[2]))
   return seconds > 0 ? seconds : null
 }
-
-const formatMetres = (m: number) =>
-  m < 1000 ? `${Math.round(m)} m` : `${Number((m / 1000).toFixed(2))} km`
 
 /** One line for a step in the list: "Walk 2:00", "Run 400 m · 4:50–5:00 /km", "6× · 2 steps" */
 export function stepSummary(step: SessionStep, children = 0): string {

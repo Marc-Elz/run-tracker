@@ -23,6 +23,11 @@ export function formatDistanceKm(meters: number): string {
   return (meters / 1000).toFixed(2)
 }
 
+/** Metres -> "350 m" below a km, else "1.5 km" (up to two decimals) */
+export function formatMetres(m: number): string {
+  return m < 1000 ? `${Math.round(m)} m` : `${Number((m / 1000).toFixed(2))} km`
+}
+
 /** Epoch ms -> "Mon 26 Oct" in the phone's time zone. */
 export function formatRunDate(ms: number): string {
   return new Date(ms).toLocaleDateString('en-GB', {

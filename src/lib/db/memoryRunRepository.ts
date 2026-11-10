@@ -1,4 +1,5 @@
 import type { RouteOverview } from '@/lib/routeOverview'
+import type { RunStep } from '@/lib/stepProgress'
 import type { RunRecord, RunRepository, StoredPoint } from './runRepository'
 
 /**
@@ -10,6 +11,7 @@ export function createMemoryRunRepository(): RunRepository {
   const runs = new Map<string, RunRecord>()
   const points = new Map<string, StoredPoint[]>()
   const overviews = new Map<string, RouteOverview>()
+  const steps = new Map<string, RunStep[]>()
   /** The link as stored: dropped when another run already has the session */
   const link = (sessionId: string | null) =>
     sessionId !== null && [...runs.values()].some((r) => r.sessionId === sessionId)
@@ -43,6 +45,7 @@ export function createMemoryRunRepository(): RunRepository {
     async deleteRun(id) {
       runs.delete(id)
       points.delete(id)
+      steps.delete(id)
       overviews.delete(id)
     },
     async findUnfinished() {
@@ -64,14 +67,34 @@ export function createMemoryRunRepository(): RunRepository {
     async loadPoints(runId) {
       return (points.get(runId) ?? []).map((p) => ({ ...p }))
     },
-    async importRun(run, imported) {
+    async importRun(run, imported, importedSteps = []) {
       if (runs.has(run.id)) return false
       runs.set(run.id, { ...run, sessionId: link(run.sessionId) })
       points.set(
         run.id,
         imported.map((p) => ({ ...p })),
       )
+      steps.set(
+        run.id,
+        importedSteps.map((s) => ({ ...s })),
+      )
       return true
+    },
+    async saveStepChange(runId, ended, started) {
+      if (!runs.has(runId)) throw new Error(`Run ${runId} not found`)
+      const list = (steps.get(runId) ?? []).map((s) =>
+        ended && s.position === ended.position ? { ...ended } : s,
+      )
+      for (const step of started) {
+        if (list.some((s) => s.position === step.position)) {
+          throw new Error(`Step ${step.position} of run ${runId} already exists`)
+        }
+        list.push({ ...step })
+      }
+      steps.set(runId, list)
+    },
+    async loadRunSteps(runId) {
+      return (steps.get(runId) ?? []).map((s) => ({ ...s })).sort((a, b) => a.position - b.position)
     },
     async readOverviews() {
       return [...overviews.values()].filter((o) => runs.get(o.runId)?.status === 'finished')
