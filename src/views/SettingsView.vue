@@ -5,7 +5,7 @@ import { openAppSettings, requestLocationPermission } from '@/lib/gps'
 import { askBatteryExemption, ensureNotifications, openBatterySettings } from '@/lib/runPower'
 import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
 import { CUE_DISTANCE_OPTIONS, CUE_TIME_OPTIONS, cueText } from '@/lib/cues'
-import { cueConfig, setCueConfig } from '@/lib/settings'
+import { cueConfig, setCueConfig, setStepAnnouncements, stepAnnouncements } from '@/lib/settings'
 import { speak } from '@/lib/speech'
 import { useBackupStore } from '@/stores/backup'
 
@@ -226,6 +226,24 @@ const summary = computed(() => {
           {{ timeLabel(min) }}
         </button>
       </div>
+      <div class="choice" role="group" aria-label="Step announcements">
+        <span class="choice__label">Training steps</span>
+        <button
+          class="btn btn--choice"
+          :aria-pressed="stepAnnouncements"
+          @click="setStepAnnouncements(true)"
+        >
+          On
+        </button>
+        <button
+          class="btn btn--choice"
+          :aria-pressed="!stepAnnouncements"
+          @click="setStepAnnouncements(false)"
+        >
+          Off
+        </button>
+      </div>
+      <p class="hint">Spoken steps, warnings and a vibration in a training session.</p>
       <button class="btn btn--quiet" @click="testCue">Test cue</button>
     </section>
 

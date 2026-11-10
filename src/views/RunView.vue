@@ -8,8 +8,9 @@ import { useKeepAwake } from '@/composables/useKeepAwake'
 import { useAudioCues } from '@/composables/useAudioCues'
 import { usePlannedSession } from '@/composables/usePlannedSession'
 import { useSessionSteps } from '@/composables/useSessionSteps'
+import { useStepCues } from '@/composables/useStepCues'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { cueConfig } from '@/lib/settings'
+import { cueConfig, stepAnnouncements } from '@/lib/settings'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatMetres, formatPace } from '@/lib/format'
@@ -62,7 +63,8 @@ watch(
 )
 
 // The session's step, in large type, while a run of a session with steps is going (#101)
-const { progress: steps, nextStep } = useSessionSteps()
+const { progress: steps, nextStep, timeline: stepTimeline } = useSessionSteps()
+useStepCues(stepTimeline, stepAnnouncements)
 /** Time or metres left, or the time spent so far in a step without a target */
 const stepValue = computed(() => {
   const p = steps.value

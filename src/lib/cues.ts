@@ -77,13 +77,13 @@ export function nextCue(
 const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`
 
 /** 1000 -> "1 kilometre", 1503 -> "1.5 kilometres", 1371 -> "1.37 kilometres" (cut, not rounded: a cue fired just past 2 km says "2") */
-function spokenDistance(meters: number): string {
+export function spokenDistance(meters: number): string {
   const km = Math.floor(meters / 10) / 100
   return `${km} ${km === 1 ? 'kilometre' : 'kilometres'}`
 }
 
 /** 332000 -> "5 minutes 32 seconds", 3725000 -> "1 hour 2 minutes 5 seconds" */
-function spokenDuration(totalSec: number): string {
+export function spokenDuration(totalSec: number): string {
   const h = Math.floor(totalSec / 3600)
   const m = Math.floor((totalSec % 3600) / 60)
   const s = totalSec % 60

@@ -65,3 +65,25 @@ export function setFollowedProgram(id: string | null) {
     console.warn('Could not save settings', err)
   }
 }
+
+const STEP_ANNOUNCEMENTS_KEY = 'run-tracker.step-announcements'
+
+/** Spoken steps and vibration in a training session (#66); on unless switched off. */
+export function loadStepAnnouncements(): boolean {
+  try {
+    return localStorage.getItem(STEP_ANNOUNCEMENTS_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export const stepAnnouncements = ref<boolean>(loadStepAnnouncements())
+
+export function setStepAnnouncements(on: boolean) {
+  stepAnnouncements.value = on
+  try {
+    localStorage.setItem(STEP_ANNOUNCEMENTS_KEY, on ? 'on' : 'off')
+  } catch (err) {
+    console.warn('Could not save settings', err)
+  }
+}
