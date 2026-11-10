@@ -31,7 +31,8 @@ export function usePlannedSession(requested: Ref<string | null>) {
     const done = new Set(await run.doneSessionIds())
     if (requested.value !== null) {
       const session = await training.getSession(requested.value)
-      if (session && isRunnable(session, done)) {
+      // A picked session may already be done: "Run again" (#116). Only a rest day can't be run.
+      if (session && isRunnable(session, new Set())) {
         const program = await training.getProgram(session.programId)
         if (program) return { program, session, chosen: true }
       }

@@ -4,27 +4,20 @@ import type { RunRecord, RunRepository, StoredPoint } from './runRepository'
 
 /**
  * Keeps runs in memory: used in the browser and in unit tests. It can't see the training
- * sessions (a separate repository), so a link to a deleted session stays; it only keeps a
- * session to one run, as the SQLite index does.
+ * sessions (a separate repository), so a link to a deleted session stays.
  */
 export function createMemoryRunRepository(): RunRepository {
   const runs = new Map<string, RunRecord>()
   const points = new Map<string, StoredPoint[]>()
   const overviews = new Map<string, RouteOverview>()
   const steps = new Map<string, RunStep[]>()
-  /** The link as stored: dropped when another run already has the session */
-  const link = (sessionId: string | null) =>
-    sessionId !== null && [...runs.values()].some((r) => r.sessionId === sessionId)
-      ? null
-      : sessionId
 
   return {
     async createRun(run) {
       if (runs.has(run.id)) throw new Error(`Run ${run.id} already exists`)
-      const sessionId = link(run.sessionId)
-      runs.set(run.id, { ...run, sessionId })
+      runs.set(run.id, { ...run })
       points.set(run.id, [])
-      return sessionId
+      return run.sessionId
     },
     async updateRun(run) {
       if (!runs.has(run.id)) throw new Error(`Run ${run.id} not found`)
@@ -69,7 +62,7 @@ export function createMemoryRunRepository(): RunRepository {
     },
     async importRun(run, imported, importedSteps = []) {
       if (runs.has(run.id)) return false
-      runs.set(run.id, { ...run, sessionId: link(run.sessionId) })
+      runs.set(run.id, { ...run })
       points.set(
         run.id,
         imported.map((p) => ({ ...p })),
@@ -100,9 +93,10 @@ export function createMemoryRunRepository(): RunRepository {
       return [...overviews.values()].filter((o) => runs.get(o.runId)?.status === 'finished')
     },
     async doneSessionIds() {
-      return [...runs.values()]
+      const ids = [...runs.values()]
         .filter((r) => r.status === 'finished' && r.sessionId !== null)
         .map((r) => r.sessionId!)
+      return [...new Set(ids)]
     },
     async saveOverview(overview) {
       if (!runs.has(overview.runId)) throw new Error(`Run ${overview.runId} not found`)

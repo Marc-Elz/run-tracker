@@ -339,7 +339,11 @@ describe.skipIf(!nodeSqlite)('runs linked to sessions on real SQLite (#40)', () 
     await training.saveSession(session('t', 'p', { position: 1 }))
     return { db, training, runs: createSqliteRunRepository(db) }
   }
-  const linked = (id: string, sessionId: string | null, status: RunRecord['status'] = 'finished') => ({
+  const linked = (
+    id: string,
+    sessionId: string | null,
+    status: RunRecord['status'] = 'finished',
+  ) => ({
     ...oldRun(id),
     status,
     sessionId,
@@ -356,14 +360,14 @@ describe.skipIf(!nodeSqlite)('runs linked to sessions on real SQLite (#40)', () 
     expect(await runs.doneSessionIds()).toEqual(['s'])
   })
 
-  it('saves the run without a link when the session is gone or already has a run', async () => {
+  it('saves the run without a link when the session is gone, and links a second run to the same session (#116)', async () => {
     const { runs } = await setup()
     expect(await runs.createRun(linked('a', 'missing', 'running'))).toBeNull()
     expect(await runs.createRun(linked('b', 's', 'running'))).toBe('s')
-    expect(await runs.createRun(linked('c', 's', 'running'))).toBeNull()
-    expect((await runs.getRun('c'))!.sessionId).toBeNull()
+    expect(await runs.createRun(linked('c', 's', 'running'))).toBe('s')
+    expect((await runs.getRun('c'))!.sessionId).toBe('s')
     expect(await runs.importRun(linked('d', 's'), [])).toBe(true)
-    expect((await runs.getRun('d'))!.sessionId).toBeNull()
+    expect((await runs.getRun('d'))!.sessionId).toBe('s')
     expect(await runs.importRun(linked('e', 't'), [])).toBe(true)
     expect((await runs.getRun('e'))!.sessionId).toBe('t')
   })
@@ -380,11 +384,14 @@ describe.skipIf(!nodeSqlite)('runs linked to sessions on real SQLite (#40)', () 
     expect(await runs.doneSessionIds()).toEqual([])
   })
 
-  it('frees the session again when its run is discarded', async () => {
+  it('keeps the session done while one finished run is left after a redo is discarded (#116)', async () => {
     const { runs } = await setup()
-    await runs.createRun(linked('a', 's', 'running'))
+    await runs.createRun(linked('a', 's'))
+    await runs.createRun(linked('b', 's', 'running'))
+    await runs.deleteRun('b')
+    expect(await runs.doneSessionIds()).toEqual(['s'])
     await runs.deleteRun('a')
-    expect(await runs.createRun(linked('b', 's', 'running'))).toBe('s')
+    expect(await runs.doneSessionIds()).toEqual([])
   })
 
   it('keeps every program, session and step when migration 4 rebuilds the tables (#100)', async () => {

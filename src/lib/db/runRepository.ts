@@ -31,8 +31,8 @@ export interface StoredPoint extends TrackPoint {
 
 export interface RunRepository {
   /**
-   * Resolves with the session link as stored: null when the run's session no longer exists or
-   * already has a run, so a link problem never stops a run from being saved.
+   * Resolves with the session link as stored: null when the run's session no longer exists, so
+   * a link problem never stops a run from being saved. A session may have several runs (#116).
    */
   createRun(run: RunRecord): Promise<string | null>
   updateRun(run: RunRecord): Promise<void>

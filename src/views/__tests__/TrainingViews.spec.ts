@@ -171,9 +171,24 @@ describe('running sessions (#40)', () => {
   async function program({ doneFirst = false } = {}) {
     const training = useTrainingStore()
     const id = await training.createProgram(half)
-    const easy = await training.saveSession(id, { week: 1, type: 'easy', title: 'Easy', notes: null })
-    const rest = await training.saveSession(id, { week: 1, type: 'rest', title: 'Rest', notes: null })
-    const long = await training.saveSession(id, { week: 2, type: 'long', title: '12 km', notes: null })
+    const easy = await training.saveSession(id, {
+      week: 1,
+      type: 'easy',
+      title: 'Easy',
+      notes: null,
+    })
+    const rest = await training.saveSession(id, {
+      week: 1,
+      type: 'rest',
+      title: 'Rest',
+      notes: null,
+    })
+    const long = await training.saveSession(id, {
+      week: 2,
+      type: 'long',
+      title: '12 km',
+      notes: null,
+    })
     if (doneFirst) {
       const run = useRunStore()
       run.start(0, easy)
@@ -218,15 +233,22 @@ describe('running sessions (#40)', () => {
     expect(router.currentRoute.value.name).toBe('session-edit')
   })
 
-  it('offers no run for a done session or a rest day', async () => {
-    const { id, easy, rest } = await program({ doneFirst: true })
-    const done = await open(`/training/${id}/session/${easy}`)
-    expect(done.wrapper.text()).toContain('✓ Done')
-    expect(done.wrapper.findAll('button').some((b) => b.text() === 'Run this session')).toBe(false)
+  it('offers "Run again" on a done session and opens the Run screen with it (#116)', async () => {
+    const { id, easy } = await program({ doneFirst: true })
+    const { wrapper, router } = await open(`/training/${id}/session/${easy}`)
+    expect(wrapper.text()).toContain('✓ Done')
+    expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Run this session')
+    await click(button(wrapper, 'Run again'))
+    expect(router.currentRoute.value.name).toBe('run')
+    expect(router.currentRoute.value.query).toEqual({ session: easy })
+  })
+
+  it('offers no run for a rest day', async () => {
+    const { id, rest } = await program({ doneFirst: true })
     const restDay = await open(`/training/${id}/session/${rest}`)
-    expect(restDay.wrapper.findAll('button').some((b) => b.text() === 'Run this session')).toBe(
-      false,
-    )
+    const labels = restDay.wrapper.findAll('button').map((b) => b.text())
+    expect(labels).not.toContain('Run this session')
+    expect(labels).not.toContain('Run again')
   })
 
   it('names the runs done for a program before deleting it, and keeps them', async () => {
