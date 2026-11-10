@@ -19,11 +19,14 @@ import {
  * The backup file, version 2. One JSON object:
  *   { format: 'run-tracker-backup', version: 2, exportedAt: <epoch ms>,
  *     runs: [{ run: RunRecord, points: StoredPoint[], steps?: RunStep[] }],
- *     programs: [{ program: TrainingProgram, sessions: ProgramSession[], steps: SessionStep[] }] }
+ *     programs: [{ program: TrainingProgram, sessions: ProgramSession[], steps: SessionStep[],
+ *                  skipped?: string[] }] }
  * Only finished runs are in it. Field names are the ones of those types; times are UTC epoch
  * milliseconds. A run's `sessionId` (#40) links it to a session in `programs`; files made before
  * it have no `sessionId`, which reads as null. A run's `steps` (#101) are the session steps as
- * run; files made before them have none, which reads as an empty list. Version 1 is the same without `programs`, and is
+ * run; files made before them have none, which reads as an empty list. A program's `skipped`
+ * (#102) lists its skipped session ids; files made before it have none, which reads as no skips.
+ * Version 1 is the same without `programs`, and is
  * still read. The sync to the
  * home server (#24) builds on this format, so a change that old files cannot satisfy needs a new
  * `version`.
@@ -260,7 +263,18 @@ function toBundle(raw: unknown, seen: Set<string>): ProgramBundle | null {
   const sessionIds = new Set((sessions as ProgramSession[]).map((s) => s.id))
   const steps = raw.steps.map((s) => toStep(s, sessionIds))
   if (steps.some((s) => s === null)) return null
-  const bundle = { program, sessions: sessions as ProgramSession[], steps: steps as SessionStep[] }
+  const bundle: ProgramBundle = {
+    program,
+    sessions: sessions as ProgramSession[],
+    steps: steps as SessionStep[],
+  }
+  // Skips of sessions that are not in this program are dropped, not a reason to reject it
+  if (Array.isArray(raw.skipped)) {
+    const skipped = [...new Set(raw.skipped)].filter(
+      (id): id is string => typeof id === 'string' && sessionIds.has(id),
+    )
+    if (skipped.length > 0) bundle.skipped = skipped
+  }
   const ids = [program.id, ...bundle.sessions.map((s) => s.id), ...bundle.steps.map((s) => s.id)]
   if (new Set(ids).size !== ids.length || ids.some((id) => seen.has(id))) return null
   for (const session of bundle.sessions) {

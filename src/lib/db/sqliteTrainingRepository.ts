@@ -218,6 +218,20 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
         true,
       )
     },
+    async skippedSessionIds() {
+      const result = await rows('SELECT session_id FROM session_skips ORDER BY session_id')
+      return result.map((row) => String(row.session_id))
+    },
+    async setSkipped(sessionId, skipped) {
+      const write: Statement = skipped
+        ? {
+            statement: `INSERT OR REPLACE INTO session_skips (session_id, skipped_at)
+              SELECT id, ? FROM program_sessions WHERE id = ?`,
+            values: [Date.now(), sessionId],
+          }
+        : { statement: 'DELETE FROM session_skips WHERE session_id = ?', values: [sessionId] }
+      await db.executeSet([write, touchProgramOfSession(sessionId)], true)
+    },
     async exportPrograms() {
       const programs = (await rows('SELECT * FROM training_programs ORDER BY created_at')).map(
         toProgram,
@@ -231,12 +245,22 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
       // Grouped once, in the order the queries gave
       const sessionsOf = groupBy(sessions, (s) => s.programId)
       const stepsOf = groupBy(steps, (s) => s.sessionId)
+      const skipped = new Set(
+        (await rows('SELECT session_id FROM session_skips')).map((r) => String(r.session_id)),
+      )
       return programs.map((program): ProgramBundle => {
         const own = sessionsOf.get(program.id) ?? []
-        return { program, sessions: own, steps: own.flatMap((s) => stepsOf.get(s.id) ?? []) }
+        const bundle: ProgramBundle = {
+          program,
+          sessions: own,
+          steps: own.flatMap((s) => stepsOf.get(s.id) ?? []),
+        }
+        const skippedIds = own.filter((s) => skipped.has(s.id)).map((s) => s.id)
+        if (skippedIds.length > 0) bundle.skipped = skippedIds
+        return bundle
       })
     },
-    async importProgram({ program, sessions, steps }) {
+    async importProgram({ program, sessions, steps, skipped = [] }) {
       const [existing] = await rows('SELECT id FROM training_programs WHERE id = ?', [program.id])
       if (existing) return 'exists'
       const taken = async (table: string, ids: string[]) =>
@@ -257,7 +281,15 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
       }
       // One transaction: either the whole program is stored or none of it
       await db.executeSet(
-        [insertProgram(program), ...sessions.map(insertSession), ...steps.map(insertStep)],
+        [
+          insertProgram(program),
+          ...sessions.map(insertSession),
+          ...steps.map(insertStep),
+          ...skipped.map((id): Statement => ({
+            statement: 'INSERT INTO session_skips (session_id, skipped_at) VALUES (?, ?)',
+            values: [id, Date.now()],
+          })),
+        ],
         true,
       )
       return 'added'

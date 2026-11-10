@@ -245,6 +245,23 @@ describe('training programs in the backup', () => {
     expect(parseBackup(buildBackup(runs, programs, 0))).toEqual({ runs, programs, rejected: 0 })
   })
 
+  it('keeps the skipped sessions of a program, and reads a program without them as none (#102)', () => {
+    const skipped = { ...bundle('p'), skipped: ['p-s'] }
+    const read = parseBackup(buildBackup([], [skipped, bundle('q')], 0))
+    expect(read.programs[0]!.skipped).toEqual(['p-s'])
+    expect(read.programs[1]).not.toHaveProperty('skipped')
+    expect(read.rejected).toBe(0)
+  })
+
+  it('drops skips of sessions the program does not have, without rejecting the program (#102)', () => {
+    const odd = { ...bundle('p'), skipped: ['p-s', 'p-s', 'other', 7] }
+    const read = parseBackup(file([odd]))
+    expect(read.programs[0]!.skipped).toEqual(['p-s'])
+    expect(read.rejected).toBe(0)
+    const none = parseBackup(file([{ ...bundle('p'), skipped: ['other'] }]))
+    expect(none.programs[0]).not.toHaveProperty('skipped')
+  })
+
   it('still reads a version 1 file, which has no programs', () => {
     const text = JSON.stringify({
       format: 'run-tracker-backup',

@@ -233,6 +233,59 @@ describe('running sessions (#40)', () => {
     expect(router.currentRoute.value.name).toBe('session-edit')
   })
 
+  it('skips a session from its editor, and undoes it (#102)', async () => {
+    const { id, easy } = await program()
+    const { wrapper } = await open(`/training/${id}/session/${easy}`)
+    await click(button(wrapper, 'Skip this session'))
+    expect(wrapper.text()).toContain('Skipped')
+    expect(await useTrainingStore().skippedSessionIds()).toEqual([easy])
+
+    const program1 = await open(`/training/${id}`)
+    const rows = program1.wrapper.findAll('.row')
+    expect(rows[0]!.text()).toContain('Skipped')
+    expect(rows[0]!.text()).not.toContain('Next')
+    // The next session moves on to the long run
+    expect(rows[2]!.text()).toContain('Next')
+
+    const again = await open(`/training/${id}/session/${easy}`)
+    await click(button(again.wrapper, 'Undo skip'))
+    expect(button(again.wrapper, 'Skip this session')).toBeDefined()
+    expect(await useTrainingStore().skippedSessionIds()).toEqual([])
+  })
+
+  it('offers no skip for a rest day or a session that was run (#102)', async () => {
+    const { id, easy, rest } = await program({ doneFirst: true })
+    const labels = async (sid: string) =>
+      (await open(`/training/${id}/session/${sid}`)).wrapper.findAll('button').map((b) => b.text())
+    expect(await labels(easy)).not.toContain('Skip this session')
+    expect(await labels(rest)).not.toContain('Skip this session')
+  })
+
+  it('shows each week against its plan: sessions, skips, time and distance (#102)', async () => {
+    const { id, easy, long } = await program({ doneFirst: true })
+    const training = useTrainingStore()
+    const target = (sessionId: string, seconds: number): SessionStep => ({
+      id: `step-${sessionId}`,
+      sessionId,
+      position: 0,
+      kind: 'run',
+      targetKind: 'duration',
+      targetValue: seconds,
+      paceMin: null,
+      paceMax: null,
+      repetitions: null,
+      span: null,
+    })
+    await training.replaceSteps(easy, [target(easy, 1800)])
+    await training.replaceSteps(long, [target(long, 3600)])
+    await training.setSkipped(long, true)
+    const { wrapper } = await open(`/training/${id}`)
+    const lines = wrapper.findAll('.week__summary').map((p) => p.text())
+    // Week 1: the easy run took 1 s of its 30 min; week 2: the only session is skipped
+    expect(lines[0]).toBe('1 of 1 session · 0 of 30 min')
+    expect(lines[1]).toBe('0 of 1 session · 1 skipped')
+  })
+
   it('lists the runs of a session, each opening its summary (#102)', async () => {
     const { id, easy } = await program({ doneFirst: true })
     const run = useRunStore()

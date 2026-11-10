@@ -1,4 +1,4 @@
-import type { ProgramSession, SessionStep, TrainingProgram } from '@/lib/training'
+import type { ProgramBundle, ProgramSession, SessionStep, TrainingProgram } from '@/lib/training'
 import { nextUpdatedAt, type TrainingRepository } from './trainingRepository'
 
 const bySessionOrder = (a: ProgramSession, b: ProgramSession) =>
@@ -9,6 +9,7 @@ export function createMemoryTrainingRepository(): TrainingRepository {
   const programs = new Map<string, TrainingProgram>()
   const sessions = new Map<string, ProgramSession>()
   const steps = new Map<string, SessionStep[]>()
+  const skips = new Set<string>()
 
   const touch = (programId: string) => {
     const program = programs.get(programId)
@@ -19,6 +20,7 @@ export function createMemoryTrainingRepository(): TrainingRepository {
   const dropSession = (id: string) => {
     sessions.delete(id)
     steps.delete(id)
+    skips.delete(id)
   }
 
   return {
@@ -80,19 +82,32 @@ export function createMemoryTrainingRepository(): TrainingRepository {
       )
       touch(session.programId)
     },
+    async skippedSessionIds() {
+      return [...skips].sort()
+    },
+    async setSkipped(sessionId, skipped) {
+      const session = sessions.get(sessionId)
+      if (!session) return
+      if (skipped) skips.add(sessionId)
+      else skips.delete(sessionId)
+      touch(session.programId)
+    },
     async exportPrograms() {
       return [...programs.values()]
         .sort((a, b) => a.createdAt - b.createdAt)
         .map((program) => {
           const list = sessionsOf(program.id)
-          return {
+          const bundle: ProgramBundle = {
             program: { ...program },
             sessions: list.map((s) => ({ ...s })),
             steps: list.flatMap((s) => (steps.get(s.id) ?? []).map((st) => ({ ...st }))),
           }
+          const skippedIds = list.filter((s) => skips.has(s.id)).map((s) => s.id)
+          if (skippedIds.length > 0) bundle.skipped = skippedIds
+          return bundle
         })
     },
-    async importProgram({ program, sessions: imported, steps: importedSteps }) {
+    async importProgram({ program, sessions: imported, steps: importedSteps, skipped = [] }) {
       if (programs.has(program.id)) return 'exists'
       const stepIds = new Set([...steps.values()].flat().map((s) => s.id))
       if (
@@ -112,6 +127,7 @@ export function createMemoryTrainingRepository(): TrainingRepository {
             .sort((a, b) => a.position - b.position),
         )
       }
+      for (const id of skipped) skips.add(id)
       return 'added'
     },
   }

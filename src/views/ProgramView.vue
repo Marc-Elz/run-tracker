@@ -5,6 +5,9 @@ import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useTrainingStore } from '@/stores/training'
 import { useRunStore } from '@/stores/run'
 import { followedProgramId, setFollowedProgram } from '@/lib/settings'
+import type { RunRecord } from '@/lib/db/runRepository'
+import { formatDistanceKm } from '@/lib/format'
+import { plannedTotals, weekSummary, type PlannedTotals } from '@/lib/planVsDone'
 import {
   localDate,
   nextSession,
@@ -26,7 +29,11 @@ const sessions = ref<ProgramSession[]>([])
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>('loading')
 // Sessions with a finished run (#40); empty when they could not be read, so no marks show
 const done = ref<ReadonlySet<string>>(new Set())
-const next = computed(() => nextSession(sessions.value, done.value))
+// Sessions marked skipped (#102); empty when they could not be read
+const skipped = ref<ReadonlySet<string>>(new Set())
+const finishedRuns = ref<RunRecord[]>([])
+const planned = ref<ReadonlyMap<string, PlannedTotals>>(new Map())
+const next = computed(() => nextSession(sessions.value, done.value, skipped.value))
 const following = computed(() => followedProgramId.value === id.value)
 
 function toggleFollow() {
@@ -40,6 +47,22 @@ const weeks = computed(() =>
     sessions: sessions.value.filter((s) => s.week === i + 1),
   })),
 )
+
+/** "1 of 3 sessions · 1 skipped · 20 of 60 min · 3.10 km", or null for a week with nothing to run */
+function weekLine(weekSessions: ProgramSession[]): string | null {
+  const w = weekSummary(weekSessions, planned.value, finishedRuns.value, skipped.value)
+  if (w.sessions === 0) return null
+  const parts = [`${w.done} of ${w.sessions} ${w.sessions === 1 ? 'session' : 'sessions'}`]
+  if (w.skipped > 0) parts.push(`${w.skipped} skipped`)
+  const minutes = Math.round(w.doneSeconds / 60)
+  if (w.plannedSeconds !== null)
+    parts.push(`${minutes} of ${Math.round(w.plannedSeconds / 60)} min`)
+  else if (w.doneSeconds > 0) parts.push(`${minutes} min`)
+  if (w.plannedMetres !== null) {
+    parts.push(`${formatDistanceKm(w.doneMetres)} of ${formatDistanceKm(w.plannedMetres)} km`)
+  } else if (w.doneMetres > 0) parts.push(`${formatDistanceKm(w.doneMetres)} km`)
+  return parts.join(' · ')
+}
 
 const where = computed(() => {
   const p = program.value
@@ -68,10 +91,28 @@ async function load() {
     program.value = found
     sessions.value = await training.listSessions(id.value)
     state.value = 'ready'
+    // Each of these only adds marks and numbers, so a failure leaves the plain list
     try {
-      done.value = new Set(await run.doneSessionIds())
+      finishedRuns.value = await run.listFinished()
+      done.value = new Set(
+        finishedRuns.value.flatMap((r) => (r.sessionId === null ? [] : [r.sessionId])),
+      )
     } catch (err) {
       console.warn('[db] could not load the done sessions', err)
+    }
+    try {
+      skipped.value = new Set(await training.skippedSessionIds())
+    } catch (err) {
+      console.warn('[db] could not load the skipped sessions', err)
+    }
+    try {
+      const own = sessions.value.filter((s) => s.type !== 'rest')
+      const totals = await Promise.all(
+        own.map(async (s) => [s.id, plannedTotals(await training.loadSteps(s.id))] as const),
+      )
+      planned.value = new Map(totals)
+    } catch (err) {
+      console.warn('[db] could not load the planned totals', err)
     }
   } catch (err) {
     console.warn('[db] could not load program', err)
@@ -122,18 +163,24 @@ onMounted(load)
 
       <section v-for="w in weeks" :key="w.week" class="week" :aria-labelledby="`week-${w.week}`">
         <h2 :id="`week-${w.week}`" class="week__title">Week {{ w.week }}</h2>
+        <p v-if="weekLine(w.sessions)" class="week__summary">{{ weekLine(w.sessions) }}</p>
         <ul class="list">
           <li v-for="(s, i) in w.sessions" :key="s.id">
             <RouterLink
               :to="{ name: 'session-edit', params: { id, sid: s.id } }"
               class="row"
-              :class="{ 'row--rest': s.type === 'rest', 'row--done': done.has(s.id) }"
+              :class="{
+                'row--rest': s.type === 'rest',
+                'row--done': done.has(s.id),
+                'row--skipped': skipped.has(s.id) && !done.has(s.id),
+              }"
             >
               <span v-if="done.has(s.id)" class="session__number" aria-label="Done">✓</span>
               <span v-else class="session__number">{{ i + 1 }}</span>
               <span class="session__type">{{ SESSION_TYPE_LABELS[s.type] }}</span>
               <span class="row__title session__title">{{ s.title }}</span>
-              <span v-if="next?.id === s.id" class="next">Next</span>
+              <span v-if="skipped.has(s.id) && !done.has(s.id)" class="skipped">Skipped</span>
+              <span v-else-if="next?.id === s.id" class="next">Next</span>
               <span class="row__chevron" aria-hidden="true">›</span>
             </RouterLink>
           </li>
@@ -183,6 +230,24 @@ onMounted(load)
   font-size: 0.85rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.week__summary {
+  margin: 0 1.5rem 0.5rem;
+  color: #c3ccd5;
+  font-variant-numeric: tabular-nums;
+}
+
+.row--skipped .session__title {
+  color: #9aa5b1;
+  text-decoration: line-through;
+}
+
+.skipped {
+  flex-shrink: 0;
+  color: #9aa5b1;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .session__number {

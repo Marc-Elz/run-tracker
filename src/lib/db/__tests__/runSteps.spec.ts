@@ -5,7 +5,7 @@ import { createSqliteRunRepository } from '../sqliteRunRepository'
 import { createSqliteTrainingRepository } from '../sqliteTrainingRepository'
 import { MIGRATIONS, migrate } from '../migrations'
 import type { RunRecord, RunRepository } from '../runRepository'
-import { nodeSqlite, openTestDb } from './nodeSqlite'
+import { nodeSqlite, openTestDb, programSnapshot } from './nodeSqlite'
 
 const run = (id: string, over: Partial<RunRecord> = {}): RunRecord => ({
   id,
@@ -153,12 +153,12 @@ describe.skipIf(!nodeSqlite)('run steps on real SQLite', () => {
     // The run steps methods are not used before the migration: v5 had no such table
     await runs.createRun(run('r', { sessionId: 's' }))
     await runs.addPoint('r', 0, { lat: 52, lon: 4, timestamp: 2 })
-    const programs = await training.exportPrograms()
+    const programs = await programSnapshot(training)
 
     expect(await migrate(db)).toBe(MIGRATIONS.length)
     expect(await runs.getRun('r')).toMatchObject({ id: 'r', sessionId: 's' })
     expect(await runs.loadPoints('r')).toHaveLength(1)
-    expect(await training.exportPrograms()).toEqual(programs)
+    expect(await programSnapshot(training)).toEqual(programs)
     expect(await runs.loadRunSteps('r')).toEqual([])
     await runs.saveStepChange('r', null, [runStep(0)])
     expect(await runs.loadRunSteps('r')).toEqual([runStep(0)])

@@ -1,5 +1,7 @@
 import type { SqlConnection } from '../migrations'
 
+import type { TrainingRepository } from '../trainingRepository'
+
 type NodeSqlite = typeof import('node:sqlite')
 
 // Built into Node 22.5+; the repo also allows Node 20, where the real-SQLite tests are skipped
@@ -45,4 +47,20 @@ export function openTestDb(): SqlConnection {
       })
     },
   }
+}
+
+/**
+ * Every program with its sessions and steps, read with the calls that work on any schema version.
+ * `exportPrograms` also reads tables of later migrations, so it can't run on a database that is
+ * about to be migrated.
+ */
+export async function programSnapshot(repo: TrainingRepository) {
+  const out = []
+  for (const { sessionCount: _count, ...program } of await repo.listPrograms()) {
+    const sessions = await repo.listSessions(program.id)
+    const steps = []
+    for (const s of sessions) steps.push(...(await repo.loadSteps(s.id)))
+    out.push({ program, sessions, steps })
+  }
+  return out
 }
