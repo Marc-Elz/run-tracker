@@ -12,7 +12,7 @@ Solo project, several PCs (Windows 11 and a Linux home PC, Docker Desktop on all
 2. Run `npm run doctor` (needs `npm install` first if `node_modules` is missing; do that, it is safe).
 3. For every ✗ the doctor prints, fix what you can without asking (`npm install`); `gh auth login` needs me, so tell me the command. For things only I can do, give me the OS-specific step from the doctor's hint and wait:
    - installing Android Studio, enabling USB debugging on the phone, plugging it in, a Linux udev rule
-   - Docker is only needed from Phase 4; don't push me to fix it earlier.
+   - Docker is only needed from Map planning; don't push me to fix it earlier.
 4. Before the first `npm run android:run` on a PC, the doctor's "Debug keystore" line must show the same SHA256 as my other PCs (#76). If it is missing, tell me to copy `~/.android/debug.keystore` from the PC the phone was last installed from (never into the repo); do not run `android:run` first, because Gradle would create a new key.
 5. Android items are only needed to run on the phone. Web work (`npm run dev`) needs only the "Required" group.
 6. Finish by running the checks: `npm run type-check`, `npm run lint`, `npm run test:unit`. Report what passed. Say plainly if the phone run was not verified.
