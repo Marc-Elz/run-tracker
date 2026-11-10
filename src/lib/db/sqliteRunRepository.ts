@@ -1,5 +1,7 @@
 import type { TrackPoint } from '@/lib/geo'
 import type { RouteOverview } from '@/lib/routeOverview'
+import type { RunStep, RunStepKind } from '@/lib/stepProgress'
+import type { TargetKind } from '@/lib/training'
 import type { SqlConnection } from './migrations'
 import type { RunRecord, RunRepository, StoredPoint, StoredRunStatus } from './runRepository'
 
@@ -52,6 +54,44 @@ export function toRouteOverview(row: Row): RouteOverview {
         : (JSON.parse(String(row.bounds)) as RouteOverview['bounds']),
   }
 }
+
+export function toRunStep(row: Row): RunStep {
+  return {
+    position: Number(row.position),
+    kind: String(row.kind) as RunStepKind,
+    targetKind: String(row.target_kind) as TargetKind,
+    targetValue: optional(row.target_value) ?? null,
+    paceMin: optional(row.pace_min) ?? null,
+    paceMax: optional(row.pace_max) ?? null,
+    repetition: optional(row.repetition) ?? null,
+    repetitions: optional(row.repetitions) ?? null,
+    startedElapsedMs: Number(row.started_elapsed_ms),
+    startedDistanceM: Number(row.started_distance_m),
+    endedElapsedMs: optional(row.ended_elapsed_ms) ?? null,
+    endedDistanceM: optional(row.ended_distance_m) ?? null,
+  }
+}
+
+const insertStep = (runId: string, s: RunStep) => ({
+  statement: `INSERT INTO run_steps (run_id, position, kind, target_kind, target_value, pace_min,
+    pace_max, repetition, repetitions, started_elapsed_ms, started_distance_m, ended_elapsed_ms,
+    ended_distance_m) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  values: [
+    runId,
+    s.position,
+    s.kind,
+    s.targetKind,
+    s.targetValue,
+    s.paceMin,
+    s.paceMax,
+    s.repetition,
+    s.repetitions,
+    s.startedElapsedMs,
+    s.startedDistanceM,
+    s.endedElapsedMs,
+    s.endedDistanceM,
+  ],
+})
 
 /**
  * The value written to `runs.session_id`: the session when it exists and has no run yet, else
@@ -130,7 +170,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       await db.run('UPDATE runs SET name = ?, updated_at = ? WHERE id = ?', [name, Date.now(), id])
     },
     async deleteRun(id) {
-      // Points go with it (ON DELETE CASCADE; the plugin turns foreign keys on)
+      // Points and steps go with it (ON DELETE CASCADE; the plugin turns foreign keys on)
       await db.run('DELETE FROM runs WHERE id = ?', [id])
     },
     async findUnfinished() {
@@ -158,7 +198,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       )
       return (result.values ?? []).map(toStoredPoint)
     },
-    async importRun(run, points) {
+    async importRun(run, points, steps = []) {
       const existing = await db.query('SELECT id FROM runs WHERE id = ?', [run.id])
       if ((existing.values ?? []).length > 0) return false
       const now = Date.now()
@@ -199,10 +239,30 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
               p.speed ?? null,
             ],
           })),
+          ...steps.map((step) => insertStep(run.id, step)),
         ],
         true,
       )
       return true
+    },
+    async saveStepChange(runId, ended, started) {
+      const set = started.map((step) => insertStep(runId, step))
+      if (ended) {
+        set.unshift({
+          statement: `UPDATE run_steps SET ended_elapsed_ms = ?, ended_distance_m = ?
+           WHERE run_id = ? AND position = ?`,
+          values: [ended.endedElapsedMs, ended.endedDistanceM, runId, ended.position],
+        })
+      }
+      // One transaction, so a step never ends without the next one starting
+      if (set.length > 0) await db.executeSet(set, true)
+    },
+    async loadRunSteps(runId) {
+      const result = await db.query(
+        'SELECT * FROM run_steps WHERE run_id = ? ORDER BY position',
+        [runId],
+      )
+      return (result.values ?? []).map(toRunStep)
     },
     async readOverviews() {
       const result = await db.query(

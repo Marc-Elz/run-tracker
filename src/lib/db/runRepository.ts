@@ -1,5 +1,6 @@
 import type { TrackPoint } from '@/lib/geo'
 import type { RouteOverview } from '@/lib/routeOverview'
+import type { RunStep } from '@/lib/stepProgress'
 
 export type StoredRunStatus = 'running' | 'paused' | 'finished'
 
@@ -38,7 +39,7 @@ export interface RunRepository {
   addPoint(runId: string, segment: number, point: TrackPoint): Promise<void>
   /** Sets or clears (null) the name; the rest of the run is untouched */
   renameRun(id: string, name: string | null): Promise<void>
-  /** Deletes the run and its points */
+  /** Deletes the run, its points and its steps */
   deleteRun(id: string): Promise<void>
   /** Runs that never got to Stop, newest first */
   findUnfinished(): Promise<RunRecord[]>
@@ -49,11 +50,15 @@ export interface RunRepository {
   /** Points of a run in recording order */
   loadPoints(runId: string): Promise<StoredPoint[]>
   /**
-   * Store a finished run with its name and all its points as one unit, points in the given order.
-   * Returns false and writes nothing when a run with this id already exists. The session link is
-   * kept only when that session exists and has no run yet, as in `createRun`.
+   * Store a finished run with its name, all its points and its steps as one unit, points in the
+   * given order. Returns false and writes nothing when a run with this id already exists. The
+   * session link is kept only when that session exists and has no run yet, as in `createRun`.
    */
-  importRun(run: RunRecord, points: StoredPoint[]): Promise<boolean>
+  importRun(run: RunRecord, points: StoredPoint[], steps?: RunStep[]): Promise<boolean>
+  /** Session steps as run (#101): the step that ended and the ones that started, in one write */
+  saveStepChange(runId: string, ended: RunStep | null, started: RunStep[]): Promise<void>
+  /** The steps of a run in order; empty for a free run */
+  loadRunSteps(runId: string): Promise<RunStep[]>
   /** Stored route overviews of finished runs (a cache; see `loadRouteOverviews`) */
   readOverviews(): Promise<RouteOverview[]>
   /** Stores or replaces the overview of a run */
@@ -90,7 +95,10 @@ export function serialized(repo: RunRepository, enqueue: Queue = createQueue()):
     getRun: (id) => enqueue(() => repo.getRun(id)),
     listFinished: () => enqueue(() => repo.listFinished()),
     loadPoints: (runId) => enqueue(() => repo.loadPoints(runId)),
-    importRun: (run, points) => enqueue(() => repo.importRun(run, points)),
+    importRun: (run, points, steps) => enqueue(() => repo.importRun(run, points, steps)),
+    saveStepChange: (runId, ended, started) =>
+      enqueue(() => repo.saveStepChange(runId, ended, started)),
+    loadRunSteps: (runId) => enqueue(() => repo.loadRunSteps(runId)),
     readOverviews: () => enqueue(() => repo.readOverviews()),
     saveOverview: (overview) => enqueue(() => repo.saveOverview(overview)),
     doneSessionIds: () => enqueue(() => repo.doneSessionIds()),
@@ -113,6 +121,8 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     listFinished: fail,
     loadPoints: fail,
     importRun: fail,
+    saveStepChange: fail,
+    loadRunSteps: fail,
     readOverviews: fail,
     saveOverview: fail,
     doneSessionIds: fail,
