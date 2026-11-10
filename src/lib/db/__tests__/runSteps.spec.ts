@@ -56,7 +56,9 @@ describe.each(implementations)('%s run steps', (_name, open) => {
   it('stores started steps, then ends one and starts the next in one write', async () => {
     const repo = await open()
     await repo.createRun(run('r'))
-    await repo.saveStepChange('r', null, [runStep(0, { kind: 'warmup', targetKind: 'none', targetValue: null })])
+    await repo.saveStepChange('r', null, [
+      runStep(0, { kind: 'warmup', targetKind: 'none', targetValue: null }),
+    ])
     const ended = runStep(0, {
       kind: 'warmup',
       targetKind: 'none',

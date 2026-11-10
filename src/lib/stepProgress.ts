@@ -147,7 +147,11 @@ export function advanceSteps(
   while (current) {
     const end = dueEnd(current, totals)
     if (!end) break
-    const closed: RunStep = { ...current, endedElapsedMs: end.elapsedMs, endedDistanceM: end.distanceM }
+    const closed: RunStep = {
+      ...current,
+      endedElapsedMs: end.elapsedMs,
+      endedDistanceM: end.distanceM,
+    }
     const i = started.indexOf(current)
     if (i >= 0) started[i] = closed
     else ended = closed

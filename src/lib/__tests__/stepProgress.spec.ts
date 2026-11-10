@@ -165,7 +165,11 @@ describe('nextStepByHand', () => {
     const timeline = session()
     const runSteps = follow(timeline, at(0), at(300_000, 800))
     const change = nextStepByHand(timeline, runSteps, at(300_000, 800))!
-    expect(change.ended).toMatchObject({ position: 0, endedElapsedMs: 300_000, endedDistanceM: 800 })
+    expect(change.ended).toMatchObject({
+      position: 0,
+      endedElapsedMs: 300_000,
+      endedDistanceM: 800,
+    })
     expect(change.started).toEqual([
       expect.objectContaining({ position: 1, startedElapsedMs: 300_000, startedDistanceM: 800 }),
     ])
@@ -237,8 +241,20 @@ describe('stepProgress', () => {
   it('clamps what is left when the totals sit below the step start (after a recover)', () => {
     const timeline = expandSteps([timed('run', 60), metres('walk', 100)])
     const runSteps: RunStep[] = [
-      { ...timeline[0]!, startedElapsedMs: 0, startedDistanceM: 0, endedElapsedMs: 60_000, endedDistanceM: 150 },
-      { ...timeline[1]!, startedElapsedMs: 60_000, startedDistanceM: 150, endedElapsedMs: null, endedDistanceM: null },
+      {
+        ...timeline[0]!,
+        startedElapsedMs: 0,
+        startedDistanceM: 0,
+        endedElapsedMs: 60_000,
+        endedDistanceM: 150,
+      },
+      {
+        ...timeline[1]!,
+        startedElapsedMs: 60_000,
+        startedDistanceM: 150,
+        endedElapsedMs: null,
+        endedDistanceM: null,
+      },
     ]
     expect(stepProgress(timeline, runSteps, at(58_000, 140))).toMatchObject({
       index: 1,

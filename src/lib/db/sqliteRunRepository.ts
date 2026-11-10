@@ -258,10 +258,9 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       if (set.length > 0) await db.executeSet(set, true)
     },
     async loadRunSteps(runId) {
-      const result = await db.query(
-        'SELECT * FROM run_steps WHERE run_id = ? ORDER BY position',
-        [runId],
-      )
+      const result = await db.query('SELECT * FROM run_steps WHERE run_id = ? ORDER BY position', [
+        runId,
+      ])
       return (result.values ?? []).map(toRunStep)
     },
     async readOverviews() {

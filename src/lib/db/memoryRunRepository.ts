@@ -94,9 +94,7 @@ export function createMemoryRunRepository(): RunRepository {
       steps.set(runId, list)
     },
     async loadRunSteps(runId) {
-      return (steps.get(runId) ?? [])
-        .map((s) => ({ ...s }))
-        .sort((a, b) => a.position - b.position)
+      return (steps.get(runId) ?? []).map((s) => ({ ...s })).sort((a, b) => a.position - b.position)
     },
     async readOverviews() {
       return [...overviews.values()].filter((o) => runs.get(o.runId)?.status === 'finished')
