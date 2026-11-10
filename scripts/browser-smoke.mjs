@@ -174,13 +174,14 @@ try {
     await page.locator('form').getByRole('button', { name: 'Save' }).click()
     await page.getByRole('heading', { name: 'Edit session' }).waitFor()
   }
-  await addStep('Warm-up', '10:00')
+  // A short warm-up, so the run below can watch the step panel move on (#101)
+  await addStep('Warm-up', '0:05')
   await addStep('Repeat')
   await addStep('Cool-down', '5:00')
   const stepTexts = () => page.locator('.step__text').allInnerTexts()
   check(
     'steps are listed, the repeat holding its run',
-    (await stepTexts()).join('|') === 'Warm-up 10:00|2× · 1 step|Run|Cool-down 5:00',
+    (await stepTexts()).join('|') === 'Warm-up 0:05|2× · 1 step|Run|Cool-down 5:00',
     (await stepTexts()).join('|'),
   )
   // The screen scrolls inside .page: bring both handles on screen before measuring them
@@ -197,7 +198,7 @@ try {
   await page.getByText('2× · 2 steps').waitFor()
   check(
     'dragging the cool-down into the repeat saves the new order',
-    (await stepTexts()).join('|') === 'Warm-up 10:00|2× · 2 steps|Cool-down 5:00|Run',
+    (await stepTexts()).join('|') === 'Warm-up 0:05|2× · 2 steps|Cool-down 5:00|Run',
     (await stepTexts()).join('|'),
   )
   check('session editor with steps has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
@@ -207,7 +208,7 @@ try {
   await page.locator('.week').first().getByText('6×400 m').click()
   check(
     'the order is still there when the session is opened again',
-    (await stepTexts()).join('|') === 'Warm-up 10:00|2× · 2 steps|Cool-down 5:00|Run',
+    (await stepTexts()).join('|') === 'Warm-up 0:05|2× · 2 steps|Cool-down 5:00|Run',
     (await stepTexts()).join('|'),
   )
   await page.getByRole('button', { name: '‹ Cancel' }).click()
@@ -287,9 +288,21 @@ try {
   if (shots) await page.screenshot({ path: join(shots, 'run-session.png') })
   await page.getByRole('button', { name: 'Start session' }).click()
   await page.waitForSelector('main.run[data-status="running"]')
-  await page.locator('.session-line').waitFor()
-  check('a session run says which session it is', (await page.locator('.session-line').innerText()).includes('Week 1 · 6×400 m'))
-  await page.waitForTimeout(3000)
+  // The step panel (#101): warm-up 0:05, then 2× (cool-down 5:00, run without a target)
+  await page.locator('.step-panel').waitFor()
+  const panel = () => page.locator('.step-panel').innerText()
+  const first = await panel()
+  check('a session run shows its first step', /warm-up/i.test(first) && first.includes('1 / 5') && first.includes('Next: Cool-down 5:00 · rep 1/2'), first.replace(/\n+/g, ' '))
+  check('Run screen with a step panel has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  await page.waitForFunction(() => document.querySelector('.step-panel')?.textContent?.includes('2 / 5'), null, { timeout: 10_000 })
+  const second = await panel()
+  check('the step moves on from the run clock', /cool-down · rep 1\/2/i.test(second) && /(5:00|4:5\d) LEFT/i.test(second.replace(/\n+/g, ' ')), second.replace(/\n+/g, ' '))
+  // The tallest layout must keep Pause in view on a short phone
+  await page.setViewportSize({ width: 360, height: 640 })
+  const pause = await page.getByRole('button', { name: 'Pause' }).boundingBox()
+  check('Pause stays in view at 360×640 with the step panel', pause !== null && pause.y + pause.height <= 640, JSON.stringify(pause))
+  if (shots) await page.screenshot({ path: join(shots, 'run-step-panel.png') })
+  await page.setViewportSize({ width: 360, height: 740 })
   await page.getByRole('button', { name: 'Pause' }).click()
   await page.getByRole('button', { name: 'Stop' }).click()
   await page.waitForSelector('main.summary .stats')
