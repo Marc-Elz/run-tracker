@@ -6,6 +6,7 @@ import { useBackInterceptor } from '@/composables/useBackButton'
 import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useSortableSteps } from '@/composables/useSortableSteps'
 import { useTrainingStore } from '@/stores/training'
+import { useRunStore } from '@/stores/run'
 import {
   autoTitle,
   fromBlocks,
@@ -25,6 +26,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const training = useTrainingStore()
+const run = useRunStore()
 
 const programId = computed(() => route.params.id as string)
 // No session id: a new session
@@ -53,6 +55,12 @@ const weeks = ref(1)
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>('loading')
 const error = ref<string | null>(null)
 const confirmingRest = ref(false)
+// "Remove from program" (#150): the dialog, and the finished runs of this session it says are kept
+// (null when they could not be read, so the dialog says nothing about them)
+const confirmingRemove = ref(false)
+const removing = ref(false)
+const removeError = ref<string | null>(null)
+const runCount = ref<number | null>(null)
 
 const blocks = ref<StepBlock[]>([])
 const stepsRoot = ref<HTMLElement | null>(null)
@@ -65,6 +73,13 @@ const generatedTitle = computed(() =>
 )
 // "+ Add step" on a new session saves it first
 const addingStep = ref(false)
+// The stored session's name, for the remove dialog: its own title, or else the generated one
+const storedTitle = computed(() =>
+  stored.value
+    ? stored.value.title.trim() ||
+      autoTitle(stored.value.type, fromBlocks(sessionId.value ?? '', blocks.value))
+    : '',
+)
 
 const stepCount = computed(() => blocks.value.reduce((n, b) => n + 1 + b.children.length, 0))
 const dirty = computed(() => {
@@ -82,6 +97,9 @@ const showSteps = computed(() => stored.value !== null && stored.value.type !== 
 const stepsLocked = computed(() => dirty.value || saving.value || stepsBusy.value)
 useBackInterceptor(confirmingRest, () => {
   if (!saving.value) confirmingRest.value = false
+})
+useBackInterceptor(confirmingRemove, () => {
+  if (!removing.value) confirmingRemove.value = false
 })
 
 useSortableSteps(stepsRoot, {
@@ -112,6 +130,11 @@ async function load() {
       form.value = { week, type, title, notes }
       stored.value = { week, type, title, notes }
       blocks.value = await training.loadBlocks(session.id)
+      try {
+        runCount.value = (await run.listFinished()).filter((r) => r.sessionId === session.id).length
+      } catch (err) {
+        console.warn('[db] could not tell whether this session was run', err)
+      }
     } else {
       form.value.week = Math.min(form.value.week, program.weeks)
     }
@@ -154,6 +177,31 @@ async function store() {
     confirmingRest.value = false
   } finally {
     saving.value = false
+  }
+}
+
+/**
+ * Remove the session from its program (#150); its runs are kept. Its view no longer exists, so
+ * leave past it: opened from the view (the Edit link marks that), go back two to where the view
+ * was opened from, normally the program. The app always starts at "/", so the view is never the
+ * first entry. Otherwise back to where the editor was opened from, else the program.
+ */
+async function remove() {
+  if (removing.value || !sessionId.value) return
+  removing.value = true
+  removeError.value = null
+  try {
+    await training.deleteSession(sessionId.value)
+    confirmingRemove.value = false
+    const history = router.options.history.state
+    if (history.fromView) router.go(-2)
+    else if (history.back) router.back()
+    else void router.replace({ name: 'program', params: { id: programId.value } })
+  } catch (err) {
+    console.warn('[db] could not remove session', err)
+    removeError.value = 'Could not remove the session'
+  } finally {
+    removing.value = false
   }
 }
 
@@ -371,7 +419,32 @@ onMounted(load)
           + Add step
         </button>
       </section>
+
+      <button
+        v-if="sessionId"
+        class="btn btn--danger btn--wide"
+        :disabled="saving || removing"
+        @click="confirmingRemove = true"
+      >
+        Remove from program
+      </button>
     </template>
+
+    <ConfirmDialog
+      v-if="confirmingRemove && stored"
+      :title="`Remove ${storedTitle} from week ${stored.week}?`"
+      confirm-label="Remove"
+      :busy="removing"
+      :error="removeError"
+      @keep="confirmingRemove = false"
+      @confirm="remove()"
+    >
+      <template v-if="runCount">
+        It comes off the program. Your {{ runCount === 1 ? 'run' : `${runCount} runs` }} for it
+        {{ runCount === 1 ? 'is' : 'are' }} kept.
+      </template>
+      <template v-else>It comes off the program.</template>
+    </ConfirmDialog>
 
     <ConfirmDialog
       v-if="confirmingRest"
