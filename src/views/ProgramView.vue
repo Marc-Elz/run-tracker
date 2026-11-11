@@ -13,7 +13,9 @@ import {
   nextSession,
   programWeek,
   SESSION_TYPE_LABELS,
+  sessionTitle,
   type ProgramSession,
+  type SessionStep,
   type TrainingProgram,
 } from '@/lib/training'
 
@@ -32,7 +34,18 @@ const done = ref<ReadonlySet<string>>(new Set())
 // Sessions marked skipped (#102); empty when they could not be read
 const skipped = ref<ReadonlySet<string>>(new Set())
 const finishedRuns = ref<RunRecord[]>([])
-const planned = ref<ReadonlyMap<string, PlannedTotals>>(new Map())
+// Steps of every session, read at once (#138); empty when they could not be read
+const steps = ref<ReadonlyMap<string, SessionStep[]>>(new Map())
+const stepsFailed = ref(false)
+const planned = computed<ReadonlyMap<string, PlannedTotals>>(() =>
+  stepsFailed.value
+    ? new Map()
+    : new Map(
+        sessions.value
+          .filter((s) => s.type !== 'rest')
+          .map((s) => [s.id, plannedTotals(steps.value.get(s.id) ?? [])] as const),
+      ),
+)
 const next = computed(() => nextSession(sessions.value, done.value, skipped.value))
 const following = computed(() => followedProgramId.value === id.value)
 
@@ -62,6 +75,12 @@ function weekLine(weekSessions: ProgramSession[]): string | null {
     parts.push(`${formatDistanceKm(w.doneMetres)} of ${formatDistanceKm(w.plannedMetres)} km`)
   } else if (w.doneMetres > 0) parts.push(`${formatDistanceKm(w.doneMetres)} km`)
   return parts.join(' · ')
+}
+
+/** The name after the type label, or null when it would only repeat the type ("Rest Rest") */
+function rowTitle(s: ProgramSession): string | null {
+  const title = sessionTitle(s, steps.value.get(s.id) ?? [])
+  return title === SESSION_TYPE_LABELS[s.type] ? null : title
 }
 
 const weekLines = computed(
@@ -110,13 +129,12 @@ async function load() {
       console.warn('[db] could not load the skipped sessions', err)
     }
     try {
-      const own = sessions.value.filter((s) => s.type !== 'rest')
-      const totals = await Promise.all(
-        own.map(async (s) => [s.id, plannedTotals(await training.loadSteps(s.id))] as const),
-      )
-      planned.value = new Map(totals)
+      steps.value = await training.loadProgramSteps(id.value)
+      stepsFailed.value = false
     } catch (err) {
-      console.warn('[db] could not load the planned totals', err)
+      // One message instead of every week silently losing its planned amounts (#138)
+      console.warn('[db] could not load the steps', err)
+      stepsFailed.value = true
     }
   } catch (err) {
     console.warn('[db] could not load program', err)
@@ -165,6 +183,10 @@ onMounted(load)
         {{ following ? '✓ Following' : 'Follow this program' }}
       </button>
 
+      <p v-if="stepsFailed" class="field-error steps-failed" role="alert">
+        Could not read the steps; names and planned amounts may be missing
+      </p>
+
       <section v-for="w in weeks" :key="w.week" class="week" :aria-labelledby="`week-${w.week}`">
         <h2 :id="`week-${w.week}`" class="week__title">Week {{ w.week }}</h2>
         <p v-if="weekLines.get(w.week)" class="week__summary">{{ weekLines.get(w.week) }}</p>
@@ -182,7 +204,7 @@ onMounted(load)
               <span v-if="done.has(s.id)" class="session__number" aria-label="Done">✓</span>
               <span v-else class="session__number">{{ i + 1 }}</span>
               <span class="session__type">{{ SESSION_TYPE_LABELS[s.type] }}</span>
-              <span class="row__title session__title">{{ s.title }}</span>
+              <span class="row__title session__title">{{ rowTitle(s) }}</span>
               <span v-if="skipped.has(s.id) && !done.has(s.id)" class="skipped">Skipped</span>
               <span v-else-if="next?.id === s.id" class="next">Next</span>
               <span class="row__chevron" aria-hidden="true">›</span>
@@ -226,6 +248,10 @@ onMounted(load)
 
 .week {
   margin-top: 1.5rem;
+}
+
+.steps-failed {
+  margin: 1rem 1.5rem 0;
 }
 
 .week__title {

@@ -30,6 +30,8 @@ export interface TrainingRepository {
   deleteSession(id: string): Promise<void>
   /** Steps of a session in order */
   loadSteps(sessionId: string): Promise<SessionStep[]>
+  /** Steps of every session of a program in one read, by session id, each in order (#138) */
+  loadProgramSteps(programId: string): Promise<Map<string, SessionStep[]>>
   /** Replaces all steps of a session in one transaction */
   replaceSteps(sessionId: string, steps: SessionStep[]): Promise<void>
   /** Sessions marked skipped (#102), in every program */
@@ -67,6 +69,7 @@ export function serializedTraining(
     saveSession: (s) => enqueue(() => repo.saveSession(s)),
     deleteSession: (id) => enqueue(() => repo.deleteSession(id)),
     loadSteps: (sessionId) => enqueue(() => repo.loadSteps(sessionId)),
+    loadProgramSteps: (programId) => enqueue(() => repo.loadProgramSteps(programId)),
     replaceSteps: (sessionId, steps) => enqueue(() => repo.replaceSteps(sessionId, steps)),
     skippedSessionIds: () => enqueue(() => repo.skippedSessionIds()),
     setSkipped: (sessionId, skipped) => enqueue(() => repo.setSkipped(sessionId, skipped)),
@@ -91,6 +94,7 @@ export function unavailableTrainingRepository(cause: unknown): TrainingRepositor
     saveSession: fail,
     deleteSession: fail,
     loadSteps: fail,
+    loadProgramSteps: fail,
     replaceSteps: fail,
     skippedSessionIds: fail,
     setSkipped: fail,

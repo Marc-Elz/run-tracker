@@ -7,7 +7,7 @@ import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useSessionDetails } from '@/composables/useSessionDetails'
 import { useTrainingStore } from '@/stores/training'
 import { formatDistanceKm, formatDuration, formatRunDate } from '@/lib/format'
-import { SESSION_TYPE_LABELS, stepSummary } from '@/lib/training'
+import { fromBlocks, SESSION_TYPE_LABELS, sessionTitle, stepSummary } from '@/lib/training'
 
 /**
  * A session at a glance (#147): what it is, a button to run it, its steps and its runs. Changing
@@ -37,6 +37,11 @@ const {
   load,
   toggleSkip,
 } = useSessionDetails(programId, sessionId)
+
+// Its own title, or else the name made from its steps (#143)
+const title = computed(() =>
+  session.value ? sessionTitle(session.value, fromBlocks(session.value.id, blocks.value)) : '',
+)
 
 const confirming = ref(false)
 const deleteError = ref<string | null>(null)
@@ -95,7 +100,7 @@ onMounted(load)
     </section>
 
     <template v-else-if="session">
-      <h1 class="title">{{ session.title }}</h1>
+      <h1 class="title">{{ title }}</h1>
       <p class="subtitle">{{ SESSION_TYPE_LABELS[session.type] }} · Week {{ session.week }}</p>
       <p v-if="done" class="done">✓ Done</p>
 
@@ -177,7 +182,7 @@ onMounted(load)
       @keep="confirming = false"
       @confirm="onDelete()"
     >
-      {{ session.title || 'It' }} is removed from week {{ session.week }}.
+      {{ title }} is removed from week {{ session.week }}.
       <template v-if="done">Your run for it is kept.</template>
     </ConfirmDialog>
   </main>

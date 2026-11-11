@@ -221,6 +221,11 @@ textarea.input {
   font-size: 1rem;
 }
 
+/* One-tap values (#143): one row of small chips, so Save stays near the thumb */
+.choices--chips {
+  grid-template-columns: repeat(auto-fit, minmax(3.25rem, 1fr));
+}
+
 .choices .btn[aria-pressed='true'] {
   background: #1f9d55;
 }

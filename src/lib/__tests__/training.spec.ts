@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  autoTitle,
   checkProgram,
   checkSession,
   checkSteps,
@@ -12,12 +13,16 @@ import {
   isRunnable,
   localDate,
   moveStep,
+  newStepDefaults,
   nextSession,
+  nextStepKind,
   parseMinSec,
   programWeek,
   removeStep,
   replaceStep,
+  sessionTitle,
   stepSummary,
+  stepTargetDefaults,
   toBlocks,
   TrainingError,
   type ProgramSession,
@@ -73,12 +78,13 @@ describe('checkWeeksKeepSessions', () => {
 })
 
 describe('checkSession', () => {
-  it('needs a week inside the program and a title, except that a rest day is called Rest', () => {
+  it('needs a week inside the program; an empty title is kept, but a rest day is called Rest', () => {
     const input = { week: 3, type: 'easy' as const, title: ' 30 min ', notes: '' }
     expect(checkSession(input, 4)).toEqual({ week: 3, type: 'easy', title: '30 min', notes: null })
     expect(() => checkSession({ ...input, week: 5 }, 4)).toThrow(/week from 1 to 4/)
-    expect(() => checkSession({ ...input, title: '' }, 4)).toThrow(/title/)
+    expect(checkSession({ ...input, title: '  ' }, 4).title).toBe('')
     expect(checkSession({ ...input, type: 'rest', title: '' }, 4).title).toBe('Rest')
+    expect(() => checkSession({ ...input, title: 'x'.repeat(61) }, 4)).toThrow(/under 60/)
   })
 })
 
@@ -309,5 +315,117 @@ describe('next session (#40)', () => {
   it('is null when every session is done or a rest day, or there are none', () => {
     expect(nextSession(sessions, new Set(['w1a', 'w1b', 'w2a']))).toBeNull()
     expect(nextSession([], new Set())).toBeNull()
+  })
+})
+
+describe('generated session titles (#143)', () => {
+  const timed = (id: string, kind: SessionStep['kind'], seconds: number, position: number) =>
+    step({ id, kind, targetKind: 'duration', targetValue: seconds, position })
+  const runWalk = [
+    timed('w', 'warmup', 300, 0),
+    step({ id: 'r', kind: 'repeat', repetitions: 8, span: 2, position: 1 }),
+    timed('a', 'run', 60, 2),
+    timed('b', 'walk', 90, 3),
+    timed('c', 'cooldown', 300, 4),
+  ]
+
+  it('names a session with a repeat by its rounds and steps', () => {
+    expect(autoTitle('runwalk', runWalk)).toBe('8× run 1:00 / walk 1:30')
+    // Stored order counts, not the order of the list
+    expect(autoTitle('runwalk', [...runWalk].reverse())).toBe('8× run 1:00 / walk 1:30')
+    const distance = step({ id: 'd', kind: 'run', targetKind: 'distance', targetValue: 400 })
+    const noTarget = step({ id: 'n', kind: 'recovery' })
+    expect(
+      autoTitle('intervals', [
+        step({ id: 'r', kind: 'repeat', repetitions: 6, span: 2 }),
+        { ...distance, position: 1 },
+        { ...noTarget, position: 2 },
+      ]),
+    ).toBe('6× run 400 m / recovery')
+  })
+
+  it('names a repeat with no steps by its rounds alone', () => {
+    expect(autoTitle('runwalk', [step({ kind: 'repeat', repetitions: 8, span: 0 })])).toBe('8×')
+  })
+
+  it('names a session without a repeat by its run steps, or else by its type', () => {
+    expect(autoTitle('easy', [timed('a', 'run', 1800, 0)])).toBe('Run 30:00')
+    expect(
+      autoTitle('long', [
+        timed('w', 'warmup', 300, 0),
+        timed('a', 'run', 600, 1),
+        timed('b', 'walk', 60, 2),
+        timed('c', 'run', 300, 3),
+      ]),
+    ).toBe('Run 10:00 + 5:00')
+    expect(autoTitle('free', [step({ kind: 'run' })])).toBe('Run')
+    expect(autoTitle('walk', [timed('b', 'walk', 1800, 0)])).toBe('Walk')
+    expect(autoTitle('runwalk', [])).toBe('Run/walk')
+    expect(autoTitle('rest', runWalk)).toBe('Rest')
+  })
+
+  it('cuts a long name at 60 characters with "…"', () => {
+    const many = Array.from({ length: 12 }, (_, i) => timed(`r${i}`, 'run', 600 + i, i))
+    const title = autoTitle('long', many)
+    expect(title).toHaveLength(60)
+    expect(title.endsWith('…')).toBe(true)
+    expect(title.startsWith('Run 10:00 + 10:01')).toBe(true)
+  })
+
+  it('uses a typed title over the generated one', () => {
+    const session: ProgramSession = {
+      id: 's',
+      programId: 'p',
+      week: 1,
+      position: 0,
+      type: 'runwalk',
+      title: '',
+      notes: null,
+    }
+    expect(sessionTitle(session, runWalk)).toBe('8× run 1:00 / walk 1:30')
+    expect(sessionTitle({ ...session, title: 'Week 1 day 1' }, runWalk)).toBe('Week 1 day 1')
+  })
+})
+
+describe('new step defaults (#143)', () => {
+  it('follows warm-up with run, run with walk, and walk-like steps with run', () => {
+    expect(nextStepKind(null, false)).toBe('warmup')
+    expect(nextStepKind(null, true)).toBe('run')
+    expect(nextStepKind('warmup', false)).toBe('run')
+    expect(nextStepKind('run', true)).toBe('walk')
+    for (const k of ['walk', 'recovery', 'cooldown'] as const) {
+      expect(nextStepKind(k, true)).toBe('run')
+    }
+    expect(nextStepKind('repeat', false)).toBe('cooldown')
+  })
+
+  it('starts on Time, copying the last value of the same kind anywhere in the session', () => {
+    const blocks: StepBlock[] = [
+      {
+        step: step({ id: 'w', kind: 'warmup', targetKind: 'duration', targetValue: 300 }),
+        children: [],
+      },
+      {
+        step: step({ id: 'r', kind: 'repeat', repetitions: 8 }),
+        children: [
+          step({ id: 'a', kind: 'run', targetKind: 'duration', targetValue: 60 }),
+          step({ id: 'b', kind: 'walk', targetKind: 'distance', targetValue: 200 }),
+        ],
+      },
+    ]
+    const none = { targetKind: 'duration', targetValue: null }
+    expect(newStepDefaults([], null)).toEqual({ kind: 'warmup', ...none })
+    expect(newStepDefaults(blocks, null)).toEqual({ kind: 'cooldown', ...none })
+    expect(newStepDefaults(blocks, 'r')).toEqual({
+      kind: 'run',
+      targetKind: 'duration',
+      targetValue: 60,
+    })
+    expect(stepTargetDefaults(blocks, 'walk')).toEqual({ targetKind: 'distance', targetValue: 200 })
+    expect(stepTargetDefaults(blocks, 'warmup')).toEqual({
+      targetKind: 'duration',
+      targetValue: 300,
+    })
+    expect(stepTargetDefaults(blocks, 'repeat')).toEqual({ targetKind: 'none', targetValue: null })
   })
 })

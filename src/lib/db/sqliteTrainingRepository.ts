@@ -211,6 +211,16 @@ export function createSqliteTrainingRepository(db: SqlConnection): TrainingRepos
       )
       return result.map(toStep)
     },
+    async loadProgramSteps(programId) {
+      const result = await rows(
+        `SELECT st.* FROM session_steps st
+          JOIN program_sessions s ON s.id = st.session_id
+          WHERE s.program_id = ?
+          ORDER BY st.session_id, st.position`,
+        [programId],
+      )
+      return groupBy(result.map(toStep), (s) => s.sessionId)
+    },
     async replaceSteps(sessionId, steps) {
       await db.executeSet(
         [

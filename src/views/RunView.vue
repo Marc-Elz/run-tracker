@@ -18,6 +18,7 @@ import {
   SESSION_TYPE_LABELS,
   STEP_KIND_LABELS,
   formatMinSec,
+  sessionTitle,
   type ProgramSession,
 } from '@/lib/training'
 import { nextStepLabel, stepKindLabel } from '@/lib/stepProgress'
@@ -46,7 +47,7 @@ const { planned, following, reload: reloadPlanned } = usePlannedSession(requeste
 const nextUp = computed(() => planned.value?.session ?? null)
 
 // The session the current run belongs to, for the line at the top (#101 builds on it)
-const linked = ref<ProgramSession | null>(null)
+const linked = ref<{ session: ProgramSession; title: string } | null>(null)
 watch(
   sessionId,
   async (id) => {
@@ -54,7 +55,11 @@ watch(
     if (id === null) return
     try {
       const found = await training.getSession(id)
-      if (sessionId.value === id) linked.value = found
+      // Without its steps the name falls back to the type (#143)
+      const steps = found ? await training.loadSteps(id).catch(() => []) : []
+      if (sessionId.value === id && found) {
+        linked.value = { session: found, title: sessionTitle(found, steps) }
+      }
     } catch (err) {
       console.warn('[db] could not load the session of this run', err)
     }
@@ -185,7 +190,7 @@ onBeforeUnmount(endGps)
           {{ planned.chosen ? 'Session' : 'Next session' }} · Week {{ nextUp.week }}
         </p>
         <p class="session-card__type">{{ SESSION_TYPE_LABELS[nextUp.type] }}</p>
-        <p class="session-card__title">{{ nextUp.title }}</p>
+        <p class="session-card__title">{{ planned.title }}</p>
         <p class="session-card__program">{{ planned.program.name }}</p>
       </template>
       <template v-else>
@@ -227,7 +232,7 @@ onBeforeUnmount(endGps)
     </section>
 
     <p v-else-if="status !== 'idle' && linked" class="session-line">
-      Week {{ linked.week }} · {{ linked.title }}
+      Week {{ linked.session.week }} · {{ linked.title }}
     </p>
 
     <p v-if="status === 'running' && !hasFix && !gpsFailure" class="gps-status">Acquiring GPS…</p>

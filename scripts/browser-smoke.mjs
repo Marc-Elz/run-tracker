@@ -147,7 +147,7 @@ try {
   await page.locator('#program-name').fill('Half marathon')
   await page.locator('#program-goal').fill('Sub 2:00')
   if (shots) await page.screenshot({ path: join(shots, 'program-form.png') })
-  await page.locator('form').getByRole('button', { name: 'Save' }).click()
+  await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click()
   await page.getByText('Sub 2:00 · 8 weeks').waitFor()
   check('a new program opens with its weeks', (await page.locator('.week').count()) === 8)
   await page.getByRole('link', { name: '+ Add session to week 1' }).click()
@@ -155,7 +155,7 @@ try {
   await page.locator('#session-title').fill('6×400 m')
   check('session editor has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
   if (shots) await page.screenshot({ path: join(shots, 'session-editor.png') })
-  await page.locator('form').getByRole('button', { name: 'Save' }).click()
+  await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click()
   await page.locator('.week').first().getByText('6×400 m').waitFor()
   check('the session is listed in its week', (await page.locator('.week').first().innerText()).includes('Intervals'))
   check('program has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
@@ -175,7 +175,7 @@ try {
       await page.getByRole('button', { name: 'Time', exact: true }).click()
       await page.locator('#step-target-value').fill(time)
     }
-    await page.locator('form').getByRole('button', { name: 'Save' }).click()
+    await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click()
     await page.getByRole('heading', { name: 'Edit session' }).waitFor()
   }
   // A short warm-up, so the run below can watch the step panel move on (#101)
@@ -221,9 +221,69 @@ try {
   if (shots) await page.screenshot({ path: join(shots, 'session-view.png'), fullPage: true })
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.locator('.week').first().waitFor()
+
+  // Picking, not typing (#143): warm-up 5:00, 8× (run 1:00, walk 1:30), cool-down 5:00 in week 2,
+  // with every tap counted and nothing typed. It is deleted again, so the run below is unchanged.
+  let taps = 0
+  const tap = async (locator) => {
+    taps++
+    await locator.click()
+  }
+  const btn = (name) => page.getByRole('button', { name, exact: true })
+  const heading = (name) => page.getByRole('heading', { name }).waitFor()
+  await tap(page.getByRole('link', { name: '+ Add session to week 2' }))
+  await tap(btn('Run/walk'))
+  await tap(btn('+ Add step'))
+  await heading('New step')
+  // The wireframe's open question: is Save in reach on a short phone? The top bar's Save always is;
+  // where the form's own buttons land is logged, to compare with the phone
+  const topSave = await page.locator('header').getByRole('button', { name: 'Save', exact: true }).boundingBox()
+  check('a new step has Save in view at 360×640', topSave !== null && topSave.y + topSave.height <= 640, JSON.stringify(topSave))
+  const bottomOf = async (name) => {
+    const box = await page.locator('form').getByRole('button', { name, exact: true }).boundingBox()
+    return box && Math.round(box.y + box.height)
+  }
+  const tabTop = Math.round((await page.locator('nav').boundingBox())?.y ?? 0)
+  console.log(`INFO new step at 360 px: form Save ends at ${await bottomOf('Save')} px, Save and add next at ${await bottomOf('+ Save and add next')} px, tab bar starts at ${tabTop} px`)
+  check('step editor has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  if (shots) await page.screenshot({ path: join(shots, 'step-new.png') })
+  await tap(btn('5:00'))
+  await tap(btn('+ Save and add next'))
+  await tap(btn('Repeat'))
+  for (let i = 0; i < 6; i++) await tap(btn('More times'))
+  await tap(btn('+ Save and add next'))
+  await heading('New step in repeat')
+  await tap(btn('1:00'))
+  await tap(btn('+ Save and add next'))
+  await page.locator('button[aria-pressed="true"]', { hasText: 'Walk' }).waitFor()
+  await tap(btn('1:30'))
+  await tap(page.locator('form').getByRole('button', { name: 'Save', exact: true }))
+  await heading('Edit session')
+  await tap(btn('+ Add step'))
+  await page.locator('button[aria-pressed="true"]', { hasText: 'Cool-down' }).waitFor()
+  await tap(btn('5:00'))
+  await tap(page.locator('form').getByRole('button', { name: 'Save', exact: true }))
+  await heading('Edit session')
+  check(
+    'a session is built from taps alone',
+    (await stepTexts()).join('|') === 'Warm-up 5:00|8× · 2 steps|Run 1:00|Walk 1:30|Cool-down 5:00',
+    (await stepTexts()).join('|'),
+  )
+  check('the empty title shows the generated name', (await page.locator('#session-title').getAttribute('placeholder')) === '8× run 1:00 / walk 1:30')
+  await tap(btn('‹ Cancel'))
+  const week2 = page.locator('.week').nth(1)
+  await week2.getByText('8× run 1:00 / walk 1:30').waitFor()
+  console.log(`  taps to build the session: ${taps}, nothing typed`)
+  check('the program lists the session by its generated name, built in 21 taps', taps === 21, `${taps} taps`)
+  await week2.getByText('8× run 1:00 / walk 1:30').click()
+  await btn('Delete session').click()
+  await page.getByRole('alertdialog').getByText('8× run 1:00 / walk 1:30 is removed from week 2.').waitFor()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
+  await page.locator('.week').nth(1).getByText('No sessions').waitFor()
+
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.waitForSelector('main.page .row')
-  check('Training lists the program', (await page.locator('main .row').innerText()).includes('1 session'))
+  check('Training lists the program',(await page.locator('main .row').innerText()).includes('1 session'))
   if (shots) await page.screenshot({ path: join(shots, 'training.png') })
 
   // Backup: download the file from Settings (checked below after Delete, by restoring it)

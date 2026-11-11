@@ -221,7 +221,8 @@ function toSession(raw: unknown, program: TrainingProgram): ProgramSession | nul
   const { id, programId, week, position, type, title, notes } = raw
   if (!isId(id) || programId !== program.id) return null
   if (!isWhole(week, 1) || week > program.weeks || !isNumber(position)) return null
-  if (!oneOf(SESSION_TYPES, type) || !isText(title) || !isTextOrNull(notes)) return null
+  // An empty title is allowed: the session is then named from its steps (#143)
+  if (!oneOf(SESSION_TYPES, type) || typeof title !== 'string' || !isTextOrNull(notes)) return null
   const checked = obeys(() => checkSession({ week, type, title, notes }, program.weeks))
   return checked && { id, programId, position, ...checked }
 }
