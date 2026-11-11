@@ -8,6 +8,7 @@ import TrainingView from '@/views/TrainingView.vue'
 import ProgramView from '@/views/ProgramView.vue'
 import ProgramFormView from '@/views/ProgramFormView.vue'
 import SessionEditorView from '@/views/SessionEditorView.vue'
+import SessionView from '@/views/SessionView.vue'
 import StepEditorView from '@/views/StepEditorView.vue'
 import { useRunStore } from '@/stores/run'
 
@@ -22,7 +23,8 @@ export const routes = [
   { path: '/training/:id', name: 'program', component: ProgramView },
   { path: '/training/:id/edit', name: 'program-edit', component: ProgramFormView },
   { path: '/training/:id/session/new', name: 'session-new', component: SessionEditorView },
-  { path: '/training/:id/session/:sid', name: 'session-edit', component: SessionEditorView },
+  { path: '/training/:id/session/:sid', name: 'session', component: SessionView },
+  { path: '/training/:id/session/:sid/edit', name: 'session-edit', component: SessionEditorView },
   {
     path: '/training/:id/session/:sid/step/new',
     name: 'step-new',

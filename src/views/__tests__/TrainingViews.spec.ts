@@ -111,18 +111,96 @@ describe('training screens', () => {
       title: 'Easy',
       notes: null,
     })
-    const { wrapper } = await open(`/training/${id}/session/${sid}`)
+    const { wrapper, router } = await open(`/training/${id}`)
+    // A session opens in its view; editing is behind Edit (#147)
+    await click(link(wrapper, 'Easy'))
+    expect(router.currentRoute.value.name).toBe('session')
+    expect(wrapper.find('input, textarea').exists()).toBe(false)
+    await click(link(wrapper, 'Edit'))
+    expect(router.currentRoute.value.name).toBe('session-edit')
     expect((wrapper.get('#session-title').element as HTMLInputElement).value).toBe('Easy')
     await wrapper.get('#session-notes').setValue('Flat route')
     await click(button(wrapper, 'Save'))
     expect((await training.getSession(sid))!.notes).toBe('Flat route')
+    // Save goes back to the view, which shows the change
+    expect(router.currentRoute.value.name).toBe('session')
+    expect(wrapper.get('.notes').text()).toBe('Flat route')
 
-    await click(link(wrapper, 'Easy'))
     await click(button(wrapper, 'Delete session'))
     expect(document.body.textContent).toContain('Delete this session?')
     await click(button(wrapper, 'Delete'))
     expect(await training.getSession(sid)).toBeNull()
+    expect(router.currentRoute.value.name).toBe('program')
     expect(wrapper.findAll('.empty-week')).toHaveLength(3)
+  })
+
+  it('shows a session at a glance: title, done, run, notes, steps and runs, in that order (#147)', async () => {
+    const training = useTrainingStore()
+    const run = useRunStore()
+    const id = await training.createProgram(half)
+    const sid = await training.saveSession(id, {
+      week: 2,
+      type: 'intervals',
+      title: '6×400 m',
+      notes: 'Track',
+    })
+    run.start(0, sid)
+    await run.finish(1_000)
+    const { wrapper } = await open(`/training/${id}/session/${sid}`)
+    const text = wrapper.text()
+    const order = [
+      '6×400 m',
+      'Intervals · Week 2',
+      '✓ Done',
+      'Run again',
+      'Notes',
+      'Track',
+      'Steps',
+      'No steps yet.',
+      'Runs',
+    ]
+    const at = order.map((t) => text.indexOf(t))
+    expect(at.every((i) => i >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(wrapper.find('input, textarea, select').exists()).toBe(false)
+  })
+
+  it('leaves out empty notes, and a cancelled edit opened directly returns to the view (#147)', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const sid = await training.saveSession(id, {
+      week: 1,
+      type: 'easy',
+      title: 'Easy',
+      notes: null,
+    })
+    const view = await open(`/training/${id}/session/${sid}`)
+    expect(view.wrapper.text()).not.toContain('Notes')
+
+    const { wrapper, router } = await open(`/training/${id}/session/${sid}/edit`)
+    await click(button(wrapper, '‹ Cancel'))
+    expect(router.currentRoute.value.name).toBe('session')
+    expect(wrapper.get('h1').text()).toBe('Easy')
+  })
+
+  it('opens a new session in the editor, which offers no run, skip or delete (#147)', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const sid = await training.saveSession(id, {
+      week: 1,
+      type: 'easy',
+      title: 'Easy',
+      notes: null,
+    })
+    const fresh = await open(`/training/${id}/session/new`)
+    expect(fresh.router.currentRoute.value.name).toBe('session-new')
+    expect(fresh.wrapper.find('#session-title').exists()).toBe(true)
+
+    const { wrapper } = await open(`/training/${id}/session/${sid}/edit`)
+    const labels = wrapper.findAll('button').map((b) => b.text())
+    for (const label of ['Run this session', 'Skip', 'Delete session']) {
+      expect(labels).not.toContain(label)
+    }
   })
 
   it('deletes a program after a confirmation naming its sessions and saying runs are kept', async () => {
@@ -217,7 +295,7 @@ describe('running sessions (#40)', () => {
     expect(rows[2]!.text()).toContain('Next')
   })
 
-  it('opens the Run screen with the session ready, from the session editor', async () => {
+  it('opens the Run screen with the session ready, from the session view', async () => {
     const { id, long } = await program()
     const { wrapper, router } = await open(`/training/${id}/session/${long}`)
     await click(button(wrapper, 'Run this session'))
@@ -225,19 +303,10 @@ describe('running sessions (#40)', () => {
     expect(router.currentRoute.value.query).toEqual({ session: long })
   })
 
-  it('waits for unsaved changes before running a session', async () => {
-    const { id, long } = await program()
-    const { wrapper, router } = await open(`/training/${id}/session/${long}`)
-    await wrapper.get('#session-title').setValue('14 km')
-    expect(button(wrapper, 'Run this session').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('Save your changes first to run this session')
-    expect(router.currentRoute.value.name).toBe('session-edit')
-  })
-
-  it('skips a session from its editor, and undoes it (#102)', async () => {
+  it('skips a session from its view, and undoes it (#102)', async () => {
     const { id, easy } = await program()
     const { wrapper } = await open(`/training/${id}/session/${easy}`)
-    await click(button(wrapper, 'Skip this session'))
+    await click(button(wrapper, 'Skip'))
     expect(wrapper.text()).toContain('Skipped')
     expect(await useTrainingStore().skippedSessionIds()).toEqual([easy])
 
@@ -250,7 +319,7 @@ describe('running sessions (#40)', () => {
 
     const again = await open(`/training/${id}/session/${easy}`)
     await click(button(again.wrapper, 'Undo skip'))
-    expect(button(again.wrapper, 'Skip this session')).toBeDefined()
+    expect(button(again.wrapper, 'Skip')).toBeDefined()
     expect(await useTrainingStore().skippedSessionIds()).toEqual([])
   })
 
@@ -271,8 +340,8 @@ describe('running sessions (#40)', () => {
     const { id, easy, rest } = await program({ doneFirst: true })
     const labels = async (sid: string) =>
       (await open(`/training/${id}/session/${sid}`)).wrapper.findAll('button').map((b) => b.text())
-    expect(await labels(easy)).not.toContain('Skip this session')
-    expect(await labels(rest)).not.toContain('Skip this session')
+    expect(await labels(easy)).not.toContain('Skip')
+    expect(await labels(rest)).not.toContain('Skip')
   })
 
   it('shows each week against its plan: sessions, skips, time and distance (#102)', async () => {
@@ -398,13 +467,14 @@ describe('session steps', () => {
         children: [plain('run'), plain('walk', { kind: 'walk', targetValue: 120 })],
       },
     ])
-    return { training, id, sid, base: `/training/${id}/session/${sid}` }
+    const base = `/training/${id}/session/${sid}`
+    return { training, id, sid, base, edit: `${base}/edit` }
   }
   const stepTexts = (wrapper: Wrapper) => wrapper.findAll('.step__text').map((s) => s.text())
 
   it('lists the steps, with a repeat as a box holding its own', async () => {
-    const { base } = await runWalk()
-    const { wrapper } = await open(base)
+    const { edit } = await runWalk()
+    const { wrapper } = await open(edit)
     expect(stepTexts(wrapper)).toEqual(['Warm-up 5:00', '6× · 2 steps', 'Run 1:00', 'Walk 2:00'])
     const repeat = wrapper.get('.step--repeat')
     expect(repeat.findAll('.step-list--inner .step__text').map((s) => s.text())).toEqual([
@@ -413,6 +483,15 @@ describe('session steps', () => {
     ])
     expect(wrapper.text()).toContain('Steps are saved as you change them.')
     expect(button(wrapper, 'Run/walk').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('shows the steps read-only in the session view (#147)', async () => {
+    const { base } = await runWalk()
+    const { wrapper } = await open(base)
+    expect(stepTexts(wrapper)).toEqual(['Warm-up 5:00', '6× · 2 steps', 'Run 1:00', 'Walk 2:00'])
+    expect(wrapper.get('.step--repeat').findAll('.step-list--inner .step__text')).toHaveLength(2)
+    expect(wrapper.find('.step__handle').exists()).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text() === '+ Add step')).toBe(false)
   })
 
   it('saves a new session on "+ Add step" and opens a new step; Cancel lands on Edit session (#143)', async () => {
@@ -449,8 +528,8 @@ describe('session steps', () => {
   })
 
   it('locks the steps while the session has unsaved changes, so none get lost', async () => {
-    const { base } = await runWalk()
-    const { wrapper, router } = await open(base)
+    const { edit } = await runWalk()
+    const { wrapper, router } = await open(edit)
     await wrapper.get('#session-title').setValue('Changed')
     expect(wrapper.get('.steps__locked').text()).toContain(
       'Tap Save first, then you can edit its steps.',
@@ -461,8 +540,8 @@ describe('session steps', () => {
   })
 
   it('adds a walk step with a time, and a step inside the repeat', async () => {
-    const { base } = await runWalk()
-    const { wrapper, router } = await open(base)
+    const { edit } = await runWalk()
+    const { wrapper, router } = await open(edit)
     await click(button(wrapper, '+ Add step'))
     expect(router.currentRoute.value.name).toBe('step-new')
     await click(button(wrapper, 'Walk'))
@@ -526,14 +605,17 @@ describe('session steps', () => {
   })
 
   it('asks before a session with steps becomes a rest day', async () => {
-    const { base, training, sid } = await runWalk()
-    const { wrapper, router } = await open(base)
+    const { edit, training, sid } = await runWalk()
+    const { wrapper, router } = await open(edit)
     await click(button(wrapper, 'Rest'))
     await click(wrapper.findAll('button').filter((b) => b.text() === 'Save')[0]!)
     expect(wrapper.text()).toContain('Its 4 steps go too.')
     expect(await training.loadSteps(sid)).toHaveLength(4)
     await click(button(wrapper, 'Make rest day'))
-    expect(router.currentRoute.value.name).toBe('program')
+    // Opened directly, the editor goes back to the session view (#147)
+    expect(router.currentRoute.value.name).toBe('session')
+    expect(wrapper.text()).toContain('Rest · Week 1')
+    expect(wrapper.text()).not.toContain('Steps')
     expect(await training.loadSteps(sid)).toEqual([])
   })
 
@@ -613,8 +695,9 @@ describe('building a session by picking (#143)', () => {
     ])
     expect(wrapper.get('#session-title').attributes('placeholder')).toBe('8× run 1:00 / walk 1:30')
     await tap('‹ Cancel')
-    expect(router.currentRoute.value.name).toBe('program')
-    expect(wrapper.get('.session__title').text()).toBe('8× run 1:00 / walk 1:30')
+    // Opened without history here, the editor falls back to the session view (#147)
+    expect(router.currentRoute.value.name).toBe('session')
+    expect(wrapper.get('h1').text()).toBe('8× run 1:00 / walk 1:30')
     // Before #143: 29 taps and 5 typed fields (title, four times), the session saved first
     expect(taps).toBe(21)
   })
@@ -660,17 +743,20 @@ describe('building a session by picking (#143)', () => {
     // No steps: the type only, not "Easy Easy"; a rest day stays "Rest" once
     expect(rows()).toEqual(['4× run 1:00 / walk 2:00', '', ''])
 
+    // The session view (#147) is headed by the generated name, and so is its Delete dialog
     await click(link(wrapper, '4× run 1:00 / walk 2:00'))
-    expect(wrapper.get('#session-title').attributes('placeholder')).toBe('4× run 1:00 / walk 2:00')
+    expect(wrapper.get('h1').text()).toBe('4× run 1:00 / walk 2:00')
     await click(button(wrapper, 'Delete session'))
     expect(wrapper.find('[role="alertdialog"]').text()).toContain(
       '4× run 1:00 / walk 2:00 is removed from week 1.',
     )
     await click(button(wrapper, 'Keep'))
+    await click(link(wrapper, 'Edit'))
+    expect(wrapper.get('#session-title').attributes('placeholder')).toBe('4× run 1:00 / walk 2:00')
     await wrapper.get('#session-title').setValue('Day 1')
     await click(wrapper.findAll('button').filter((b) => b.text() === 'Save')[0]!)
     expect((await training.getSession(sid))!.title).toBe('Day 1')
-    expect(wrapper.findAll('.session__title')[0]!.text()).toBe('Day 1')
+    expect(wrapper.get('h1').text()).toBe('Day 1')
   })
 
   it('follows step edits in the generated name', async () => {
