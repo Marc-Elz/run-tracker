@@ -6,9 +6,6 @@ import { useBackInterceptor } from '@/composables/useBackButton'
 import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useSortableSteps } from '@/composables/useSortableSteps'
 import { useTrainingStore } from '@/stores/training'
-import { useRunStore } from '@/stores/run'
-import { formatDistanceKm, formatDuration, formatRunDate } from '@/lib/format'
-import type { RunRecord } from '@/lib/db/runRepository'
 import {
   MAX_NAME_LENGTH,
   MAX_NOTES_LENGTH,
@@ -26,14 +23,20 @@ import {
 const route = useRoute()
 const router = useRouter()
 const training = useTrainingStore()
-const run = useRunStore()
 
 const programId = computed(() => route.params.id as string)
 // No session id: a new session
 const sessionId = computed(() => (route.params.sid as string | undefined) ?? undefined)
 const saving = ref(false)
-// Android back waits for a save in flight, which leaves the screen itself when it succeeds
-const leave = useLeaveScreen(() => ({ name: 'program', params: { id: programId.value } }), saving)
+// Android back waits for a save in flight, which leaves the screen itself when it succeeds.
+// Opened directly, a saved session goes back to its view (#147), a new one to the program.
+const leave = useLeaveScreen(
+  () =>
+    sessionId.value
+      ? { name: 'session', params: { id: programId.value, sid: sessionId.value } }
+      : { name: 'program', params: { id: programId.value } },
+  saving,
+)
 
 const requestedWeek = Number(route.query.week)
 const form = ref<SessionInput>({
@@ -47,18 +50,7 @@ const stored = ref<SessionInput | null>(null)
 const weeks = ref(1)
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>('loading')
 const error = ref<string | null>(null)
-const confirming = ref(false)
-const deleting = ref(false)
-const deleteError = ref<string | null>(null)
 const confirmingRest = ref(false)
-// This session has a finished run (#40); null until known, or when it could not be read
-const done = ref<boolean | null>(null)
-// The finished runs linked to this session, newest first (#102)
-const runs = ref<RunRecord[]>([])
-// Marked skipped (#102); null until known, or when it could not be read
-const skipped = ref<boolean | null>(null)
-const skipBusy = ref(false)
-const skipError = ref<string | null>(null)
 
 const blocks = ref<StepBlock[]>([])
 const stepsRoot = ref<HTMLElement | null>(null)
@@ -79,47 +71,6 @@ const dirty = computed(() => {
 })
 const showSteps = computed(() => stored.value !== null && stored.value.type !== 'rest')
 const stepsLocked = computed(() => dirty.value || saving.value || stepsBusy.value)
-// "Run this session" or, once it has a finished run, "Run again" (#116): a saved session that
-// isn't a rest day
-const canRun = computed(
-  () =>
-    sessionId.value !== undefined &&
-    stored.value !== null &&
-    stored.value.type !== 'rest' &&
-    run.status === 'idle',
-)
-
-// "Skip this session": a saved session that isn't a rest day and has no run yet. A run still
-// makes it done, so skipping never blocks running it. A skip stays undoable after a run, so it
-// can't come back unseen if that run is deleted.
-const canSkip = computed(
-  () =>
-    sessionId.value !== undefined &&
-    stored.value !== null &&
-    stored.value.type !== 'rest' &&
-    (done.value === false || skipped.value === true) &&
-    skipped.value !== null,
-)
-
-async function toggleSkip() {
-  if (!canSkip.value || skipBusy.value || !sessionId.value) return
-  skipBusy.value = true
-  skipError.value = null
-  try {
-    const next = !skipped.value
-    await training.setSkipped(sessionId.value, next)
-    skipped.value = next
-  } catch (err) {
-    console.warn('[db] could not change the skip', err)
-    skipError.value = 'Could not change the skip'
-  } finally {
-    skipBusy.value = false
-  }
-}
-
-useBackInterceptor(confirming, () => {
-  if (!deleting.value) confirming.value = false
-})
 useBackInterceptor(confirmingRest, () => {
   if (!saving.value) confirmingRest.value = false
 })
@@ -152,17 +103,6 @@ async function load() {
       form.value = { week, type, title, notes }
       stored.value = { week, type, title, notes }
       blocks.value = await training.loadBlocks(session.id)
-      try {
-        runs.value = (await run.listFinished()).filter((r) => r.sessionId === session.id)
-        done.value = runs.value.length > 0
-      } catch (err) {
-        console.warn('[db] could not tell whether this session was run', err)
-      }
-      try {
-        skipped.value = (await training.skippedSessionIds()).includes(session.id)
-      } catch (err) {
-        console.warn('[db] could not tell whether this session was skipped', err)
-      }
     } else {
       form.value.week = Math.min(form.value.week, program.weeks)
     }
@@ -205,28 +145,6 @@ async function store() {
     confirmingRest.value = false
   } finally {
     saving.value = false
-  }
-}
-
-/** To the Run screen with this session ready to start; leaving is safe, nothing is unsaved */
-function runSession() {
-  if (!canRun.value || dirty.value || saving.value) return
-  void router.push({ name: 'run', query: { session: sessionId.value } })
-}
-
-async function onDelete() {
-  if (deleting.value || !sessionId.value) return
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await training.deleteSession(sessionId.value)
-    confirming.value = false
-    leave()
-  } catch (err) {
-    console.warn('[db] could not delete session', err)
-    deleteError.value = 'Could not delete the session'
-  } finally {
-    deleting.value = false
   }
 }
 
@@ -418,70 +336,7 @@ onMounted(load)
           + Add step
         </button>
       </section>
-
-      <p v-if="done" class="done">✓ Done</p>
-      <section v-if="runs.length > 0" class="runs" aria-labelledby="runs-title">
-        <h2 id="runs-title" class="steps__title runs__title">Runs</h2>
-        <ul class="list">
-          <li v-for="r in runs" :key="r.id">
-            <RouterLink class="row" :to="{ name: 'run-summary', params: { id: r.id } }">
-              <span class="row__main">
-                <span class="row__title">{{ formatRunDate(r.startedAt) }}</span>
-                <span class="row__detail">
-                  {{ formatDistanceKm(r.distanceM) }} km · {{ formatDuration(r.elapsedMs) }}
-                </span>
-              </span>
-              <span class="row__chevron" aria-hidden="true">›</span>
-            </RouterLink>
-          </li>
-        </ul>
-      </section>
-
-      <template v-if="canSkip">
-        <p v-if="skipped && !done" class="hint">Skipped: "Start next session" passes over it.</p>
-        <button
-          class="btn btn--quiet"
-          :disabled="skipBusy || saving"
-          :aria-pressed="skipped === true"
-          @click="toggleSkip()"
-        >
-          {{ skipped ? 'Undo skip' : 'Skip this session' }}
-        </button>
-        <p v-if="skipError" class="field-error" role="alert">{{ skipError }}</p>
-      </template>
-
-      <template v-if="canRun">
-        <button
-          class="btn btn--primary btn--wide"
-          :disabled="dirty || saving"
-          @click="runSession()"
-        >
-          {{ done ? 'Run again' : 'Run this session' }}
-        </button>
-        <p v-if="dirty" class="hint run-hint">Save your changes first to run this session.</p>
-      </template>
-
-      <button
-        v-if="sessionId"
-        class="btn btn--danger btn--wide"
-        :disabled="saving"
-        @click="confirming = true"
-      >
-        Delete session
-      </button>
     </template>
-
-    <ConfirmDialog
-      v-if="confirming"
-      title="Delete this session?"
-      :busy="deleting"
-      :error="deleteError"
-      @keep="confirming = false"
-      @confirm="onDelete()"
-    >
-      {{ form.title || 'It' }} is removed from week {{ form.week }}.
-      <template v-if="done">Your run for it is kept.</template>
-    </ConfirmDialog>
 
     <ConfirmDialog
       v-if="confirmingRest"
@@ -497,24 +352,3 @@ onMounted(load)
 </template>
 
 <style scoped src="./training.css"></style>
-
-<style scoped>
-.runs {
-  margin-top: 1.5rem;
-}
-
-.runs__title {
-  margin-bottom: 0.5rem;
-  padding: 0 1.5rem;
-}
-
-.run-hint {
-  margin-top: 0;
-}
-
-.done {
-  margin: 1rem 1.5rem 0;
-  color: #1f9d55;
-  font-weight: 700;
-}
-</style>

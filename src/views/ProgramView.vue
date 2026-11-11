@@ -171,7 +171,7 @@ onMounted(load)
         <ul class="list">
           <li v-for="(s, i) in w.sessions" :key="s.id">
             <RouterLink
-              :to="{ name: 'session-edit', params: { id, sid: s.id } }"
+              :to="{ name: 'session', params: { id, sid: s.id } }"
               class="row"
               :class="{
                 'row--rest': s.type === 'rest',

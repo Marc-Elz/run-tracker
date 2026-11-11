@@ -162,7 +162,11 @@ try {
   if (shots) await page.screenshot({ path: join(shots, 'program.png'), fullPage: true })
 
   // Steps: warm-up, a repeat (starts with one run), cool-down; then drag the cool-down into the repeat
+  // A session opens in its read-only view (#147); Edit leads to the editor
   await page.locator('.week').first().getByText('6×400 m').click()
+  await page.getByRole('heading', { name: '6×400 m' }).waitFor()
+  check('session view has no form inputs', (await page.locator('main input, main textarea').count()) === 0)
+  await page.getByRole('link', { name: 'Edit', exact: true }).click()
   await page.getByRole('heading', { name: 'Edit session' }).waitFor()
   const addStep = async (kind, time) => {
     await page.getByRole('button', { name: '+ Add step', exact: true }).click()
@@ -204,14 +208,18 @@ try {
   check('session editor with steps has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
   if (shots) await page.screenshot({ path: join(shots, 'session-steps.png'), fullPage: true })
   await page.getByRole('button', { name: '‹ Cancel' }).click()
-  await page.locator('.week').first().waitFor()
-  await page.locator('.week').first().getByText('6×400 m').click()
+  await page.getByRole('heading', { name: '6×400 m' }).waitFor()
   check(
-    'the order is still there when the session is opened again',
+    'Cancel returns to the session view, which lists the steps in their new order',
     (await stepTexts()).join('|') === 'Warm-up 0:05|2× · 2 steps|Cool-down 5:00|Run',
     (await stepTexts()).join('|'),
   )
-  await page.getByRole('button', { name: '‹ Cancel' }).click()
+  check('session view has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  const runButton = await page.getByRole('button', { name: 'Run this session' }).boundingBox()
+  const viewport = page.viewportSize()
+  check('Run this session is in view without scrolling', runButton !== null && runButton.y + runButton.height <= viewport.height, JSON.stringify(runButton))
+  if (shots) await page.screenshot({ path: join(shots, 'session-view.png'), fullPage: true })
+  await page.getByRole('button', { name: '‹ Back' }).click()
   await page.locator('.week').first().waitFor()
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.waitForSelector('main.page .row')

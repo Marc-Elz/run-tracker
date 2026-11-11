@@ -225,6 +225,13 @@ textarea.input {
   background: #1f9d55;
 }
 
+/* A session with a finished run */
+.done {
+  margin: 1rem 1.5rem 0;
+  color: #1f9d55;
+  font-weight: 700;
+}
+
 .btn--quiet {
   margin-top: 0.5rem;
   background: #1a2027;
