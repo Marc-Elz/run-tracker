@@ -6,7 +6,9 @@ import { compareToPlan, plannedTotals, type PlanComparison } from '@/lib/planVsD
 import { followedProgramId } from '@/lib/settings'
 import {
   SESSION_TYPE_LABELS,
+  sessionTitle,
   type ProgramSession,
+  type SessionStep,
   type ProgramSummary,
   type TrainingProgram,
 } from '@/lib/training'
@@ -31,6 +33,7 @@ const run = useRunStore()
 const training = useTrainingStore()
 
 const session = ref<ProgramSession | null>(null)
+const sessionSteps = ref<SessionStep[]>([])
 const program = ref<TrainingProgram | null>(null)
 const comparison = ref<PlanComparison[]>([])
 const hasPrograms = ref(false)
@@ -39,6 +42,7 @@ const failed = ref(false)
 
 async function loadSession() {
   session.value = null
+  sessionSteps.value = []
   program.value = null
   comparison.value = []
   try {
@@ -47,7 +51,8 @@ async function loadSession() {
       if (found) {
         session.value = found
         program.value = await training.getProgram(found.programId)
-        const planned = plannedTotals(await training.loadSteps(found.id))
+        sessionSteps.value = await training.loadSteps(found.id)
+        const planned = plannedTotals(sessionSteps.value)
         comparison.value = compareToPlan(planned, {
           elapsedMs: props.elapsedMs,
           distanceM: props.distanceM,
@@ -83,6 +88,8 @@ const picking = ref(false)
 const programs = ref<ProgramSummary[]>([])
 const programId = ref<string | null>(null)
 const sessions = ref<ProgramSession[]>([])
+// Steps of the chosen program's sessions, for their names; empty when they can't be read
+const choiceSteps = ref<ReadonlyMap<string, SessionStep[]>>(new Map())
 const doneIds = ref<ReadonlySet<string>>(new Set())
 const loadingPicker = ref(false)
 
@@ -112,7 +119,16 @@ async function openPicker() {
 }
 
 async function loadChoices() {
-  sessions.value = programId.value === null ? [] : await training.listSessions(programId.value)
+  const id = programId.value
+  sessions.value = id === null ? [] : await training.listSessions(id)
+  choiceSteps.value = new Map()
+  if (id === null) return
+  try {
+    choiceSteps.value = await training.loadProgramSteps(id)
+  } catch (err) {
+    // Sessions without a title then show their type
+    console.warn('[db] could not read the steps for the session names', err)
+  }
 }
 
 async function changeProgram() {
@@ -134,7 +150,7 @@ const fmt = (c: PlanComparison, value: number) =>
 
     <template v-if="session">
       <p class="session__name">
-        {{ session.title }}
+        {{ sessionTitle(session, sessionSteps) }}
         <span class="session__where">
           · {{ program?.name }} · Week {{ session.week }} · {{ SESSION_TYPE_LABELS[session.type] }}
         </span>
@@ -172,7 +188,7 @@ const fmt = (c: PlanComparison, value: number) =>
         <li v-for="s in choices" :key="s.id">
           <button class="choice" :disabled="busy" @click="setLink(s.id)">
             <span class="choice__week">W{{ s.week }}</span>
-            <span class="choice__title">{{ s.title }}</span>
+            <span class="choice__title">{{ sessionTitle(s, choiceSteps.get(s.id) ?? []) }}</span>
             <span v-if="doneIds.has(s.id)" class="choice__done" aria-label="Done">✓</span>
           </button>
         </li>

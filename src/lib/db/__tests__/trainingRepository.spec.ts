@@ -234,6 +234,25 @@ describe.each(implementations)('%s training repository', (_name, open) => {
     expect(await repo.getSession('t')).not.toBeNull()
   })
 
+  it("reads the steps of all of a program's sessions at once, by session, in order (#138)", async () => {
+    const repo = await open()
+    await repo.createProgram(program('p'))
+    await repo.createProgram(program('q'))
+    await repo.saveSession(session('s', 'p'))
+    await repo.saveSession(session('t', 'p', { week: 2 }))
+    await repo.saveSession(session('e', 'p', { week: 3 }))
+    await repo.saveSession(session('other', 'q'))
+    await repo.replaceSteps('s', [step('b', 's', { position: 1 }), step('a', 's')])
+    await repo.replaceSteps('t', [step('c', 't')])
+    await repo.replaceSteps('other', [step('z', 'other')])
+    const steps = await repo.loadProgramSteps('p')
+    expect([...steps.keys()].sort()).toEqual(['s', 't'])
+    expect(steps.get('s')!.map((s) => s.id)).toEqual(['a', 'b'])
+    expect(steps.get('t')).toEqual([step('c', 't')])
+    expect(steps.has('e')).toBe(false)
+    expect((await repo.loadProgramSteps('none')).size).toBe(0)
+  })
+
   it('exports every program with its sessions and steps, and imports it back as it was', async () => {
     const repo = await open()
     await repo.createProgram(program('p', { goal: 'Sub 2:00', startDate: '2027-01-04' }))
@@ -585,6 +604,7 @@ describe('serializedTraining', () => {
   it('fails every call when the database is unavailable', async () => {
     const repo = unavailableTrainingRepository(new Error('no db'))
     await expect(repo.listPrograms()).rejects.toThrow('Database unavailable')
+    await expect(repo.loadProgramSteps('p')).rejects.toThrow('Database unavailable')
   })
 })
 

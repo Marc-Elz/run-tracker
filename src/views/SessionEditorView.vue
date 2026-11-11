@@ -10,6 +10,8 @@ import { useRunStore } from '@/stores/run'
 import { formatDistanceKm, formatDuration, formatRunDate } from '@/lib/format'
 import type { RunRecord } from '@/lib/db/runRepository'
 import {
+  autoTitle,
+  fromBlocks,
   MAX_NAME_LENGTH,
   MAX_NOTES_LENGTH,
   moveStep,
@@ -64,6 +66,14 @@ const blocks = ref<StepBlock[]>([])
 const stepsRoot = ref<HTMLElement | null>(null)
 const stepsBusy = ref(false)
 const stepError = ref<string | null>(null)
+
+// The name the session gets while its title is empty, following the type and steps (#143)
+const generatedTitle = computed(() =>
+  autoTitle(form.value.type, fromBlocks(sessionId.value ?? '', blocks.value)),
+)
+const displayTitle = computed(() => form.value.title.trim() || generatedTitle.value)
+// "+ Add step" on a new session saves it first
+const addingStep = ref(false)
 
 const stepCount = computed(() => blocks.value.reduce((n, b) => n + 1 + b.children.length, 0))
 const dirty = computed(() => {
@@ -208,6 +218,29 @@ async function store() {
   }
 }
 
+/**
+ * "+ Add step" on a new session: save it (an empty title is fine), become its editor, then open
+ * a new step. Back from the step editor lands on "Edit session", so nothing is lost on Cancel.
+ */
+async function addFirstStep() {
+  if (saving.value || sessionId.value) return
+  saving.value = true
+  addingStep.value = true
+  error.value = null
+  try {
+    const sid = await training.saveSession(programId.value, form.value)
+    const params = { id: programId.value, sid }
+    await router.replace({ name: 'session-edit', params })
+    await router.push({ name: 'step-new', params })
+  } catch (err) {
+    if (!(err instanceof TrainingError)) console.warn('[db] could not save session', err)
+    error.value = err instanceof TrainingError ? err.message : 'Could not save the session.'
+  } finally {
+    saving.value = false
+    addingStep.value = false
+  }
+}
+
 /** To the Run screen with this session ready to start; leaving is safe, nothing is unsaved */
 function runSession() {
   if (!canRun.value || dirty.value || saving.value) return
@@ -326,7 +359,7 @@ onMounted(load)
           v-model="form.title"
           class="input"
           type="text"
-          :placeholder="form.type === 'rest' ? 'Rest' : '6×400 m'"
+          :placeholder="generatedTitle"
           :maxlength="MAX_NAME_LENGTH"
           :disabled="saving"
         />
@@ -345,9 +378,12 @@ onMounted(load)
         <button type="submit" class="btn btn--primary" :disabled="saving">Save</button>
       </form>
 
-      <section v-if="!sessionId" class="steps">
+      <section v-if="!sessionId && form.type !== 'rest'" class="steps">
         <h2 class="steps__title">Steps</h2>
-        <p class="hint">Save the session to add steps.</p>
+        <p class="hint">No steps yet.</p>
+        <button type="button" class="btn btn--quiet" :disabled="saving" @click="addFirstStep()">
+          {{ addingStep ? 'Saving…' : '+ Add step' }}
+        </button>
       </section>
 
       <section
@@ -479,7 +515,7 @@ onMounted(load)
       @keep="confirming = false"
       @confirm="onDelete()"
     >
-      {{ form.title || 'It' }} is removed from week {{ form.week }}.
+      {{ displayTitle }} is removed from week {{ form.week }}.
       <template v-if="done">Your run for it is kept.</template>
     </ConfirmDialog>
 
