@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
@@ -7,7 +7,8 @@ import { useTrainingStore } from '@/stores/training'
 import { useRunStore } from '@/stores/run'
 import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
-import type { SessionStep } from '@/lib/training'
+import { createMemoryTrainingRepository } from '@/lib/db/memoryTrainingRepository'
+import type { SessionStep, StepBlock } from '@/lib/training'
 
 // The real routes on an in-memory history: these tests walk the screens the way a tap would
 async function open(path: string) {
@@ -414,11 +415,36 @@ describe('session steps', () => {
     expect(button(wrapper, 'Run/walk').attributes('aria-pressed')).toBe('true')
   })
 
-  it('asks to save a new session before adding steps', async () => {
+  it('saves a new session on "+ Add step" and opens a new step; Cancel lands on Edit session (#143)', async () => {
     const training = useTrainingStore()
     const id = await training.createProgram(half)
+    const { wrapper, router } = await open(`/training/${id}/session/new`)
+    expect(wrapper.text()).toContain('No steps yet.')
+    await click(button(wrapper, 'Run/walk'))
+    await click(button(wrapper, '+ Add step'))
+    expect(router.currentRoute.value.name).toBe('step-new')
+    const [session] = await training.listSessions(id)
+    expect(session).toMatchObject({ type: 'runwalk', title: '' })
+    expect(router.currentRoute.value.params.sid).toBe(session!.id)
+    await click(button(wrapper, '‹ Cancel'))
+    expect(router.currentRoute.value.name).toBe('session-edit')
+    expect(wrapper.find('h1').text()).toBe('Edit session')
+  })
+
+  it('shows the rule instead of opening a step when the new session cannot be saved', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const { wrapper, router } = await open(`/training/${id}/session/new`)
+    await training.deleteProgram(id)
+    await click(button(wrapper, '+ Add step'))
+    expect(wrapper.get('[role="alert"]').text()).toBe('This program no longer exists.')
+    expect(router.currentRoute.value.name).toBe('session-new')
+  })
+
+  it('hides the steps of a new rest day', async () => {
+    const id = await useTrainingStore().createProgram(half)
     const { wrapper } = await open(`/training/${id}/session/new`)
-    expect(wrapper.text()).toContain('Save the session to add steps.')
+    await click(button(wrapper, 'Rest'))
     expect(wrapper.findAll('button').some((b) => b.text() === '+ Add step')).toBe(false)
   })
 
@@ -459,7 +485,8 @@ describe('session steps', () => {
     await click(button(wrapper, 'Repeat'))
     await click(button(wrapper, '+'))
     await click(button(wrapper, 'Save'))
-    expect(stepTexts(wrapper).slice(-2)).toEqual(['3× · 1 step', 'Run'])
+    // With the time of the session's last run
+    expect(stepTexts(wrapper).slice(-2)).toEqual(['3× · 1 step', 'Run 1:00'])
   })
 
   it('shows a broken rule instead of saving, and keeps a repeat a repeat', async () => {
@@ -467,6 +494,7 @@ describe('session steps', () => {
     const { wrapper } = await open(`${base}/step/run`)
     expect(button(wrapper, 'Run').attributes('aria-pressed')).toBe('true')
     expect(wrapper.findAll('button').some((b) => b.text() === 'Repeat')).toBe(false)
+    await click(button(wrapper, '+ Add pace'))
     await wrapper.get('[aria-label="Fastest pace"]').setValue('5:30')
     await wrapper.get('[aria-label="Slowest pace"]').setValue('5:00')
     await click(button(wrapper, 'Save'))
@@ -520,5 +548,247 @@ describe('session steps', () => {
       const { wrapper } = await open(path)
       expect(wrapper.text()).toContain('This step no longer exists')
     }
+  })
+})
+
+describe('building a session by picking (#143)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    document.body.innerHTML = ''
+  })
+
+  const pressed = (wrapper: Wrapper) =>
+    wrapper.findAll('button[aria-pressed="true"]').map((b) => b.text())
+  const value = (wrapper: Wrapper) =>
+    (wrapper.get('#step-target-value').element as HTMLInputElement).value
+  const stepTexts = (wrapper: Wrapper) => wrapper.findAll('.step__text').map((s) => s.text())
+
+  it('builds warm-up 5:00, 8× (run 1:00, walk 1:30), cool-down 5:00 with taps only', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const { wrapper, router } = await open(`/training/${id}`)
+    // Every tap is counted; nothing is typed (no setValue in this test)
+    let taps = 0
+    const tap = async (label: string) => {
+      taps++
+      const target =
+        label === '+ Add session to week 1' ? link(wrapper, label) : button(wrapper, label)
+      await click(target)
+    }
+
+    await tap('+ Add session to week 1')
+    await tap('Run/walk')
+    expect(wrapper.get('#session-title').attributes('placeholder')).toBe('Run/walk')
+    await tap('+ Add step')
+    expect(router.currentRoute.value.name).toBe('step-new')
+    expect(pressed(wrapper)).toEqual(['Warm-up', 'Time'])
+    expect(value(wrapper)).toBe('')
+    await tap('5:00')
+    expect(pressed(wrapper)).toEqual(['Warm-up', 'Time', '5:00'])
+    await tap('+ Save and add next')
+    expect(pressed(wrapper)).toEqual(['Run', 'Time'])
+    await tap('Repeat')
+    for (let i = 0; i < 6; i++) await tap('+')
+    expect(wrapper.get('.stepper__value').text()).toBe('8×')
+    await tap('+ Save and add next')
+    expect(wrapper.find('h1').text()).toBe('New step in repeat')
+    expect(pressed(wrapper)).toEqual(['Run', 'Time'])
+    await tap('1:00')
+    await tap('+ Save and add next')
+    expect(pressed(wrapper)).toEqual(['Walk', 'Time'])
+    await tap('1:30')
+    await tap('Save')
+    expect(router.currentRoute.value.name).toBe('session-edit')
+    await tap('+ Add step')
+    expect(pressed(wrapper)).toEqual(['Cool-down', 'Time'])
+    await tap('5:00')
+    await tap('Save')
+
+    expect(stepTexts(wrapper)).toEqual([
+      'Warm-up 5:00',
+      '8× · 2 steps',
+      'Run 1:00',
+      'Walk 1:30',
+      'Cool-down 5:00',
+    ])
+    expect(wrapper.get('#session-title').attributes('placeholder')).toBe('8× run 1:00 / walk 1:30')
+    await tap('‹ Cancel')
+    expect(router.currentRoute.value.name).toBe('program')
+    expect(wrapper.get('.session__title').text()).toBe('8× run 1:00 / walk 1:30')
+    // Before #143: 29 taps and 5 typed fields (title, four times), the session saved first
+    expect(taps).toBe(21)
+  })
+
+  /** A program with a run/walk session: 4× (run 1:00, walk 2:00), no title of its own */
+  async function untitled() {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const sid = await training.saveSession(id, { week: 1, type: 'runwalk', title: '', notes: null })
+    const step = (sid: string, kind: 'run' | 'walk', seconds: number): StepBlock['step'] => ({
+      id: crypto.randomUUID(),
+      sessionId: sid,
+      position: 0,
+      kind,
+      targetKind: 'duration',
+      targetValue: seconds,
+      paceMin: null,
+      paceMax: null,
+      repetitions: null,
+      span: null,
+    })
+    await training.saveBlocks(sid, [
+      {
+        step: {
+          ...step(sid, 'run', 1),
+          kind: 'repeat',
+          targetKind: 'none',
+          targetValue: null,
+          repetitions: 4,
+        },
+        children: [step(sid, 'run', 60), step(sid, 'walk', 120)],
+      },
+    ])
+    return { training, id, sid }
+  }
+
+  it('names sessions without a title from their steps, and a typed title wins', async () => {
+    const { training, id, sid } = await untitled()
+    await training.saveSession(id, { week: 1, type: 'easy', title: '', notes: null })
+    await training.saveSession(id, { week: 2, type: 'rest', title: '', notes: null })
+    const { wrapper } = await open(`/training/${id}`)
+    const rows = () => wrapper.findAll('.row').map((r) => r.find('.session__title').text())
+    // No steps: the type only, not "Easy Easy"; a rest day stays "Rest" once
+    expect(rows()).toEqual(['4× run 1:00 / walk 2:00', '', ''])
+
+    await click(link(wrapper, '4× run 1:00 / walk 2:00'))
+    expect(wrapper.get('#session-title').attributes('placeholder')).toBe('4× run 1:00 / walk 2:00')
+    await click(button(wrapper, 'Delete session'))
+    expect(wrapper.find('[role="alertdialog"]').text()).toContain(
+      '4× run 1:00 / walk 2:00 is removed from week 1.',
+    )
+    await click(button(wrapper, 'Keep'))
+    await wrapper.get('#session-title').setValue('Day 1')
+    await click(wrapper.findAll('button').filter((b) => b.text() === 'Save')[0]!)
+    expect((await training.getSession(sid))!.title).toBe('Day 1')
+    expect(wrapper.findAll('.session__title')[0]!.text()).toBe('Day 1')
+  })
+
+  it('follows step edits in the generated name', async () => {
+    const { training, id, sid } = await untitled()
+    const blocks = await training.loadBlocks(sid)
+    const run = blocks[0]!.children[0]!
+    const { wrapper } = await open(`/training/${id}/session/${sid}/step/${run.id}`)
+    await click(button(wrapper, '2:00'))
+    await click(button(wrapper, 'Save'))
+    expect(wrapper.get('#session-title').attributes('placeholder')).toBe('4× run 2:00 / walk 2:00')
+  })
+
+  it('shows one message when the steps cannot be read, and leaves the planned amounts out (#138)', async () => {
+    const memory = createMemoryTrainingRepository()
+    const training = useTrainingStore()
+    training.useRepository(memory)
+    const { id } = await untitled()
+    training.useRepository({
+      ...memory,
+      loadProgramSteps: async () => {
+        throw new Error('broken')
+      },
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { wrapper } = await open(`/training/${id}`)
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
+    expect(wrapper.get('[role="alert"]').text()).toBe(
+      'Could not read the steps; names and planned amounts may be missing',
+    )
+    // The type stands in for the name, and the week line has no planned minutes
+    expect(wrapper.get('.session__type').text()).toBe('Run/walk')
+    expect(wrapper.get('.session__title').text()).toBe('')
+    expect(wrapper.get('.week__summary').text()).toBe('0 of 1 session')
+    warn.mockRestore()
+
+    training.useRepository(memory)
+    document.body.innerHTML = ''
+    const ok = await open(`/training/${id}`)
+    expect(ok.wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(ok.wrapper.get('.week__summary').text()).toBe('0 of 1 session · 0 of 12 min')
+  })
+
+  it('makes the target follow the kind on a new step, until it is picked by hand', async () => {
+    const { id, sid } = await untitled()
+    const { wrapper } = await open(`/training/${id}/session/${sid}/step/new`)
+    // After the repeat: cool-down, no earlier one to copy
+    expect(pressed(wrapper)).toEqual(['Cool-down', 'Time'])
+    await click(button(wrapper, 'Walk'))
+    expect(value(wrapper)).toBe('2:00')
+    expect(pressed(wrapper)).toEqual(['Walk', 'Time', '2:00'])
+    await click(button(wrapper, 'Run'))
+    expect(value(wrapper)).toBe('1:00')
+    await click(button(wrapper, 'Distance'))
+    await click(button(wrapper, '400 m'))
+    expect(value(wrapper)).toBe('400')
+    await click(button(wrapper, 'Walk'))
+    expect(pressed(wrapper)).toEqual(['Walk', 'Distance', '400 m'])
+    // A typed value matching a chip presses it; any other presses none
+    await wrapper.get('#step-target-value').setValue('800')
+    expect(pressed(wrapper)).toEqual(['Walk', 'Distance', '800 m'])
+    await wrapper.get('#step-target-value').setValue('750')
+    expect(pressed(wrapper)).toEqual(['Walk', 'Distance'])
+    expect(wrapper.get('#step-target-value').attributes('placeholder')).toBe('metres')
+    await click(button(wrapper, 'Time'))
+    expect(wrapper.get('#step-target-value').attributes('placeholder')).toBe('min:s')
+  })
+
+  it('stays inside the repeat on "Save and add next"', async () => {
+    const { training, id, sid } = await untitled()
+    const repeat = (await training.loadBlocks(sid))[0]!.step.id
+    const { wrapper } = await open(`/training/${id}/session/${sid}/step/new?repeat=${repeat}`)
+    expect(pressed(wrapper)).toEqual(['Run', 'Time', '1:00'])
+    await click(button(wrapper, '+ Save and add next'))
+    expect(wrapper.find('h1').text()).toBe('New step in repeat')
+    expect(pressed(wrapper)).toEqual(['Walk', 'Time', '2:00'])
+    await click(button(wrapper, '+ Save and add next'))
+    const blocks = await training.loadBlocks(sid)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.children.map((c) => [c.kind, c.targetValue])).toEqual([
+      ['run', 60],
+      ['walk', 120],
+      ['run', 60],
+      ['walk', 120],
+    ])
+  })
+
+  it('keeps the pace folded until "+ Add pace", open on a step that has one', async () => {
+    const { training, id, sid } = await untitled()
+    const { wrapper } = await open(`/training/${id}/session/${sid}/step/new`)
+    expect(wrapper.find('[aria-label="Fastest pace"]').exists()).toBe(false)
+    await click(button(wrapper, '5:00'))
+    await click(button(wrapper, '+ Add pace'))
+    expect(document.activeElement).toBe(wrapper.get('[aria-label="Fastest pace"]').element)
+    expect(wrapper.get('[aria-label="Fastest pace"]').attributes('placeholder')).toBe('min:s')
+    await wrapper.get('[aria-label="Fastest pace"]').setValue('5:30')
+    await wrapper.get('[aria-label="Slowest pace"]').setValue('6:00')
+    await click(button(wrapper, 'Save'))
+    const saved = (await training.loadSteps(sid)).slice(-1)[0]!
+    expect([saved.paceMin, saved.paceMax]).toEqual([330, 360])
+
+    document.body.innerHTML = ''
+    const edit = await open(`/training/${id}/session/${sid}/step/${saved.id}`)
+    expect(edit.wrapper.findAll('button').some((b) => b.text() === '+ Save and add next')).toBe(
+      false,
+    )
+    expect(
+      (edit.wrapper.get('[aria-label="Fastest pace"]').element as HTMLInputElement).value,
+    ).toBe('5:30')
+    await click(button(edit.wrapper, 'Remove pace'))
+    expect(edit.wrapper.find('[aria-label="Fastest pace"]').exists()).toBe(false)
+    await click(button(edit.wrapper, 'Save'))
+    const cleared = (await training.loadSteps(sid)).slice(-1)[0]!
+    expect([cleared.paceMin, cleared.paceMax]).toEqual([null, null])
+  })
+
+  it('shows "e.g." hints on the program form', async () => {
+    const { wrapper } = await open('/training/new')
+    expect(wrapper.get('#program-name').attributes('placeholder')).toBe('e.g. Half marathon')
+    expect(wrapper.get('#program-goal').attributes('placeholder')).toBe('e.g. Sub 2:00')
   })
 })

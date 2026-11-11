@@ -1,6 +1,12 @@
 import { ref, watch, type Ref } from 'vue'
 import { followedProgramId } from '@/lib/settings'
-import { isRunnable, nextSession, type ProgramSession, type TrainingProgram } from '@/lib/training'
+import {
+  isRunnable,
+  nextSession,
+  sessionTitle,
+  type ProgramSession,
+  type TrainingProgram,
+} from '@/lib/training'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
 
@@ -11,6 +17,8 @@ import { useTrainingStore } from '@/stores/training'
 export interface PlannedSession {
   program: TrainingProgram
   session: ProgramSession | null
+  /** The session's name, typed or made from its steps (#143); empty without a session */
+  title: string
   /** Picked from the session editor rather than being the next one */
   chosen: boolean
 }
@@ -27,6 +35,16 @@ export function usePlannedSession(requested: Ref<string | null>) {
   const following = ref(true)
   let latest = 0
 
+  /** The session's name; without its steps it falls back to the type, never fails the card */
+  async function titleOf(session: ProgramSession | null): Promise<string> {
+    if (!session) return ''
+    const steps = await training.loadSteps(session.id).catch((err) => {
+      console.warn('[db] could not read the steps for the session name', err)
+      return []
+    })
+    return sessionTitle(session, steps)
+  }
+
   async function find(): Promise<PlannedSession | null> {
     const done = new Set(await run.doneSessionIds())
     if (requested.value !== null) {
@@ -34,7 +52,7 @@ export function usePlannedSession(requested: Ref<string | null>) {
       // A picked session may already be done: "Run again" (#116). Only a rest day can't be run.
       if (session && isRunnable(session, new Set())) {
         const program = await training.getProgram(session.programId)
-        if (program) return { program, session, chosen: true }
+        if (program) return { program, session, title: await titleOf(session), chosen: true }
       }
     }
     const id = followedProgramId.value
@@ -49,7 +67,7 @@ export function usePlannedSession(requested: Ref<string | null>) {
       }),
     )
     const session = nextSession(await training.listSessions(id), done, skipped)
-    return { program, session, chosen: false }
+    return { program, session, title: await titleOf(session), chosen: false }
   }
 
   async function reload() {

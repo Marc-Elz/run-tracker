@@ -76,6 +76,13 @@ export function createMemoryTrainingRepository(): TrainingRepository {
     async loadSteps(sessionId) {
       return (steps.get(sessionId) ?? []).map((s) => ({ ...s }))
     },
+    async loadProgramSteps(programId) {
+      return new Map(
+        sessionsOf(programId)
+          .filter((s) => (steps.get(s.id) ?? []).length > 0)
+          .map((s) => [s.id, steps.get(s.id)!.map((st) => ({ ...st }))]),
+      )
+    },
     async replaceSteps(sessionId, list) {
       const session = sessions.get(sessionId)
       if (!session) throw new Error(`Session ${sessionId} not found`)

@@ -302,6 +302,59 @@ describe('RunView', () => {
       expect(button(wrapper, 'Start')).toBeDefined()
     })
 
+    it('names a session without a title from its steps, on the card and the run line (#143)', async () => {
+      const training = useTrainingStore()
+      const programId = await training.createProgram({
+        name: 'Beginner',
+        goal: null,
+        weeks: 1,
+        startDate: null,
+      })
+      const sid = await training.saveSession(programId, {
+        week: 1,
+        type: 'runwalk',
+        title: '',
+        notes: null,
+      })
+      const timed = (id: string, kind: SessionStep['kind'], position: number, seconds: number) =>
+        ({
+          id,
+          sessionId: sid,
+          position,
+          kind,
+          targetKind: 'duration',
+          targetValue: seconds,
+          paceMin: null,
+          paceMax: null,
+          repetitions: null,
+          span: null,
+        }) satisfies SessionStep
+      await training.replaceSteps(sid, [
+        {
+          ...timed('r', 'repeat', 0, 0),
+          targetKind: 'none',
+          targetValue: null,
+          repetitions: 8,
+          span: 2,
+        },
+        timed('a', 'run', 1, 60),
+        timed('b', 'walk', 2, 90),
+      ])
+      setFollowedProgram(programId)
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.find('.session-card__title').text()).toBe('8× run 1:00 / walk 1:30')
+      // The run line shows for a session without steps (else the step panel does): its type
+      wrapper.unmount()
+      await training.replaceSteps(sid, [])
+      const again = mount(RunView)
+      await flushPromises()
+      expect(again.find('.session-card__title').text()).toBe('Run/walk')
+      await button(again, 'Start session')!.trigger('click')
+      await flushPromises()
+      expect(again.find('.session-line').text()).toBe('Week 1 · Run/walk')
+    })
+
     it('still starts a free run when the programs cannot be read', async () => {
       useTrainingStore().useRepository(unavailableTrainingRepository('broken'))
       setFollowedProgram('p')
