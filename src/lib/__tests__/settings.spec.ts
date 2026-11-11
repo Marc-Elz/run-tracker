@@ -4,11 +4,14 @@ import {
   followedProgramId,
   loadCueConfig,
   loadFollowedProgram,
-  loadStepAnnouncements,
+  loadSlowestRunPace,
+  loadStepCoaching,
   setCueConfig,
   setFollowedProgram,
-  setStepAnnouncements,
-  stepAnnouncements,
+  setSlowestRunPace,
+  setStepCoaching,
+  slowestRunPace,
+  stepCoaching,
 } from '../settings'
 
 // Node's own experimental localStorage can shadow jsdom's, so use a plain in-memory one
@@ -84,22 +87,43 @@ describe('followed program (#40)', () => {
   })
 })
 
-describe('step announcements (#66)', () => {
-  it('is on by default and when storage is unreadable', () => {
-    expect(loadStepAnnouncements()).toBe(true)
+describe('step coaching (#66, #103)', () => {
+  it('is steps by default and when storage is unreadable', () => {
+    expect(loadStepCoaching()).toBe('steps')
     vi.stubGlobal('localStorage', {
       getItem: () => {
         throw new Error('blocked')
       },
     })
-    expect(loadStepAnnouncements()).toBe(true)
+    expect(loadStepCoaching()).toBe('steps')
   })
 
-  it('keeps an off choice', () => {
-    setStepAnnouncements(false)
-    expect(stepAnnouncements.value).toBe(false)
-    expect(loadStepAnnouncements()).toBe(false)
-    setStepAnnouncements(true)
-    expect(loadStepAnnouncements()).toBe(true)
+  it('reads the on/off saved before #103 as steps and off, so pace is opt-in', () => {
+    localStorage.setItem('run-tracker.step-announcements', 'on')
+    expect(loadStepCoaching()).toBe('steps')
+    localStorage.setItem('run-tracker.step-announcements', 'off')
+    expect(loadStepCoaching()).toBe('off')
+  })
+
+  it('keeps each choice', () => {
+    for (const choice of ['off', 'pace', 'steps'] as const) {
+      setStepCoaching(choice)
+      expect(stepCoaching.value).toBe(choice)
+      expect(loadStepCoaching()).toBe(choice)
+    }
+  })
+})
+
+describe('slowest run pace (#103)', () => {
+  it('defaults to 9:00 /km, also for an unknown value', () => {
+    expect(loadSlowestRunPace()).toBe(540)
+    localStorage.setItem('run-tracker.slowest-run-pace', '777')
+    expect(loadSlowestRunPace()).toBe(540)
+  })
+
+  it('keeps a choice', () => {
+    setSlowestRunPace(600)
+    expect(slowestRunPace.value).toBe(600)
+    expect(loadSlowestRunPace()).toBe(600)
   })
 })

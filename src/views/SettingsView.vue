@@ -5,7 +5,17 @@ import { openAppSettings, requestLocationPermission } from '@/lib/gps'
 import { askBatteryExemption, ensureNotifications, openBatterySettings } from '@/lib/runPower'
 import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
 import { CUE_DISTANCE_OPTIONS, CUE_TIME_OPTIONS, cueText } from '@/lib/cues'
-import { cueConfig, setCueConfig, setStepAnnouncements, stepAnnouncements } from '@/lib/settings'
+import {
+  cueConfig,
+  setCueConfig,
+  setSlowestRunPace,
+  setStepCoaching,
+  slowestRunPace,
+  stepCoaching,
+  type StepCoaching,
+} from '@/lib/settings'
+import { SLOWEST_RUN_PACE_OPTIONS } from '@/lib/paceCoach'
+import { formatPace } from '@/lib/format'
 import { speak } from '@/lib/speech'
 import { useBackupStore } from '@/stores/backup'
 
@@ -158,6 +168,17 @@ const distanceLabel = (km: number) => (km === 0 ? 'Off' : `${km} km`)
 const timeLabel = (min: number) => (min === 0 ? 'Off' : `${min} min`)
 const testCue = () => void speak(cueText(1000, 332_000, 332))
 
+const COACHING_OPTIONS: { value: StepCoaching; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'steps', label: 'Steps' },
+  { value: 'pace', label: 'Steps + pace' },
+]
+const coachingHint = computed(() =>
+  stepCoaching.value === 'pace'
+    ? 'Spoken steps and a vibration, plus "Faster" or "Slower" when you stay off a step\'s target pace. A run step without a pace only hears "Faster" when slower than the pace above.'
+    : 'Spoken steps, warnings and a vibration in a training session.',
+)
+
 const summary = computed(() => {
   if (status.value === undefined) return ''
   if (status.value === null) return 'The tracking checks show on the phone.'
@@ -226,24 +247,36 @@ const summary = computed(() => {
           {{ timeLabel(min) }}
         </button>
       </div>
-      <div class="choice" role="group" aria-label="Step announcements">
+      <div class="choice" role="group" aria-label="Training step coaching">
         <span class="choice__label">Training steps</span>
         <button
+          v-for="option in COACHING_OPTIONS"
+          :key="option.value"
           class="btn btn--choice"
-          :aria-pressed="stepAnnouncements"
-          @click="setStepAnnouncements(true)"
+          :aria-pressed="stepCoaching === option.value"
+          @click="setStepCoaching(option.value)"
         >
-          On
-        </button>
-        <button
-          class="btn btn--choice"
-          :aria-pressed="!stepAnnouncements"
-          @click="setStepAnnouncements(false)"
-        >
-          Off
+          {{ option.label }}
         </button>
       </div>
-      <p class="hint">Spoken steps, warnings and a vibration in a training session.</p>
+      <div
+        v-if="stepCoaching === 'pace'"
+        class="choice"
+        role="group"
+        aria-label="Slowest run pace"
+      >
+        <span class="choice__label">Slowest run</span>
+        <button
+          v-for="pace in SLOWEST_RUN_PACE_OPTIONS"
+          :key="pace"
+          class="btn btn--choice"
+          :aria-pressed="slowestRunPace === pace"
+          @click="setSlowestRunPace(pace)"
+        >
+          {{ formatPace(pace) }}
+        </button>
+      </div>
+      <p class="hint">{{ coachingHint }}</p>
       <button class="btn btn--quiet" @click="testCue">Test cue</button>
     </section>
 

@@ -431,6 +431,16 @@ describe('RunView', () => {
       expect(button(wrapper, 'Pause')).toBeDefined()
     })
 
+    it('shows the target pace on a step that has one (#103)', async () => {
+      const wrapper = await runSession([
+        step({ kind: 'run', targetKind: 'duration', targetValue: 60, paceMin: 330, paceMax: 360 }),
+        timed('walk', 60),
+      ])
+      expect(panel(wrapper).find('.step-panel__target').text()).toBe('Target 5:30–6:00 /km')
+      await at(61)
+      expect(panel(wrapper).find('.step-panel__target').exists()).toBe(false)
+    })
+
     it('shows no panel for a session without steps', async () => {
       const wrapper = await runSession([])
       expect(panel(wrapper).exists()).toBe(false)

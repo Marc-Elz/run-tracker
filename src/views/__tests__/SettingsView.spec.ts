@@ -7,6 +7,12 @@ import { buildBackup } from '@/lib/backup'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
 import type { TrackingStatus } from '@/lib/trackingStatus'
+import {
+  setSlowestRunPace,
+  setStepCoaching,
+  slowestRunPace,
+  stepCoaching,
+} from '@/lib/settings'
 import SettingsView from '../SettingsView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -174,6 +180,23 @@ describe('SettingsView', () => {
     expect(five.attributes('aria-pressed')).toBe('true')
     await button(wrapper, 'Test cue')!.trigger('click')
     expect(mocks.speak).toHaveBeenCalledWith(expect.stringContaining('1 kilometre'))
+  })
+
+  it('offers Off / Steps / Steps + pace, and the slowest run pace only with pace (#103)', async () => {
+    setStepCoaching('steps')
+    const wrapper = await open(null)
+    const group = wrapper.get('[aria-label="Training step coaching"]')
+    expect(group.findAll('button').map((b) => b.text())).toEqual(['Off', 'Steps', 'Steps + pace'])
+    expect(wrapper.find('[aria-label="Slowest run pace"]').exists()).toBe(false)
+
+    await group.findAll('button').find((b) => b.text() === 'Steps + pace')!.trigger('click')
+    expect(stepCoaching.value).toBe('pace')
+    const paces = wrapper.get('[aria-label="Slowest run pace"]').findAll('button')
+    expect(paces.map((b) => b.text())).toEqual(['8:00', '9:00', '10:00'])
+    await paces[2]!.trigger('click')
+    expect(slowestRunPace.value).toBe(600)
+    setStepCoaching('steps')
+    setSlowestRunPace(540)
   })
 
   describe('backup', () => {

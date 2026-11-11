@@ -9,8 +9,9 @@ import { useAudioCues } from '@/composables/useAudioCues'
 import { usePlannedSession } from '@/composables/usePlannedSession'
 import { useSessionSteps } from '@/composables/useSessionSteps'
 import { useStepCues } from '@/composables/useStepCues'
+import { usePaceCoach } from '@/composables/usePaceCoach'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { cueConfig, stepAnnouncements } from '@/lib/settings'
+import { cueConfig, slowestRunPace, stepCoaching } from '@/lib/settings'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatMetres, formatPace } from '@/lib/format'
@@ -64,7 +65,23 @@ watch(
 
 // The session's step, in large type, while a run of a session with steps is going (#101)
 const { progress: steps, nextStep, timeline: stepTimeline } = useSessionSteps()
-useStepCues(stepTimeline, stepAnnouncements)
+useStepCues(
+  stepTimeline,
+  computed(() => stepCoaching.value !== 'off'),
+)
+usePaceCoach(
+  computed(() => stepCoaching.value === 'pace'),
+  slowestRunPace,
+)
+/** "Target 5:30–6:00 /km" on a step with a pace target */
+const stepTarget = computed(() => {
+  const step = steps.value?.current
+  if (!step || (step.paceMin === null && step.paceMax === null)) return ''
+  const fast = step.paceMin ?? step.paceMax
+  const slow = step.paceMax ?? step.paceMin
+  const range = fast === slow ? formatPace(fast) : `${formatPace(fast)}–${formatPace(slow)}`
+  return `Target ${range} /km`
+})
 /** Time or metres left, or the time spent so far in a step without a target */
 const stepValue = computed(() => {
   const p = steps.value
@@ -215,6 +232,7 @@ onBeforeUnmount(endGps)
         <span class="stat__label">
           {{ steps.current?.targetKind === 'none' ? 'In this step' : 'Left' }}
         </span>
+        <p v-if="stepTarget" class="step-panel__target">{{ stepTarget }}</p>
         <p v-if="steps.next" class="step-panel__next">Next: {{ nextStepLabel(steps.next) }}</p>
         <button
           v-if="canSkip"
@@ -527,6 +545,14 @@ onBeforeUnmount(endGps)
   font-weight: 700;
   line-height: 1;
   font-size: clamp(3.5rem, 22vw, 6.5rem);
+}
+
+.step-panel__target {
+  margin-top: 0.35rem !important;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #e8edf2;
 }
 
 .step-panel__next {

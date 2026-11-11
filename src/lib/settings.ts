@@ -7,6 +7,11 @@ import {
   type CueDistanceKm,
   type CueTimeMin,
 } from '@/lib/cues'
+import {
+  DEFAULT_SLOWEST_RUN_PACE,
+  SLOWEST_RUN_PACE_OPTIONS,
+  type SlowestRunPace,
+} from '@/lib/paceCoach'
 
 const CUES_KEY = 'run-tracker.cues'
 
@@ -66,23 +71,58 @@ export function setFollowedProgram(id: string | null) {
   }
 }
 
-const STEP_ANNOUNCEMENTS_KEY = 'run-tracker.step-announcements'
+const STEP_COACHING_KEY = 'run-tracker.step-announcements'
 
-/** Spoken steps and vibration in a training session (#66); on unless switched off. */
-export function loadStepAnnouncements(): boolean {
+/**
+ * Coaching in a training session: spoken steps and vibration (#66), plus pace corrections
+ * (#103) when asked for. The key and its 'on'/'off' values predate #103: 'on' still means steps.
+ */
+export type StepCoaching = 'off' | 'steps' | 'pace'
+const STORED: Record<StepCoaching, string> = { off: 'off', steps: 'on', pace: 'pace' }
+
+/** Steps unless switched off or up; corrections are opt-in. */
+export function loadStepCoaching(): StepCoaching {
   try {
-    return localStorage.getItem(STEP_ANNOUNCEMENTS_KEY) !== 'off'
+    const raw = localStorage.getItem(STEP_COACHING_KEY)
+    if (raw === STORED.off) return 'off'
+    if (raw === STORED.pace) return 'pace'
+    return 'steps'
   } catch {
-    return true
+    return 'steps'
   }
 }
 
-export const stepAnnouncements = ref<boolean>(loadStepAnnouncements())
+export const stepCoaching = ref<StepCoaching>(loadStepCoaching())
 
-export function setStepAnnouncements(on: boolean) {
-  stepAnnouncements.value = on
+export function setStepCoaching(next: StepCoaching) {
+  stepCoaching.value = next
   try {
-    localStorage.setItem(STEP_ANNOUNCEMENTS_KEY, on ? 'on' : 'off')
+    localStorage.setItem(STEP_COACHING_KEY, STORED[next])
+  } catch (err) {
+    console.warn('Could not save settings', err)
+  }
+}
+
+const SLOWEST_RUN_PACE_KEY = 'run-tracker.slowest-run-pace'
+
+/** Slower than this on a run step without a pace gets "Faster" (#103); s/km */
+export function loadSlowestRunPace(): SlowestRunPace {
+  try {
+    const raw = Number(localStorage.getItem(SLOWEST_RUN_PACE_KEY))
+    return SLOWEST_RUN_PACE_OPTIONS.includes(raw as SlowestRunPace)
+      ? (raw as SlowestRunPace)
+      : DEFAULT_SLOWEST_RUN_PACE
+  } catch {
+    return DEFAULT_SLOWEST_RUN_PACE
+  }
+}
+
+export const slowestRunPace = ref<SlowestRunPace>(loadSlowestRunPace())
+
+export function setSlowestRunPace(next: SlowestRunPace) {
+  slowestRunPace.value = next
+  try {
+    localStorage.setItem(SLOWEST_RUN_PACE_KEY, String(next))
   } catch (err) {
     console.warn('Could not save settings', err)
   }
