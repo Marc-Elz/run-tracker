@@ -102,7 +102,7 @@ describe('training screens', () => {
     expect(week2.text()).toContain('6×400 m')
   })
 
-  it('edits a session and deletes it after asking', async () => {
+  it('edits a session from its view', async () => {
     const training = useTrainingStore()
     const id = await training.createProgram(half)
     const sid = await training.saveSession(id, {
@@ -125,13 +125,52 @@ describe('training screens', () => {
     // Save goes back to the view, which shows the change
     expect(router.currentRoute.value.name).toBe('session')
     expect(wrapper.get('.notes').text()).toBe('Flat route')
+    // Removing lives in the editor, not on the view (#150)
+    const labels = wrapper.findAll('button').map((b) => b.text())
+    expect(labels).not.toContain('Remove from program')
+    expect(labels).not.toContain('Delete session')
+  })
 
-    await click(button(wrapper, 'Delete session'))
-    expect(document.body.textContent).toContain('Delete this session?')
-    await click(button(wrapper, 'Delete'))
+  it('removes a session from its editor after asking, leaving past its view (#150)', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const sid = await training.saveSession(id, {
+      week: 1,
+      type: 'easy',
+      title: 'Easy',
+      notes: null,
+    })
+    const { wrapper, router } = await open(`/training/${id}`)
+    await click(link(wrapper, 'Easy'))
+    await click(link(wrapper, 'Edit'))
+    await click(button(wrapper, 'Remove from program'))
+    const dialog = wrapper.get('[role="alertdialog"]')
+    expect(dialog.text()).toContain('Remove Easy from week 1?')
+    expect(dialog.text()).toContain('It comes off the program.')
+    await click(button(wrapper, 'Remove'))
     expect(await training.getSession(sid)).toBeNull()
     expect(router.currentRoute.value.name).toBe('program')
     expect(wrapper.findAll('.empty-week')).toHaveLength(3)
+    // Back does not land on the view of the removed session
+    router.back()
+    await flushPromises()
+    expect(router.currentRoute.value.name).not.toBe('session')
+  })
+
+  it('removes a session from an editor opened directly and lands on the program (#150)', async () => {
+    const training = useTrainingStore()
+    const id = await training.createProgram(half)
+    const sid = await training.saveSession(id, {
+      week: 1,
+      type: 'easy',
+      title: 'Easy',
+      notes: null,
+    })
+    const { wrapper, router } = await open(`/training/${id}/session/${sid}/edit`)
+    await click(button(wrapper, 'Remove from program'))
+    await click(button(wrapper, 'Remove'))
+    expect(await training.getSession(sid)).toBeNull()
+    expect(router.currentRoute.value.name).toBe('program')
   })
 
   it('shows a session at a glance: title, done, run, notes, steps and runs, in that order (#147)', async () => {
@@ -183,7 +222,7 @@ describe('training screens', () => {
     expect(wrapper.get('h1').text()).toBe('Easy')
   })
 
-  it('opens a new session in the editor, which offers no run, skip or delete (#147)', async () => {
+  it('opens a new session in the editor, which offers no run, skip or remove (#147, #150)', async () => {
     const training = useTrainingStore()
     const id = await training.createProgram(half)
     const sid = await training.saveSession(id, {
@@ -195,12 +234,16 @@ describe('training screens', () => {
     const fresh = await open(`/training/${id}/session/new`)
     expect(fresh.router.currentRoute.value.name).toBe('session-new')
     expect(fresh.wrapper.find('#session-title').exists()).toBe(true)
+    expect(fresh.wrapper.findAll('button').map((b) => b.text())).not.toContain(
+      'Remove from program',
+    )
 
     const { wrapper } = await open(`/training/${id}/session/${sid}/edit`)
     const labels = wrapper.findAll('button').map((b) => b.text())
-    for (const label of ['Run this session', 'Skip', 'Delete session']) {
+    for (const label of ['Run this session', 'Skip']) {
       expect(labels).not.toContain(label)
     }
+    expect(labels).toContain('Remove from program')
   })
 
   it('deletes a program after a confirmation naming its sessions and saying runs are kept', async () => {
@@ -417,10 +460,10 @@ describe('running sessions (#40)', () => {
     expect(followedProgramId.value).toBeNull()
   })
 
-  it('says the run is kept when deleting a done session', async () => {
+  it('says the run is kept when removing a done session (#150)', async () => {
     const { id, easy } = await program({ doneFirst: true })
-    const { wrapper } = await open(`/training/${id}/session/${easy}`)
-    await click(button(wrapper, 'Delete session'))
+    const { wrapper } = await open(`/training/${id}/session/${easy}/edit`)
+    await click(button(wrapper, 'Remove from program'))
     expect(wrapper.get('[role="alertdialog"]').text()).toContain('Your run for it is kept.')
   })
 })
@@ -743,16 +786,16 @@ describe('building a session by picking (#143)', () => {
     // No steps: the type only, not "Easy Easy"; a rest day stays "Rest" once
     expect(rows()).toEqual(['4× run 1:00 / walk 2:00', '', ''])
 
-    // The session view (#147) is headed by the generated name, and so is its Delete dialog
+    // The session view (#147) is headed by the generated name, and so is the remove dialog (#150)
     await click(link(wrapper, '4× run 1:00 / walk 2:00'))
     expect(wrapper.get('h1').text()).toBe('4× run 1:00 / walk 2:00')
-    await click(button(wrapper, 'Delete session'))
-    expect(wrapper.find('[role="alertdialog"]').text()).toContain(
-      '4× run 1:00 / walk 2:00 is removed from week 1.',
-    )
-    await click(button(wrapper, 'Keep'))
     await click(link(wrapper, 'Edit'))
     expect(wrapper.get('#session-title').attributes('placeholder')).toBe('4× run 1:00 / walk 2:00')
+    await click(button(wrapper, 'Remove from program'))
+    expect(wrapper.find('[role="alertdialog"]').text()).toContain(
+      'Remove 4× run 1:00 / walk 2:00 from week 1?',
+    )
+    await click(button(wrapper, 'Keep'))
     await wrapper.get('#session-title').setValue('Day 1')
     await click(wrapper.findAll('button').filter((b) => b.text() === 'Save')[0]!)
     expect((await training.getSession(sid))!.title).toBe('Day 1')

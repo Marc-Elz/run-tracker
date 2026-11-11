@@ -275,11 +275,15 @@ try {
   await week2.getByText('8× run 1:00 / walk 1:30').waitFor()
   console.log(`  taps to build the session: ${taps}, nothing typed`)
   check('the program lists the session by its generated name, built in 21 taps', taps === 21, `${taps} taps`)
+  // Removing a session is in its editor (#150), and leaves past its view to the program
   await week2.getByText('8× run 1:00 / walk 1:30').click()
-  await btn('Delete session').click()
-  await page.getByRole('alertdialog').getByText('8× run 1:00 / walk 1:30 is removed from week 2.').waitFor()
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
+  check('the session view offers no remove', (await page.getByRole('button', { name: 'Remove from program' }).count()) === 0)
+  await page.getByRole('link', { name: 'Edit', exact: true }).click()
+  await btn('Remove from program').click()
+  await page.getByRole('alertdialog').getByText('Remove 8× run 1:00 / walk 1:30 from week 2?').waitFor()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove', exact: true }).click()
   await page.locator('.week').nth(1).getByText('No sessions').waitFor()
+  check('removing lands on the program, with the removed session not one Back away', !/\/session\//.test((await page.evaluate(() => history.state?.back)) ?? ''), await page.evaluate(() => history.state?.back))
 
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.waitForSelector('main.page .row')

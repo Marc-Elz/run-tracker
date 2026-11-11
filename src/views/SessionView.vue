@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { useBackInterceptor } from '@/composables/useBackButton'
 import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { useSessionDetails } from '@/composables/useSessionDetails'
-import { useTrainingStore } from '@/stores/training'
 import { formatDistanceKm, formatDuration, formatRunDate } from '@/lib/format'
 import { fromBlocks, SESSION_TYPE_LABELS, sessionTitle, stepSummary } from '@/lib/training'
 
@@ -15,12 +12,10 @@ import { fromBlocks, SESSION_TYPE_LABELS, sessionTitle, stepSummary } from '@/li
  */
 const route = useRoute()
 const router = useRouter()
-const training = useTrainingStore()
 
 const programId = computed(() => route.params.id as string)
 const sessionId = computed(() => route.params.sid as string)
-const deleting = ref(false)
-const leave = useLeaveScreen(() => ({ name: 'program', params: { id: programId.value } }), deleting)
+const leave = useLeaveScreen(() => ({ name: 'program', params: { id: programId.value } }))
 
 const {
   state,
@@ -43,32 +38,10 @@ const title = computed(() =>
   session.value ? sessionTitle(session.value, fromBlocks(session.value.id, blocks.value)) : '',
 )
 
-const confirming = ref(false)
-const deleteError = ref<string | null>(null)
-useBackInterceptor(confirming, () => {
-  if (!deleting.value) confirming.value = false
-})
-
 /** To the Run screen with this session ready to start */
 function runSession() {
   if (!canRun.value) return
   void router.push({ name: 'run', query: { session: sessionId.value } })
-}
-
-async function onDelete() {
-  if (deleting.value) return
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await training.deleteSession(sessionId.value)
-    confirming.value = false
-    deleting.value = false
-    leave()
-  } catch (err) {
-    console.warn('[db] could not delete session', err)
-    deleteError.value = 'Could not delete the session'
-    deleting.value = false
-  }
 }
 
 onMounted(load)
@@ -77,11 +50,16 @@ onMounted(load)
 <template>
   <main class="page">
     <header class="bar">
-      <button class="back" :disabled="deleting" @click="leave()">‹ Back</button>
+      <button class="back" @click="leave()">‹ Back</button>
       <RouterLink
         v-if="state === 'ready'"
         class="back edit"
-        :to="{ name: 'session-edit', params: { id: programId, sid: sessionId } }"
+        :to="{
+          name: 'session-edit',
+          params: { id: programId, sid: sessionId },
+          // Removing the session from its editor then leaves past this view (#150)
+          state: { fromView: true },
+        }"
       >
         Edit
       </RouterLink>
@@ -168,23 +146,7 @@ onMounted(load)
           </li>
         </ul>
       </section>
-
-      <button class="btn btn--danger btn--wide" :disabled="deleting" @click="confirming = true">
-        Delete session
-      </button>
     </template>
-
-    <ConfirmDialog
-      v-if="confirming && session"
-      title="Delete this session?"
-      :busy="deleting"
-      :error="deleteError"
-      @keep="confirming = false"
-      @confirm="onDelete()"
-    >
-      {{ title }} is removed from week {{ session.week }}.
-      <template v-if="done">Your run for it is kept.</template>
-    </ConfirmDialog>
   </main>
 </template>
 
