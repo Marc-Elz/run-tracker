@@ -615,7 +615,7 @@ describe('building a session by picking (#143)', () => {
     await tap('‹ Cancel')
     expect(router.currentRoute.value.name).toBe('program')
     expect(wrapper.get('.session__title').text()).toBe('8× run 1:00 / walk 1:30')
-    // Before #143: 28 taps and 5 typed fields (title, four times)
+    // Before #143: 29 taps and 5 typed fields (title, four times), the session saved first
     expect(taps).toBe(21)
   })
 
