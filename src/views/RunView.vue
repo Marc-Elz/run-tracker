@@ -10,6 +10,7 @@ import { usePlannedSession } from '@/composables/usePlannedSession'
 import { useSessionSteps } from '@/composables/useSessionSteps'
 import { useStepCues } from '@/composables/useStepCues'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import SessionPicker from '@/components/SessionPicker.vue'
 import { cueConfig, stepAnnouncements } from '@/lib/settings'
 import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
 import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
@@ -45,6 +46,14 @@ const requested = computed(() =>
 )
 const { planned, following, reload: reloadPlanned } = usePlannedSession(requested)
 const nextUp = computed(() => planned.value?.session ?? null)
+
+// ⇄ on the card (#148): pick another session. `replace`, so Back leaves the Run screen instead of
+// stepping through earlier picks; the followed program's next session means "no pick".
+const pickingSession = ref(false)
+function onPickSession(id: string, isNext: boolean) {
+  pickingSession.value = false
+  void router.replace(isNext ? { name: 'run' } : { name: 'run', query: { session: id } })
+}
 
 // The session the current run belongs to, for the line at the top (#101 builds on it)
 const linked = ref<{ session: ProgramSession; title: string } | null>(null)
@@ -185,19 +194,36 @@ onBeforeUnmount(endGps)
 <template>
   <main class="run" :data-status="status">
     <section v-if="status === 'idle' && planned" class="session-card" aria-label="Training session">
-      <template v-if="nextUp">
-        <p class="session-card__label">
-          {{ planned.chosen ? 'Session' : 'Next session' }} · Week {{ nextUp.week }}
-        </p>
-        <p class="session-card__type">{{ SESSION_TYPE_LABELS[nextUp.type] }}</p>
-        <p class="session-card__title">{{ planned.title }}</p>
-        <p class="session-card__program">{{ planned.program.name }}</p>
-      </template>
-      <template v-else>
-        <p class="session-card__title">{{ planned.program.name }}</p>
-        <p class="session-card__program">All sessions done</p>
-      </template>
+      <div class="session-card__info">
+        <template v-if="nextUp">
+          <p class="session-card__label">
+            {{ planned.chosen ? 'Session' : 'Next session' }} · Week {{ nextUp.week }}
+          </p>
+          <p class="session-card__type">{{ SESSION_TYPE_LABELS[nextUp.type] }}</p>
+          <p class="session-card__title">{{ planned.title }}</p>
+          <p class="session-card__program">{{ planned.program.name }}</p>
+        </template>
+        <template v-else>
+          <p class="session-card__title">{{ planned.program.name }}</p>
+          <p class="session-card__program">All sessions done</p>
+        </template>
+      </div>
+      <button
+        class="session-card__switch"
+        aria-label="Choose another session"
+        :disabled="starting"
+        @click="pickingSession = true"
+      >
+        <span aria-hidden="true">⇄</span>
+      </button>
     </section>
+    <SessionPicker
+      v-if="pickingSession"
+      title="Choose a session"
+      :selected-id="nextUp?.id ?? null"
+      @pick="onPickSession"
+      @close="pickingSession = false"
+    />
 
     <section
       v-if="steps"
@@ -429,11 +455,39 @@ onBeforeUnmount(endGps)
 /* The training session on offer (#40): read at a glance, before the stats */
 .session-card {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 1rem 1.25rem;
+  /* overflow: hidden (for the strip's rounded corners) would let the column squeeze the card */
+  flex: none;
+  overflow: hidden;
   border-radius: 1rem;
   background: #1a2027;
+}
+
+.session-card__info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 1rem 1.25rem;
+}
+
+/* ⇄ (#148): a full-height strip on the right edge, a big target behind a divider */
+.session-card__switch {
+  flex: none;
+  width: 3.75rem;
+  border: 0;
+  border-left: 1px solid #2a323b;
+  background: none;
+  color: #f4f6f8;
+  font-size: 1.6rem;
+}
+
+.session-card__switch:active {
+  background: #26303a;
+}
+
+.session-card__switch:disabled {
+  opacity: 0.6;
 }
 
 .session-card p {
