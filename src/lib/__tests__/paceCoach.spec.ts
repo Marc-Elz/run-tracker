@@ -106,20 +106,20 @@ describe('nextPaceCue', () => {
     expect(drive([[300, 368]])).toEqual([]) // 6:08, inside the 10 s margin
   })
 
-  it('says "Faster" once the smoothed pace stays slow for 20 s, after the window has filled', () => {
-    // Slow from the start: the window is full at 25 s, then 20 s off
-    expect(drive([[50, 420]])).toEqual([[45, 'faster']])
+  it('says "Faster" once the smoothed pace stays slow for 10 s, after the window has filled', () => {
+    // Slow from the start: the window is full at 15 s, then 10 s off
+    expect(drive([[50, 420]])).toEqual([[25, 'faster']])
   })
 
   it('says "Slower" when too fast', () => {
-    expect(drive([[50, 300]])).toEqual([[45, 'slower']])
+    expect(drive([[50, 300]])).toEqual([[25, 'slower']])
   })
 
   it('repeats the correction every 60 s while still off', () => {
     expect(drive([[170, 420]])).toEqual([
-      [45, 'faster'],
-      [105, 'faster'],
-      [165, 'faster'],
+      [25, 'faster'],
+      [85, 'faster'],
+      [145, 'faster'],
     ])
   })
 
@@ -135,37 +135,40 @@ describe('nextPaceCue', () => {
 
   it('keeps two different corrections at least 60 s apart', () => {
     const said = drive([
-      [50, 420], // faster at 45
+      [30, 420], // faster at 25
       [60, 280], // too fast now
     ])
-    expect(said[0]).toEqual([45, 'faster'])
+    expect(said[0]).toEqual([25, 'faster'])
     const slower = said.find(([, key]) => key === 'slower')
-    expect(slower![0]).toBeGreaterThanOrEqual(105)
+    expect(slower![0]).toBeGreaterThanOrEqual(85)
   })
 
   it('goes quiet as soon as you stop, even while the smoothed pace still reads as moving', () => {
-    // At 45 s the 25 s average is still well above walking speed, but the last 5 s are not
-    expect(drive([[41, 420], [30, null]])).toEqual([])
+    // Stopped 5 s before the line is due at 25 s: the 15 s average still reads as moving,
+    // the last 6 s do not
+    expect(drive([[20, 420], [30, null]])).toEqual([])
   })
 
   it('stays quiet while standing still, and the wait starts over afterwards', () => {
-    // Slow for 40 s (not yet 20 s off after the window), then a minute at a crossing
+    // Slow for 20 s (only 5 s off after the window), a minute at a crossing, then 15 s slow:
+    // the wait started over, so it is not yet 10 s off again
     const said = drive([
-      [40, 420],
+      [20, 420],
       [60, null],
-      [30, 420],
+      [15, 420],
     ])
     expect(said).toEqual([])
   })
 
   it('holds a due line while other speech plays, then says it', () => {
-    const said = drive([[60, 420]], { speakingAt: (s) => s >= 40 && s < 50 })
-    expect(said).toEqual([[50, 'faster']])
+    const said = drive([[60, 420]], { speakingAt: (s) => s >= 20 && s < 30 })
+    expect(said).toEqual([[30, 'faster']])
   })
 
   it('stays quiet in the last 10 s of a timed step, where the step warning goes', () => {
-    const step = runStep({ targetKind: 'duration', targetValue: 50 })
-    expect(drive([[50, 420]], { step })).toEqual([])
+    // Quiet from 20 s on, so the line due at 25 s is never said
+    const step = runStep({ targetKind: 'duration', targetValue: 30 })
+    expect(drive([[30, 420]], { step })).toEqual([])
   })
 
   it('starts over on a new step, so the previous step pace never counts', () => {
@@ -190,8 +193,29 @@ describe('nextPaceCue', () => {
     const step = runStep({ paceMin: null, paceMax: null })
     expect(drive([[100, 300]], { step })).toEqual([]) // fast is fine
     expect(drive([[100, 500]], { step })).toEqual([]) // 8:20, under 9:00
-    expect(drive([[50, 660]], { step })).toEqual([[45, 'faster']]) // 11:00, walking
+    expect(drive([[50, 660]], { step })).toEqual([[25, 'faster']]) // 11:00, walking
     expect(drive([[50, 660]], { step, slowest: 720 })).toEqual([])
+  })
+
+  it('coaches a 1-minute run step at a slow jog, where distance grows in 5 m steps', () => {
+    // As on the phone (PR #141): a fix only counts once 5 m from the last one, so at about
+    // 13:20 /km the distance jumps 5.3 m every 3 to 6 s. Off the 8:00 floor, and not a stop.
+    const step = runStep({ paceMin: null, paceMax: null, targetKind: 'duration', targetValue: 60 })
+    const gaps = [3, 4, 6, 4]
+    const jumps = new Set<number>()
+    for (let s = 0, i = 0; s <= 60; i++) jumps.add((s += gaps[i % gaps.length]!))
+    let state: PaceCoachState | null = null
+    let d = 0
+    const said: number[] = []
+    for (let s = 1; s <= 60; s++) {
+      if (jumps.has(s)) d += 5.3
+      const totals = { elapsedMs: s * 1000, distanceM: d }
+      const r = nextPaceCue(state, step, totals, 480, false)
+      state = r.state
+      if (r.cue) said.push(s)
+    }
+    expect(said).toHaveLength(1)
+    expect(said[0]).toBeLessThan(50) // before the step warning's last 10 s
   })
 
   it('has fixed lines', () => {

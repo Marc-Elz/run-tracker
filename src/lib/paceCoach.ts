@@ -9,14 +9,22 @@ import type { RunStep, StepTotals } from './stepProgress'
 
 /** Starting values, to tune on real runs */
 export const PACE_COACH_CONFIG = {
-  /** Pace is averaged over this much run time before it is judged */
-  windowS: 25,
-  /** Moving is judged over this short stretch, so stopping at a light silences at once */
-  recentS: 5,
+  /**
+   * Pace is averaged over this much run time before it is judged. Short enough that a 1-minute
+   * run step still gets a correction: the first one can come at windowS + sustainS
+   */
+  windowS: 15,
+  /** Moving is judged over this short stretch, so stopping at a light silences within seconds */
+  recentS: 6,
+  /**
+   * Slower than this over `recentS` counts as stopped. Well under a slow jog (about 1.3 m/s),
+   * since distance grows in 5 m steps and a slow jog can read near 1 m/s over a few seconds
+   */
+  stoppedMps: 0.5,
   /** How far beyond the target range (s/km) still counts as on pace */
   marginSecPerKm: 10,
   /** How long the pace must stay off before a correction is said */
-  sustainS: 20,
+  sustainS: 10,
   /** The same correction again while the pace is still off */
   reminderS: 60,
   /** Least time between two different corrections */
@@ -175,7 +183,7 @@ export function nextPaceCue(
     return { state: { ...state, off: null, inRangeSinceMs: null }, cue: null }
   }
   // Standing at a crossing (or just stopped there): no corrections, and the wait starts over
-  if (speed < MIN_MOVING_SPEED_MPS || recent < MIN_MOVING_SPEED_MPS) {
+  if (speed < MIN_MOVING_SPEED_MPS || recent < config.stoppedMps) {
     return { state: { ...state, off: null, inRangeSinceMs: null }, cue: null }
   }
 
