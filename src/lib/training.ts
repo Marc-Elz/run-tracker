@@ -215,8 +215,8 @@ export function checkSession(input: SessionInput, weeks: number): SessionInput {
     throw new TrainingError(`Pick a week from 1 to ${weeks}.`)
   }
   if (!SESSION_TYPES.includes(input.type)) throw new TrainingError('Pick a session type.')
+  // An empty title is fine: the session is then named from its steps (`sessionTitle`, #143)
   const title = input.title.trim() || (input.type === 'rest' ? 'Rest' : '')
-  if (title === '') throw new TrainingError('Give the session a title.')
   if (title.length > MAX_NAME_LENGTH) {
     throw new TrainingError(`Keep the title under ${MAX_NAME_LENGTH} characters.`)
   }
@@ -437,4 +437,97 @@ export function stepSummary(step: SessionStep, children = 0): string {
     text += ` · ${formatMinSec((paceMin ?? paceMax)!)} /km`
   }
   return text
+}
+
+/** A step's target as text: "1:00", "400 m", or "" without one */
+function targetText(step: SessionStep): string {
+  if (step.targetValue === null) return ''
+  if (step.targetKind === 'duration') return formatMinSec(step.targetValue)
+  if (step.targetKind === 'distance') return formatMetres(step.targetValue)
+  return ''
+}
+
+/** Cut a name to `MAX_NAME_LENGTH` characters, ending in "…" when cut */
+const fitName = (text: string) =>
+  text.length > MAX_NAME_LENGTH ? `${text.slice(0, MAX_NAME_LENGTH - 1).trimEnd()}…` : text
+
+/**
+ * The name a session without a title of its own gets (#143), made from its stored steps:
+ * - with a repeat, its rounds and steps: "8× run 1:00 / walk 1:30"
+ * - without one, the run steps: "Run 30:00", or "Run 10:00 + 5:00" for several
+ * - otherwise the type label ("Run/walk")
+ */
+export function autoTitle(type: SessionType, steps: SessionStep[]): string {
+  if (type === 'rest') return SESSION_TYPE_LABELS.rest
+  const blocks = toBlocks([...steps].sort((a, b) => a.position - b.position))
+  const repeat = blocks.find((b) => b.step.kind === 'repeat')
+  if (repeat) {
+    const inner = repeat.children
+      .map((c) => [STEP_KIND_LABELS[c.kind].toLowerCase(), targetText(c)].filter(Boolean).join(' '))
+      .join(' / ')
+    return fitName(`${repeat.step.repetitions ?? 1}×${inner ? ` ${inner}` : ''}`)
+  }
+  const runs = blocks.filter((b) => b.step.kind === 'run')
+  if (runs.length > 0) {
+    const targets = runs.map((b) => targetText(b.step)).filter(Boolean)
+    return fitName(targets.length > 0 ? `Run ${targets.join(' + ')}` : 'Run')
+  }
+  return SESSION_TYPE_LABELS[type]
+}
+
+/** The session's own title, or else the name made from its steps */
+export const sessionTitle = (session: ProgramSession, steps: SessionStep[]): string =>
+  session.title.trim() || autoTitle(session.type, steps)
+
+/** What a new step starts with in the step editor (#143) */
+export interface StepDefaults {
+  kind: StepKind
+  targetKind: TargetKind
+  targetValue: number | null
+}
+
+/** The kind that usually follows `previous` at the same level (null: the level is empty) */
+export function nextStepKind(previous: StepKind | null, inRepeat: boolean): StepKind {
+  switch (previous) {
+    case null:
+      return inRepeat ? 'run' : 'warmup'
+    case 'warmup':
+      return 'run'
+    case 'run':
+      return 'walk'
+    case 'repeat':
+      return 'cooldown'
+    default:
+      // Walk, recovery and cool-down
+      return 'run'
+  }
+}
+
+/**
+ * The target a new step of `kind` starts with: the one of the last step of that kind in the
+ * session (any level) that has a value, or else Time with no value yet. A repeat has none.
+ */
+export function stepTargetDefaults(
+  blocks: StepBlock[],
+  kind: StepKind,
+): Omit<StepDefaults, 'kind'> {
+  if (kind === 'repeat') return { targetKind: 'none', targetValue: null }
+  const all = blocks.flatMap((b) => [b.step, ...b.children])
+  for (let i = all.length - 1; i >= 0; i--) {
+    const s = all[i]!
+    if (s.kind === kind && s.targetValue !== null) {
+      return { targetKind: s.targetKind, targetValue: s.targetValue }
+    }
+  }
+  return { targetKind: 'duration', targetValue: null }
+}
+
+/** Defaults for a new step at the end of the top level (`list` null) or of the repeat `list` */
+export function newStepDefaults(blocks: StepBlock[], list: string | null): StepDefaults {
+  const level =
+    list === null
+      ? blocks.map((b) => b.step)
+      : (blocks.find((b) => b.step.id === list)?.children ?? [])
+  const kind = nextStepKind(level[level.length - 1]?.kind ?? null, list !== null)
+  return { kind, ...stepTargetDefaults(blocks, kind) }
 }

@@ -128,6 +128,7 @@ export const useTrainingStore = defineStore('training', () => {
     saveSession,
     deleteSession: (id: string) => repo.deleteSession(id),
     loadSteps: (sessionId: string) => repo.loadSteps(sessionId),
+    loadProgramSteps: (programId: string) => repo.loadProgramSteps(programId),
     skippedSessionIds,
     setSkipped,
     replaceSteps,

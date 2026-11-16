@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useBackInterceptor } from '@/composables/useBackButton'
+import { ref, watch } from 'vue'
+import SessionPicker from '@/components/SessionPicker.vue'
 import { formatDistanceKm, formatDuration } from '@/lib/format'
 import { compareToPlan, plannedTotals, type PlanComparison } from '@/lib/planVsDone'
-import { followedProgramId } from '@/lib/settings'
 import {
   SESSION_TYPE_LABELS,
+  sessionTitle,
   type ProgramSession,
-  type ProgramSummary,
+  type SessionStep,
   type TrainingProgram,
 } from '@/lib/training'
 import { useRunStore } from '@/stores/run'
@@ -31,6 +31,7 @@ const run = useRunStore()
 const training = useTrainingStore()
 
 const session = ref<ProgramSession | null>(null)
+const sessionSteps = ref<SessionStep[]>([])
 const program = ref<TrainingProgram | null>(null)
 const comparison = ref<PlanComparison[]>([])
 const hasPrograms = ref(false)
@@ -39,6 +40,7 @@ const failed = ref(false)
 
 async function loadSession() {
   session.value = null
+  sessionSteps.value = []
   program.value = null
   comparison.value = []
   try {
@@ -47,7 +49,8 @@ async function loadSession() {
       if (found) {
         session.value = found
         program.value = await training.getProgram(found.programId)
-        const planned = plannedTotals(await training.loadSteps(found.id))
+        sessionSteps.value = await training.loadSteps(found.id)
+        const planned = plannedTotals(sessionSteps.value)
         comparison.value = compareToPlan(planned, {
           elapsedMs: props.elapsedMs,
           distanceM: props.distanceM,
@@ -78,50 +81,12 @@ async function setLink(next: string | null) {
   }
 }
 
-// The picker: choose a program, then one of its sessions
+// The picker (#148) is shared with the Run screen; this part stores the pick as the run's link
 const picking = ref(false)
-const programs = ref<ProgramSummary[]>([])
-const programId = ref<string | null>(null)
-const sessions = ref<ProgramSession[]>([])
-const doneIds = ref<ReadonlySet<string>>(new Set())
-const loadingPicker = ref(false)
 
-useBackInterceptor(picking, () => {
-  if (!busy.value) picking.value = false
-})
-
-/** The runnable sessions of the chosen program, by week then position (rest days can't be run) */
-const choices = computed(() => sessions.value.filter((s) => s.type !== 'rest'))
-
-async function openPicker() {
+function openPicker() {
   failed.value = false
   picking.value = true
-  loadingPicker.value = true
-  try {
-    programs.value = await training.listPrograms()
-    const followed = programs.value.find((p) => p.id === followedProgramId.value)
-    programId.value = (followed ?? programs.value[0])?.id ?? null
-    doneIds.value = new Set(await run.doneSessionIds())
-    await loadChoices()
-  } catch (err) {
-    console.warn('[db] could not list the sessions to link', err)
-    failed.value = true
-  } finally {
-    loadingPicker.value = false
-  }
-}
-
-async function loadChoices() {
-  sessions.value = programId.value === null ? [] : await training.listSessions(programId.value)
-}
-
-async function changeProgram() {
-  try {
-    await loadChoices()
-  } catch (err) {
-    console.warn('[db] could not list the sessions to link', err)
-    failed.value = true
-  }
 }
 
 const fmt = (c: PlanComparison, value: number) =>
@@ -134,7 +99,7 @@ const fmt = (c: PlanComparison, value: number) =>
 
     <template v-if="session">
       <p class="session__name">
-        {{ session.title }}
+        {{ sessionTitle(session, sessionSteps) }}
         <span class="session__where">
           · {{ program?.name }} · Week {{ session.week }} · {{ SESSION_TYPE_LABELS[session.type] }}
         </span>
@@ -158,32 +123,14 @@ const fmt = (c: PlanComparison, value: number) =>
     <p v-if="failed && !picking" class="notice" role="alert">Could not change the link.</p>
   </section>
 
-  <div v-if="picking" class="backdrop" @click.self="!busy && (picking = false)">
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="Link to a session">
-      <h2>Link to a session</h2>
-      <label v-if="programs.length > 1" class="field">
-        <span>Program</span>
-        <select v-model="programId" :disabled="busy" @change="changeProgram()">
-          <option v-for="p in programs" :key="p.id" :value="p.id">{{ p.name }}</option>
-        </select>
-      </label>
-      <p v-if="loadingPicker" class="session__hint">Loading…</p>
-      <ul v-else class="choices">
-        <li v-for="s in choices" :key="s.id">
-          <button class="choice" :disabled="busy" @click="setLink(s.id)">
-            <span class="choice__week">W{{ s.week }}</span>
-            <span class="choice__title">{{ s.title }}</span>
-            <span v-if="doneIds.has(s.id)" class="choice__done" aria-label="Done">✓</span>
-          </button>
-        </li>
-        <li v-if="choices.length === 0" class="session__hint">
-          This program has no sessions to run.
-        </li>
-      </ul>
-      <p v-if="failed" class="notice" role="alert">Could not link the run.</p>
-      <button class="btn btn--secondary" :disabled="busy" @click="picking = false">Cancel</button>
-    </div>
-  </div>
+  <SessionPicker
+    v-if="picking"
+    title="Link to a session"
+    :busy="busy"
+    :error="failed ? 'Could not link the run.' : null"
+    @pick="(id) => setLink(id)"
+    @close="picking = false"
+  />
 </template>
 
 <style scoped>
@@ -260,85 +207,5 @@ const fmt = (c: PlanComparison, value: number) =>
 .notice {
   margin: 0.75rem 0 0;
   color: #ffb3b3;
-}
-
-.backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: rgb(0 0 0 / 0.65);
-}
-
-.dialog {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
-  max-width: 24rem;
-  max-height: 80vh;
-  padding: 1.25rem;
-  border-radius: 1rem;
-  background: #1a2027;
-  color: #f4f6f8;
-  font-family: system-ui, sans-serif;
-}
-
-.dialog h2 {
-  margin: 0;
-  font-size: 1.3rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  color: #9aa5b1;
-}
-
-.field select {
-  min-height: 3.5rem;
-  padding: 0 0.75rem;
-  border: 2px solid #3b4652;
-  border-radius: 1rem;
-  background: #101418;
-  color: #f4f6f8;
-  font-size: 1.1rem;
-}
-
-.choices {
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.choice {
-  display: grid;
-  grid-template-columns: 3rem 1fr auto;
-  align-items: center;
-  width: 100%;
-  min-height: 3.5rem;
-  padding: 0 0.5rem;
-  border: 0;
-  border-bottom: 1px solid #2a323b;
-  background: none;
-  color: #f4f6f8;
-  font-size: 1.1rem;
-  text-align: left;
-}
-
-.choice__week {
-  color: #9aa5b1;
-}
-
-.choice__done {
-  color: #6fcf97;
 }
 </style>

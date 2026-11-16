@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useBackInterceptor } from '@/composables/useBackButton'
@@ -9,11 +9,13 @@ import {
   addStep,
   findStep,
   formatMinSec,
+  newStepDefaults,
   parseMinSec,
   removeStep,
   replaceStep,
   STEP_KIND_LABELS,
   STEP_KINDS,
+  stepTargetDefaults,
   TrainingError,
   type SessionStep,
   type StepBlock,
@@ -42,6 +44,10 @@ const TARGETS: { kind: TargetKind; label: string }[] = [
   { kind: 'distance', label: 'Distance' },
 ]
 
+// One-tap values (#143): seconds for a time, metres for a distance
+const TIME_CHIPS = [60, 90, 120, 300, 600]
+const DISTANCE_CHIPS = [200, 400, 800, 1000]
+
 const blocks = ref<StepBlock[]>([])
 const state = ref<'loading' | 'ready' | 'missing' | 'error'>('loading')
 const error = ref<string | null>(null)
@@ -61,8 +67,29 @@ const form = ref({
 const parent = ref<string | null>(repeatId)
 // The repeat's own steps, when this step is a repeat
 const children = ref(0)
+// The pace fields are folded away until "+ Add pace", or open when the step has a pace
+const showPace = ref(false)
+const paceInput = ref<HTMLInputElement | null>(null)
+// The target or value was picked by hand, so a change of kind leaves them alone
+const targetTouched = ref(false)
+// After "Save and add next" on a new repeat: the run it starts with, which this form fills in
+const replacingId = ref<string | null>(null)
 
+const isNew = computed(() => stepId.value === undefined)
 const isRepeat = computed(() => form.value.kind === 'repeat')
+const chips = computed(() =>
+  form.value.targetKind === 'duration'
+    ? TIME_CHIPS.map((v) => ({ value: v, label: formatMinSec(v), text: formatMinSec(v) }))
+    : DISTANCE_CHIPS.map((v) => ({ value: v, label: `${v} m`, text: String(v) })),
+)
+// The chip matching the typed value shows pressed
+const chosenValue = computed(() =>
+  form.value.targetKind === 'duration'
+    ? parseMinSec(form.value.target)
+    : form.value.target.trim() === ''
+      ? null
+      : Number(form.value.target),
+)
 // A repeat can only be picked for a new top-level step; an existing repeat stays one
 const lockedRepeat = computed(() => stepId.value !== undefined && isRepeat.value)
 const kinds = computed(() =>
@@ -76,6 +103,69 @@ const lastInRepeat = computed(() => {
 useBackInterceptor(confirming, () => {
   if (!deleting.value) confirming.value = false
 })
+
+/** A target value as the field shows it: "1:30" for a time, "400" for metres */
+function targetText(kind: TargetKind, value: number | null): string {
+  if (value === null || kind === 'none') return ''
+  return kind === 'duration' ? formatMinSec(value) : String(Math.round(value))
+}
+
+/** The steps the defaults look at: the run a new repeat starts with doesn't count yet */
+function stepsForDefaults(): StepBlock[] {
+  const id = replacingId.value
+  if (!id) return blocks.value
+  return blocks.value.map((b) => ({
+    step: b.step,
+    children: b.children.filter((c) => c.id !== id),
+  }))
+}
+
+/** A fresh new step at the end of its level: kind, target and value from the session (#143) */
+function applyDefaults() {
+  const d = newStepDefaults(stepsForDefaults(), parent.value)
+  form.value = {
+    kind: d.kind,
+    targetKind: d.targetKind,
+    target: targetText(d.targetKind, d.targetValue),
+    paceMin: '',
+    paceMax: '',
+    repetitions: 2,
+  }
+  showPace.value = false
+  targetTouched.value = false
+  error.value = null
+}
+
+/** On a new step, the target and value follow the kind until they are picked by hand */
+function pickKind(kind: StepKind) {
+  form.value.kind = kind
+  if (!isNew.value || targetTouched.value || kind === 'repeat') return
+  const d = stepTargetDefaults(stepsForDefaults(), kind)
+  form.value.targetKind = d.targetKind
+  form.value.target = targetText(d.targetKind, d.targetValue)
+}
+
+function pickTarget(kind: TargetKind) {
+  if (kind !== form.value.targetKind) form.value.target = ''
+  form.value.targetKind = kind
+  targetTouched.value = true
+}
+
+function pickChip(text: string) {
+  form.value.target = text
+  targetTouched.value = true
+}
+
+function openPace() {
+  showPace.value = true
+  void nextTick(() => paceInput.value?.focus())
+}
+
+function removePace() {
+  form.value.paceMin = ''
+  form.value.paceMax = ''
+  showPace.value = false
+}
 
 async function load() {
   state.value = 'loading'
@@ -108,9 +198,12 @@ async function load() {
         paceMax: s.paceMax === null ? '' : formatMinSec(s.paceMax),
         repetitions: s.repetitions ?? 2,
       }
+      showPace.value = s.paceMin !== null || s.paceMax !== null
     } else if (repeatId && !findStep(blocks.value, repeatId)) {
       state.value = 'missing'
       return
+    } else {
+      applyDefaults()
     }
     state.value = 'ready'
   } catch (err) {
@@ -161,16 +254,18 @@ function readForm(): Omit<SessionStep, 'id' | 'sessionId' | 'position'> | string
 
 function nextBlocks(fields: Omit<SessionStep, 'id' | 'sessionId' | 'position'>): StepBlock[] {
   const base = { sessionId: sessionId.value, position: 0 }
-  if (stepId.value) return replaceStep(blocks.value, { ...fields, ...base, id: stepId.value })
+  const id = stepId.value ?? replacingId.value
+  if (id) return replaceStep(blocks.value, { ...fields, ...base, id })
   const step: SessionStep = { ...fields, ...base, id: crypto.randomUUID() }
   if (step.kind !== 'repeat') return addStep(blocks.value, step, parent.value)
-  // A repeat can't be empty: it starts with one run without a target, to edit next
+  // A repeat can't be empty: it starts with one run, with the session's last run target if any
+  const last = stepTargetDefaults(blocks.value, 'run')
   const first: SessionStep = {
     ...base,
     id: crypto.randomUUID(),
     kind: 'run',
-    targetKind: 'none',
-    targetValue: null,
+    targetKind: last.targetValue === null ? 'none' : last.targetKind,
+    targetValue: last.targetValue,
     paceMin: null,
     paceMax: null,
     repetitions: null,
@@ -179,24 +274,51 @@ function nextBlocks(fields: Omit<SessionStep, 'id' | 'sessionId' | 'position'>):
   return [...blocks.value, { step, children: [first] }]
 }
 
-async function save() {
-  if (saving.value) return
+/** Save the form; the stored steps, or null when it could not be saved (the error shows) */
+async function store(): Promise<StepBlock[] | null> {
   const fields = readForm()
   if (typeof fields === 'string') {
     error.value = fields
-    return
+    return null
   }
   saving.value = true
   error.value = null
   try {
-    await training.saveBlocks(sessionId.value, nextBlocks(fields))
-    leave()
+    const next = nextBlocks(fields)
+    await training.saveBlocks(sessionId.value, next)
+    return next
   } catch (err) {
     if (!(err instanceof TrainingError)) console.warn('[db] could not save step', err)
     error.value = err instanceof TrainingError ? err.message : 'Could not save the step.'
+    return null
   } finally {
     saving.value = false
   }
+}
+
+async function save() {
+  if (saving.value) return
+  if (await store()) leave()
+}
+
+/**
+ * Save, then start a new step at the same level, with the defaults worked out again (#143).
+ * After a new repeat, the next step is the run it starts with, so the repeat fills in one go.
+ */
+async function saveAndNext() {
+  if (saving.value || !isNew.value) return
+  const wasNewRepeat = isRepeat.value && replacingId.value === null
+  const next = await store()
+  if (!next) return
+  blocks.value = next
+  if (wasNewRepeat) {
+    const repeat = next[next.length - 1]!
+    parent.value = repeat.step.id
+    replacingId.value = repeat.children[0]!.id
+  } else {
+    replacingId.value = null
+  }
+  applyDefaults()
 }
 
 async function onDelete() {
@@ -254,7 +376,7 @@ onMounted(load)
             class="btn"
             :aria-pressed="form.kind === k"
             :disabled="saving"
-            @click="form.kind = k"
+            @click="pickKind(k)"
           >
             {{ STEP_KIND_LABELS[k] }}
           </button>
@@ -302,51 +424,97 @@ onMounted(load)
               class="btn"
               :aria-pressed="form.targetKind === t.kind"
               :disabled="saving"
-              @click="form.targetKind = t.kind"
+              @click="pickTarget(t.kind)"
             >
               {{ t.label }}
             </button>
           </div>
           <template v-if="form.targetKind !== 'none'">
             <label class="label" for="step-target-value">
-              {{ form.targetKind === 'duration' ? 'Time (min:s)' : 'Distance (m)' }}
+              {{ form.targetKind === 'duration' ? 'Time' : 'Distance' }}
             </label>
+            <div class="choices choices--chips" role="group" aria-label="Common values">
+              <button
+                v-for="c in chips"
+                :key="c.value"
+                type="button"
+                class="btn"
+                :aria-pressed="chosenValue === c.value"
+                :disabled="saving"
+                @click="pickChip(c.text)"
+              >
+                {{ c.label }}
+              </button>
+            </div>
             <input
               id="step-target-value"
               v-model="form.target"
               class="input"
               type="text"
               :inputmode="form.targetKind === 'duration' ? 'text' : 'numeric'"
-              :placeholder="form.targetKind === 'duration' ? '2:00' : '400'"
+              :placeholder="form.targetKind === 'duration' ? 'min:s' : 'metres'"
               :disabled="saving"
+              @input="targetTouched = true"
             />
           </template>
 
-          <span id="step-pace" class="label">Pace (optional, min:s per km)</span>
-          <div class="pace" role="group" aria-labelledby="step-pace">
-            <input
-              v-model="form.paceMin"
-              class="input"
-              type="text"
-              aria-label="Fastest pace"
-              placeholder="4:50"
+          <template v-if="showPace">
+            <span id="step-pace" class="label">Pace (min:s per km)</span>
+            <div class="pace" role="group" aria-labelledby="step-pace">
+              <input
+                ref="paceInput"
+                v-model="form.paceMin"
+                class="input"
+                type="text"
+                aria-label="Fastest pace"
+                placeholder="min:s"
+                :disabled="saving"
+              />
+              <span aria-hidden="true">–</span>
+              <input
+                v-model="form.paceMax"
+                class="input"
+                type="text"
+                aria-label="Slowest pace"
+                placeholder="min:s"
+                :disabled="saving"
+              />
+            </div>
+            <button
+              type="button"
+              class="btn btn--quiet pace__toggle"
               :disabled="saving"
-            />
-            <span aria-hidden="true">–</span>
-            <input
-              v-model="form.paceMax"
-              class="input"
-              type="text"
-              aria-label="Slowest pace"
-              placeholder="5:00"
-              :disabled="saving"
-            />
-          </div>
+              @click="removePace()"
+            >
+              Remove pace
+            </button>
+          </template>
+          <button
+            v-else
+            type="button"
+            class="btn btn--quiet pace__toggle"
+            :disabled="saving"
+            @click="openPace()"
+          >
+            + Add pace
+          </button>
         </template>
 
         <p v-if="error" class="field-error" role="alert">{{ error }}</p>
 
-        <button type="submit" class="btn btn--primary" :disabled="saving">Save</button>
+        <!-- Side by side on a new step, so both stay within thumb reach without scrolling -->
+        <div class="save-row" :class="{ 'save-row--two': isNew }">
+          <button type="submit" class="btn btn--primary" :disabled="saving">Save</button>
+          <button
+            v-if="isNew"
+            type="button"
+            class="btn save-row__next"
+            :disabled="saving"
+            @click="saveAndNext()"
+          >
+            + Save and add next
+          </button>
+        </div>
       </form>
 
       <button
@@ -385,6 +553,25 @@ onMounted(load)
   align-items: center;
   gap: 0.75rem;
   color: #9aa5b1;
+}
+
+.pace__toggle {
+  align-self: flex-start;
+}
+
+.save-row {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.save-row--two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.save-row__next {
+  padding: 0 0.5rem;
+  font-size: 1rem;
+  line-height: 1.2;
 }
 
 .step-kind--locked {

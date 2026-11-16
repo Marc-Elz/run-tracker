@@ -154,7 +154,7 @@ onMounted(load)
           v-model="form.name"
           class="input"
           type="text"
-          placeholder="Half marathon"
+          placeholder="e.g. Half marathon"
           :maxlength="MAX_NAME_LENGTH"
           :disabled="saving"
         />
@@ -165,7 +165,7 @@ onMounted(load)
           v-model="form.goal"
           class="input"
           type="text"
-          placeholder="Sub 2:00"
+          placeholder="e.g. Sub 2:00"
           :maxlength="MAX_NAME_LENGTH"
           :disabled="saving"
         />

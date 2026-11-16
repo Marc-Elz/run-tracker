@@ -39,6 +39,7 @@ vi.mock('@/lib/gps', async (importOriginal) => ({
 
 const nav = vi.hoisted(() => ({
   push: vi.fn<(to: unknown) => Promise<void>>(async () => {}),
+  replace: vi.fn<(to: unknown) => Promise<void>>(async () => {}),
   query: {} as Record<string, string>,
 }))
 vi.mock('vue-router', () => ({ useRouter: () => nav, useRoute: () => ({ query: nav.query }) }))
@@ -302,6 +303,59 @@ describe('RunView', () => {
       expect(button(wrapper, 'Start')).toBeDefined()
     })
 
+    it('names a session without a title from its steps, on the card and the run line (#143)', async () => {
+      const training = useTrainingStore()
+      const programId = await training.createProgram({
+        name: 'Beginner',
+        goal: null,
+        weeks: 1,
+        startDate: null,
+      })
+      const sid = await training.saveSession(programId, {
+        week: 1,
+        type: 'runwalk',
+        title: '',
+        notes: null,
+      })
+      const timed = (id: string, kind: SessionStep['kind'], position: number, seconds: number) =>
+        ({
+          id,
+          sessionId: sid,
+          position,
+          kind,
+          targetKind: 'duration',
+          targetValue: seconds,
+          paceMin: null,
+          paceMax: null,
+          repetitions: null,
+          span: null,
+        }) satisfies SessionStep
+      await training.replaceSteps(sid, [
+        {
+          ...timed('r', 'repeat', 0, 0),
+          targetKind: 'none',
+          targetValue: null,
+          repetitions: 8,
+          span: 2,
+        },
+        timed('a', 'run', 1, 60),
+        timed('b', 'walk', 2, 90),
+      ])
+      setFollowedProgram(programId)
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.find('.session-card__title').text()).toBe('8× run 1:00 / walk 1:30')
+      // The run line shows for a session without steps (else the step panel does): its type
+      wrapper.unmount()
+      await training.replaceSteps(sid, [])
+      const again = mount(RunView)
+      await flushPromises()
+      expect(again.find('.session-card__title').text()).toBe('Run/walk')
+      await button(again, 'Start session')!.trigger('click')
+      await flushPromises()
+      expect(again.find('.session-line').text()).toBe('Week 1 · Run/walk')
+    })
+
     it('still starts a free run when the programs cannot be read', async () => {
       useTrainingStore().useRepository(unavailableTrainingRepository('broken'))
       setFollowedProgram('p')
@@ -312,6 +366,117 @@ describe('RunView', () => {
       expect(wrapper.text()).not.toContain('Follow a program')
       await start(wrapper)
       expect(useRunStore().status).toBe('running')
+    })
+
+    describe('choosing another session from the card (#148)', () => {
+      const strip = (wrapper: ReturnType<typeof mount>) =>
+        wrapper.find('button[aria-label="Choose another session"]')
+      const choice = (wrapper: ReturnType<typeof mount>, title: string) =>
+        wrapper.findAll('.choice').find((c) => c.text().includes(title))!
+
+      async function openPicker(opts?: Parameters<typeof followed>[0]) {
+        const ids = await followed(opts)
+        const wrapper = mount(RunView)
+        await flushPromises()
+        await strip(wrapper).trigger('click')
+        await flushPromises()
+        return { ...ids, wrapper }
+      }
+
+      it('opens the picker from the strip only, not from the rest of the card', async () => {
+        await followed()
+        const wrapper = mount(RunView)
+        await flushPromises()
+        await wrapper.find('.session-card__info').trigger('click')
+        expect(wrapper.find('.dialog').exists()).toBe(false)
+        await strip(wrapper).trigger('click')
+        await flushPromises()
+        expect(wrapper.find('.dialog').attributes('aria-label')).toBe('Choose a session')
+      })
+
+      it('lists the followed program without rest days, marking next, done and skipped', async () => {
+        const { intervals, wrapper } = await openPicker({ doneFirst: true })
+        const choices = wrapper.findAll('.choice')
+        expect(choices.map((c) => c.find('.choice__title').text())).toEqual([
+          '30 min easy',
+          '6×400 m',
+        ])
+        expect(choice(wrapper, '30 min easy').find('.choice__done').exists()).toBe(true)
+        expect(choice(wrapper, '6×400 m').text()).toContain('Next')
+        // The card's session is marked as the current one
+        expect(choice(wrapper, '6×400 m').attributes('aria-current')).toBe('true')
+
+        wrapper.unmount()
+        const training = useTrainingStore()
+        await training.setSkipped(intervals, true)
+        const again = mount(RunView)
+        await flushPromises()
+        await strip(again).trigger('click')
+        await flushPromises()
+        expect(choice(again, '6×400 m').text()).toContain('Skipped')
+      })
+
+      it('puts a picked session on the card, ready to start', async () => {
+        const { intervals, wrapper } = await openPicker()
+        await choice(wrapper, '6×400 m').trigger('click')
+        await flushPromises()
+        expect(wrapper.find('.dialog').exists()).toBe(false)
+        expect(nav.replace).toHaveBeenCalledExactlyOnceWith({
+          name: 'run',
+          query: { session: intervals },
+        })
+
+        // The route now carries the pick (the router itself is mocked here)
+        wrapper.unmount()
+        nav.query = { session: intervals }
+        const again = mount(RunView)
+        await flushPromises()
+        expect(again.text()).toContain('Session · Week 2')
+        await button(again, 'Start session')!.trigger('click')
+        await flushPromises()
+        expect(useRunStore().sessionId).toBe(intervals)
+      })
+
+      it('goes back to the next session when "Next" is picked', async () => {
+        const { intervals } = await followed()
+        nav.query = { session: intervals }
+        const wrapper = mount(RunView)
+        await flushPromises()
+        expect(wrapper.text()).toContain('Session · Week 2')
+        await strip(wrapper).trigger('click')
+        await flushPromises()
+        expect(choice(wrapper, '30 min easy').text()).toContain('Next')
+        await choice(wrapper, '30 min easy').trigger('click')
+        expect(nav.replace).toHaveBeenCalledExactlyOnceWith({ name: 'run' })
+      })
+
+      it('keeps the card as it was on Cancel or a tap outside', async () => {
+        const { wrapper } = await openPicker()
+        await button(wrapper, 'Cancel')!.trigger('click')
+        expect(wrapper.find('.dialog').exists()).toBe(false)
+        await strip(wrapper).trigger('click')
+        await flushPromises()
+        await wrapper.find('.backdrop').trigger('click')
+        expect(wrapper.find('.dialog').exists()).toBe(false)
+        expect(nav.replace).not.toHaveBeenCalled()
+        expect(wrapper.text()).toContain('Next session · Week 1')
+      })
+
+      it('offers the strip on the "All sessions done" card too', async () => {
+        const { intervals } = await followed({ doneFirst: true })
+        const run = useRunStore()
+        run.start(0, intervals)
+        await run.finish(1_000)
+        const wrapper = mount(RunView)
+        await flushPromises()
+        expect(wrapper.text()).toContain('All sessions done')
+        await strip(wrapper).trigger('click')
+        await flushPromises()
+        // Nothing is next in a finished program, so no "Next" mark
+        expect(wrapper.find('.choice__mark--next').exists()).toBe(false)
+        await choice(wrapper, '30 min easy').trigger('click')
+        expect(nav.replace).toHaveBeenCalledWith({ name: 'run', query: { session: expect.any(String) } })
+      })
     })
   })
 

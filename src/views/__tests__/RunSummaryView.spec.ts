@@ -275,6 +275,20 @@ describe('RunSummaryView', () => {
       expect(wrapper.find('.plan__row').text()).toContain('planned 00:05')
     })
 
+    it('names a session without a title from its steps, in the picker and once linked (#143)', async () => {
+      const { easy } = await plan()
+      const training = useTrainingStore()
+      const session = (await training.getSession(easy))!
+      await training.saveSession(session.programId, { ...session, title: '' }, easy)
+      const { wrapper } = await open()
+      await button(wrapper, 'Link to a session')!.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.choice__title').text()).toBe('Run 0:05')
+      await wrapper.find('.choice').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.session__name').text()).toContain('Run 0:05')
+    })
+
     it('unlinks a run from its session', async () => {
       const { easy } = await plan()
       const { wrapper, repo } = await open()

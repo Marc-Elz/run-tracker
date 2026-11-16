@@ -302,6 +302,14 @@ describe('training programs in the backup', () => {
     expect(parsed.rejected).toBe(12)
   })
 
+  it('keeps a session without a title of its own, which is named from its steps (#143)', () => {
+    const b = bundle('p')
+    b.sessions[0]!.title = ''
+    const parsed = parseBackup(buildBackup([], [b], 0))
+    expect(parsed.rejected).toBe(0)
+    expect(parsed.programs[0]!.sessions[0]!.title).toBe('')
+  })
+
   it('trims names and titles as the app does', () => {
     const b = bundle('p')
     b.program.name = '  Half  '
