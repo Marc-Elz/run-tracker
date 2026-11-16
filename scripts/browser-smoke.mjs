@@ -358,6 +358,34 @@ try {
   check('Run screen offers the next session', /next session · week 1/i.test(card) && card.includes('6×400 m'), card.replace(/\n+/g, ' '))
   check('Run screen with a session has no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
   if (shots) await page.screenshot({ path: join(shots, 'run-session.png') })
+  // ⇄ on the card (#148): a full-height strip on the right edge that opens the session picker
+  const strip = page.getByRole('button', { name: 'Choose another session' })
+  const stripBox = await strip.boundingBox()
+  const cardBox = await page.locator('.session-card').boundingBox()
+  check(
+    'the ⇄ strip is at least 44 px wide, full card height, on the right edge',
+    stripBox !== null && cardBox !== null && stripBox.width >= 44 && Math.abs(stripBox.height - cardBox.height) < 1 && Math.abs(stripBox.x + stripBox.width - (cardBox.x + cardBox.width)) < 1,
+    JSON.stringify({ stripBox, cardBox }),
+  )
+  // A long title ellipsizes next to the strip, which stays in view
+  const title = page.locator('.session-card__title')
+  const shortTitle = await title.innerText()
+  await title.evaluate((el) => (el.textContent = '10× run 1:00 / walk 1:30, then 5 min cool-down walk'))
+  const longStrip = await strip.boundingBox()
+  check(
+    'a long title ellipsizes next to the strip at 360 px',
+    longStrip !== null && longStrip.x + longStrip.width <= 360 && (await title.evaluate((el) => el.scrollWidth > el.clientWidth && el.scrollHeight <= el.clientHeight)) && !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)),
+    JSON.stringify(longStrip),
+  )
+  if (shots) await page.screenshot({ path: join(shots, 'run-session-long-title.png') })
+  await title.evaluate((el, text) => (el.textContent = text), shortTitle)
+  await strip.click()
+  await page.getByRole('dialog', { name: 'Choose a session' }).waitFor()
+  const picker = await page.locator('.choices').innerText()
+  check('the picker lists the followed program, its next session marked', picker.includes('6×400 m') && picker.includes('Next'), picker.replace(/\n+/g, ' '))
+  if (shots) await page.screenshot({ path: join(shots, 'session-picker.png') })
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  check('Cancel closes the picker and keeps the card', (await page.getByRole('dialog').count()) === 0 && /next session · week 1/i.test(await page.locator('.session-card').innerText()))
   await page.getByRole('button', { name: 'Start session' }).click()
   await page.waitForSelector('main.run[data-status="running"]')
   // The step panel (#101): warm-up 0:05, then 2× (cool-down 5:00, run without a target)
