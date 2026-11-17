@@ -4,7 +4,7 @@
 
 Run-tracking Android app built with Vue 3 + Capacitor. See [context.md](context.md) for goals and decisions.
 
-**[Try the live demo](https://marc-elz.github.io/run-tracker/)**: the app in a browser, with sample runs, a sample training program and simulated GPS. Nothing is stored: a reload starts over. It can't show what needs the phone: GPS in the background, keeping the screen awake, the phone's own voices for spoken cues, and haptics. Every push to `main` that passes CI publishes it (`.github/workflows/ci.yml`). The sample data is `src/demo/demo-backup.json`, made with `node scripts/make-test-backup.mjs src/demo/demo-backup.json 12 400 --demo`.
+**[Try the live demo](https://marc-elz.github.io/run-tracker/)**: the app in a browser, with sample runs, a sample training program and simulated GPS. Nothing is stored: a reload starts over. It can't show what needs the phone: GPS in the background, keeping the screen awake, the phone's own voices for spoken cues, and haptics. Every push to `main` that passes CI publishes it (`.github/workflows/ci.yml`). The sample data is `src/demo/demo-backup.json`, made with `node scripts/make-test-backup.mjs src/demo/demo-backup.json 12 400 --demo`. The demo's map needs no API key: OpenStreetMap tiles of just its two areas (via [Protomaps](https://protomaps.com)), made with `node scripts/make-demo-map.mjs <clone of run-tracker-demo-map>` and served from the separate [run-tracker-demo-map](https://github.com/Marc-Elz/run-tracker-demo-map) repo. That repo holds the map data under its own licences (ODbL, OFL), so none of it is in this repo.
 
 ## Status
 
