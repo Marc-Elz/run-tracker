@@ -28,6 +28,20 @@ async function boot() {
     run.useRepository(unavailableRunRepository(err))
     training.useRepository(unavailableTrainingRepository(err))
   }
+  // Web demo only (#162): the constant is replaced at build time, so other builds leave the seed
+  // file out. Straight into the empty in-memory repositories, before the stores read them.
+  if (import.meta.env.VITE_DEMO === 'true' && repos) {
+    const { run: runRepo, training: trainingRepo } = repos
+    try {
+      const { seedDemo } = await import('./demo/seedDemo')
+      await seedDemo({
+        importRun: (r, points, steps) => runRepo.importRun(r, points, steps),
+        importProgram: (bundle) => trainingRepo.importProgram(bundle),
+      })
+    } catch (err) {
+      console.warn('[demo] could not add the sample data', err)
+    }
+  }
   if (repos) {
     training.useRepository(repos.training)
     try {
