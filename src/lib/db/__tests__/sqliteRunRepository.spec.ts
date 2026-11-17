@@ -220,7 +220,18 @@ describe('sqlite connection and run repository', () => {
       expect(transaction).toBe(true)
       expect(set).toHaveLength(3)
       expect(set[0]!.statement).toContain('INSERT INTO runs')
-      expect(set[0]!.values.slice(0, 10)).toEqual(['a', 'Haren', 'finished', 1, 2, 1, 1, null, 1, 10])
+      expect(set[0]!.values.slice(0, 10)).toEqual([
+        'a',
+        'Haren',
+        'finished',
+        1,
+        2,
+        1,
+        1,
+        null,
+        1,
+        10,
+      ])
       expect(set[1]!.values).toEqual(['a', 0, 5, 1, 2, 3, null, null])
       expect(set[2]!.values).toEqual(['a', 1, 4, 5, 6, null, null, null])
     })

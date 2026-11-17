@@ -31,7 +31,9 @@ const failed = ref(0)
 const picked = ref<string[]>([])
 const index = ref(0)
 const selectedId = computed(() => picked.value[index.value] ?? null)
-const selected = computed(() => (selectedId.value ? (runs.value.get(selectedId.value) ?? null) : null))
+const selected = computed(() =>
+  selectedId.value ? (runs.value.get(selectedId.value) ?? null) : null,
+)
 
 async function loadRoutes() {
   load.value = { state: 'loading' }
@@ -123,7 +125,8 @@ onMounted(loadRoutes)
             </div>
           </div>
           <p class="card__stats">
-            {{ formatDistanceKm(selected.distanceM) }} km · {{ formatDuration(selected.elapsedMs) }} ·
+            {{ formatDistanceKm(selected.distanceM) }} km ·
+            {{ formatDuration(selected.elapsedMs) }} ·
             {{ formatPace(paceSecPerKm(selected.elapsedMs, selected.distanceM)) }} /km
           </p>
           <button class="btn btn--primary" @click="openRun()">Open</button>

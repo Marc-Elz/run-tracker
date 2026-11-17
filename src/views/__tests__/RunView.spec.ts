@@ -475,7 +475,10 @@ describe('RunView', () => {
         // Nothing is next in a finished program, so no "Next" mark
         expect(wrapper.find('.choice__mark--next').exists()).toBe(false)
         await choice(wrapper, '30 min easy').trigger('click')
-        expect(nav.replace).toHaveBeenCalledWith({ name: 'run', query: { session: expect.any(String) } })
+        expect(nav.replace).toHaveBeenCalledWith({
+          name: 'run',
+          query: { session: expect.any(String) },
+        })
       })
     })
   })

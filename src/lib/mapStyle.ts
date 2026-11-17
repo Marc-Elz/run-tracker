@@ -12,5 +12,7 @@ export function mapKey(): string | null {
 
 /** Style URL for MapLibre, or null when no key is configured. */
 export function mapStyleUrl(key: string | null = mapKey()): string | null {
-  return key ? `https://api.maptiler.com/maps/${STYLE_ID}/style.json?key=${encodeURIComponent(key)}` : null
+  return key
+    ? `https://api.maptiler.com/maps/${STYLE_ID}/style.json?key=${encodeURIComponent(key)}`
+    : null
 }

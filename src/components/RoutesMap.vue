@@ -172,7 +172,9 @@ onBeforeUnmount(() => {
   border-radius: 0.5rem;
   background: rgb(92 58 18 / 0.92);
   color: #ffe2b8;
-  font: 0.9rem system-ui, sans-serif;
+  font:
+    0.9rem system-ui,
+    sans-serif;
   pointer-events: none;
 }
 </style>

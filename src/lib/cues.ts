@@ -31,14 +31,19 @@ function nextThreshold(value: number, step: number): number {
 
 function thresholds(distanceM: number, elapsedMs: number, config: CueConfig) {
   return {
-    nextDistanceM: config.distanceKm > 0 ? nextThreshold(distanceM, config.distanceKm * 1000) : null,
+    nextDistanceM:
+      config.distanceKm > 0 ? nextThreshold(distanceM, config.distanceKm * 1000) : null,
     nextElapsedMs: config.timeMin > 0 ? nextThreshold(elapsedMs, config.timeMin * 60_000) : null,
   }
 }
 
 /** State for a run at these totals: the next cue is the next threshold, never one already passed. */
 export function initCueState(distanceM: number, elapsedMs: number, config: CueConfig): CueState {
-  return { ...thresholds(distanceM, elapsedMs, config), lastDistanceM: distanceM, lastElapsedMs: elapsedMs }
+  return {
+    ...thresholds(distanceM, elapsedMs, config),
+    lastDistanceM: distanceM,
+    lastElapsedMs: elapsedMs,
+  }
 }
 
 /** New config mid-run: new thresholds from the current totals, the pace baseline stays. */
@@ -95,7 +100,11 @@ export function spokenDuration(totalSec: number): string {
 }
 
 /** What is spoken: distance, time and (when known) pace, in metric units. */
-export function cueText(distanceM: number, elapsedMs: number, paceSecPerKmValue: number | null): string {
+export function cueText(
+  distanceM: number,
+  elapsedMs: number,
+  paceSecPerKmValue: number | null,
+): string {
   const parts = [spokenDistance(distanceM), spokenDuration(Math.floor(elapsedMs / 1000))]
   // Slower than 60 min/km is standing around, not a pace
   if (paceSecPerKmValue !== null && paceSecPerKmValue > 0 && paceSecPerKmValue < 3600) {

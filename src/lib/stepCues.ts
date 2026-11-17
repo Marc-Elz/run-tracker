@@ -94,7 +94,8 @@ export function announceText(step: TimelineStep, previous: TimelineStep | null):
 
 /** "Run in 10 seconds" / "Walk in 50 metres": what is coming, said just before it */
 export function warningText(current: TimelineStep, next: TimelineStep): string {
-  const lead = current.targetKind === 'distance' ? `${WARN_LEAD_M} metres` : `${WARN_LEAD_S} seconds`
+  const lead =
+    current.targetKind === 'distance' ? `${WARN_LEAD_M} metres` : `${WARN_LEAD_S} seconds`
   return `${STEP_KIND_LABELS[next.kind]} in ${lead}`
 }
 

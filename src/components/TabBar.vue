@@ -30,7 +30,9 @@ const tabs = [
   justify-content: center;
   min-height: 3.5rem;
   color: #9aa5b1;
-  font: 600 1rem system-ui, sans-serif;
+  font:
+    600 1rem system-ui,
+    sans-serif;
   text-decoration: none;
 }
 

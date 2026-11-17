@@ -38,7 +38,12 @@ describe('buildGpx', () => {
     expect(xml).toContain('<metadata><time>2026-10-26T07:05:00.000Z</time></metadata>')
     const [segment] = parse(xml)
     expect(segment).toHaveLength(2)
-    expect(segment![0]).toMatchObject({ lat: 52, lon: 4, ele: '12.3', time: '2026-10-26T07:05:00.000Z' })
+    expect(segment![0]).toMatchObject({
+      lat: 52,
+      lon: 4,
+      ele: '12.3',
+      time: '2026-10-26T07:05:00.000Z',
+    })
     expect(segment![1]!.ele).toBeNull()
     expect(segment![1]!.time).toBe('2026-10-26T07:05:30.000Z')
   })
