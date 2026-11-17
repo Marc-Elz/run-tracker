@@ -1,5 +1,7 @@
 # Run Tracker
 
+[![CI](https://github.com/Marc-Elz/run-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/Marc-Elz/run-tracker/actions/workflows/ci.yml)
+
 Run-tracking Android app built with Vue 3 + Capacitor. See [context.md](context.md) for goals and decisions.
 
 ## Status

@@ -1,0 +1,32 @@
+# Runs the same checks as the local pre-PR hook (#159, decided in #158).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run type-check
+
+      # The lint scripts use --fix, so fail if they changed any file.
+      - run: npm run lint
+      - run: git diff --exit-code
+
+      # Vitest runs once (no watch mode) because GitHub sets CI=true.
+      - run: npm run test:unit
+
+      # No .env.local here: the build works without a MapTiler key.
+      - run: npm run build-only
