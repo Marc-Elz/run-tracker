@@ -53,8 +53,9 @@ jobs:
 
       - run: npm ci
 
-      # The demo's own MapTiler key, a repository variable and not a secret: it ends up in the
-      # bundle anyway, and MapTiler limits it to the Pages origin. Unset, the map has no tiles.
+      # The phone's MapTiler key (the free plan allows one), also allowed on the Pages origin. A
+      # repository variable and not a secret: it ends up in the bundle anyway. Unset, the map
+      # has no tiles.
       - run: npm run build-only -- --base=/run-tracker/
         env:
           VITE_DEMO: 'true'
