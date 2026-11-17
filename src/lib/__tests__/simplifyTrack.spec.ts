@@ -31,10 +31,10 @@ describe('simplifyLine', () => {
   })
 
   it('keeps first and last point and the order of a zigzag wider than the tolerance', () => {
-    const zigzag = Array.from(
-      { length: 20 },
-      (_, i): LngLat => [4 + (i % 2) * 0.001, 52 + i * 0.001],
-    )
+    const zigzag = Array.from({ length: 20 }, (_, i): LngLat => [
+      4 + (i % 2) * 0.001,
+      52 + i * 0.001,
+    ])
     const out = simplifyLine(zigzag, 5)
     expect(out[0]).toEqual(zigzag[0])
     expect(out[out.length - 1]).toEqual(zigzag[19])
@@ -47,10 +47,10 @@ describe('simplifyLine', () => {
   })
 
   it('handles a very long track without overflowing the stack', () => {
-    const long = Array.from(
-      { length: 100_000 },
-      (_, i): LngLat => [4 + i * 1e-6, 52 + Math.sin(i / 50) * 0.001],
-    )
+    const long = Array.from({ length: 100_000 }, (_, i): LngLat => [
+      4 + i * 1e-6,
+      52 + Math.sin(i / 50) * 0.001,
+    ])
     expect(simplifyLine(long, 5).length).toBeLessThan(long.length)
   })
 })

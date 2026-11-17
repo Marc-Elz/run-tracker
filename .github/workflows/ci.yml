@@ -25,6 +25,9 @@ jobs:
       - run: npm run lint
       - run: git diff --exit-code
 
+      # Formatting drifted on main once (#146); fail instead of reformatting.
+      - run: npm run format:check
+
       # Vitest runs once (no watch mode) because GitHub sets CI=true.
       - run: npm run test:unit
 

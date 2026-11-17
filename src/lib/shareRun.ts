@@ -39,7 +39,15 @@ export async function shareFile(
     if (uri === '') uri = (await Filesystem.writeFile(options)).uri
     else await Filesystem.appendFile(options)
   }
-  if (uri === '') uri = (await Filesystem.writeFile({ path: fileName, data: '', directory: Directory.Cache, encoding: Encoding.UTF8 })).uri
+  if (uri === '')
+    uri = (
+      await Filesystem.writeFile({
+        path: fileName,
+        data: '',
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      })
+    ).uri
   await openShareSheet(fileName, uri)
   return uri
 }

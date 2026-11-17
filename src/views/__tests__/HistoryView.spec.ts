@@ -11,7 +11,7 @@ import HistoryView from '../HistoryView.vue'
 const link = {
   props: ['to'],
   template:
-    '<a :class="to.name === \'heatmap\' ? \'map-link\' : \'row\'" :data-id="to.params?.id"><slot /></a>',
+    "<a :class=\"to.name === 'heatmap' ? 'map-link' : 'row'\" :data-id=\"to.params?.id\"><slot /></a>",
 }
 
 const finished = (

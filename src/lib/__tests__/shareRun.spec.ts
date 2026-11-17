@@ -7,7 +7,9 @@ const plugins = vi.hoisted(() => ({
   })),
   appendFile: vi.fn<(options: unknown) => Promise<void>>(async () => {}),
   stat: vi.fn<(options: unknown) => Promise<object>>(async () => ({})),
-  readdir: vi.fn<(options: unknown) => Promise<{ files: { name: string }[] }>>(async () => ({ files: [] })),
+  readdir: vi.fn<(options: unknown) => Promise<{ files: { name: string }[] }>>(async () => ({
+    files: [],
+  })),
   deleteFile: vi.fn<(options: unknown) => Promise<void>>(async () => {}),
   share: vi.fn<(options: unknown) => Promise<unknown>>(async () => ({})),
 }))
@@ -16,7 +18,9 @@ vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => native.
 vi.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Encoding: { UTF8: 'utf8' },
-  Filesystem: { writeFile: plugins.writeFile, appendFile: plugins.appendFile,
+  Filesystem: {
+    writeFile: plugins.writeFile,
+    appendFile: plugins.appendFile,
     stat: plugins.stat,
     readdir: plugins.readdir,
     deleteFile: plugins.deleteFile,
@@ -40,7 +44,10 @@ describe('shareGpx', () => {
       directory: 'CACHE',
       encoding: 'utf8',
     })
-    expect(plugins.share).toHaveBeenCalledWith({ title: 'run.gpx', files: ['file:///cache/run.gpx'] })
+    expect(plugins.share).toHaveBeenCalledWith({
+      title: 'run.gpx',
+      files: ['file:///cache/run.gpx'],
+    })
   })
 
   it('is silent when the share sheet is dismissed', async () => {
@@ -73,7 +80,9 @@ describe('shareGpx', () => {
       yield '2]}'
     }
     await shareFile('backup.json', pieces(), 'application/json')
-    expect(plugins.writeFile).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: '{"a":[' }))
+    expect(plugins.writeFile).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ data: '{"a":[' }),
+    )
     expect(plugins.appendFile.mock.calls.map(([o]) => (o as { data: string }).data)).toEqual([
       '1,',
       '2]}',

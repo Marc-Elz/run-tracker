@@ -23,11 +23,7 @@ const mocks = vi.hoisted(() => ({
 const shared = { name: '', text: '', mime: '' }
 const shareFile = vi.hoisted(() =>
   vi.fn<
-    (
-      name: string,
-      content: string | AsyncIterable<string>,
-      mime: string,
-    ) => Promise<string | null>
+    (name: string, content: string | AsyncIterable<string>, mime: string) => Promise<string | null>
   >(async (name, content, mime) => {
     let text = ''
     if (typeof content === 'string') text = content
@@ -193,7 +189,10 @@ describe('SettingsView', () => {
     const backupFile = (text: string) => ({ text: async () => text }) as unknown as File
     const pick = async (wrapper: ReturnType<typeof mount>, text: string) => {
       const input = wrapper.get('input[type="file"]')
-      Object.defineProperty(input.element, 'files', { value: [backupFile(text)], configurable: true })
+      Object.defineProperty(input.element, 'files', {
+        value: [backupFile(text)],
+        configurable: true,
+      })
       await input.trigger('change')
       await flushPromises()
     }
@@ -205,7 +204,12 @@ describe('SettingsView', () => {
     })
 
     it('backs up training programs when there are no runs', async () => {
-      await useTrainingStore().createProgram({ name: 'Half', goal: null, weeks: 4, startDate: null })
+      await useTrainingStore().createProgram({
+        name: 'Half',
+        goal: null,
+        weeks: 4,
+        startDate: null,
+      })
       const wrapper = await open(allGood)
       expect(wrapper.text()).not.toContain('Nothing to back up yet.')
       await button(wrapper, 'Back up')!.trigger('click')
@@ -225,7 +229,11 @@ describe('SettingsView', () => {
       const { name, text, mime } = shared
       expect(name).toMatch(/^run-tracker-backup-\d{4}-\d{2}-\d{2}\.json$/)
       expect(mime).toBe('application/json')
-      expect(JSON.parse(text).runs.map((r: { run: RunRecord }) => r.run.id).sort()).toEqual(['a', 'b'])
+      expect(
+        JSON.parse(text)
+          .runs.map((r: { run: RunRecord }) => r.run.id)
+          .sort(),
+      ).toEqual(['a', 'b'])
       expect(wrapper.text()).toContain('Backed up 2 runs')
     })
 
