@@ -29,7 +29,7 @@ export const PACE_COACH_CONFIG = {
   reminderS: 60,
   /** Least time between two different corrections */
   cooldownS: 60,
-  /** How long back inside the range before "Back on pace" is said */
+  /** How long back on pace (within the margin) before "Back on pace" is said */
   backOnPaceS: 10,
 }
 export type PaceCoachConfig = typeof PACE_COACH_CONFIG
@@ -66,8 +66,8 @@ export interface PaceCoachState {
   samples: Sample[]
   /** The pace is off in this direction since this run time */
   off: { key: Correction; sinceMs: number } | null
-  /** Back inside the range since this run time */
-  inRangeSinceMs: number | null
+  /** Back on pace, within the margin, since this run time */
+  onPaceSinceMs: number | null
   lastCorrection: { key: Correction; atMs: number } | null
   /** A correction was said and "Back on pace" not yet */
   owesOnPace: boolean
@@ -83,7 +83,7 @@ export function initPaceCoachState(position: number): PaceCoachState {
     position,
     samples: [],
     off: null,
-    inRangeSinceMs: null,
+    onPaceSinceMs: null,
     lastCorrection: null,
     owesOnPace: false,
   }
@@ -103,6 +103,12 @@ export function paceTarget(
   return { fast: step.paceMin ?? step.paceMax, slow: step.paceMax ?? step.paceMin }
 }
 
+/** The first sample holding the same distance as sample `i`: when that distance came in */
+function arrival(samples: readonly Sample[], i: number): number {
+  while (i > 0 && samples[i - 1]!.distanceM === samples[i]!.distanceM) i--
+  return i
+}
+
 /**
  * Add the latest totals. A jump faster than any runner (distance arriving at once after a GPS
  * gap) restarts the window, so it never reads as a sprint.
@@ -114,7 +120,10 @@ export function addSample(samples: readonly Sample[], next: Sample, windowS: num
     return [...samples.slice(0, -1), { elapsedMs: last.elapsedMs, distanceM: next.distanceM }]
   }
   if (last) {
-    const speed = (next.distanceM - last.distanceM) / ((next.elapsedMs - last.elapsedMs) / 1000)
+    // Measured from when the last distance came in, not from the last tick: a fix just after a
+    // tick is a few metres in a fraction of a second, which is no jump
+    const from = samples[arrival(samples, samples.length - 1)]!
+    const speed = (next.distanceM - from.distanceM) / ((next.elapsedMs - from.elapsedMs) / 1000)
     if (speed > MAX_SPEED_MPS) return [next]
   }
   const out = [...samples, next]
@@ -135,6 +144,26 @@ export function windowSpeed(samples: readonly Sample[], seconds: number): number
   }
   if (!from) return null
   return (last.distanceM - from.distanceM) / ((last.elapsedMs - from.elapsedMs) / 1000)
+}
+
+/**
+ * Speed in m/s over about `seconds`, measured between the moments the distance grew rather
+ * than up to the latest tick. Distance comes in jumps of 5 m or more while the timer ticks every
+ * second, so measured up to the tick a steady pace swings by a minute per km from one second to
+ * the next. Null until the samples cover all of it. A stop is not seen here: `windowSpeed` over
+ * the last few seconds catches that.
+ */
+export function fixSpeed(samples: readonly Sample[], seconds: number): number | null {
+  if (samples.length === 0) return null
+  const end = arrival(samples, samples.length - 1)
+  const cutoff = samples[end]!.elapsedMs - seconds * 1000
+  let from = -1
+  for (let i = end; i >= 0 && from < 0; i--) if (samples[i]!.elapsedMs <= cutoff) from = i
+  if (from < 0) return null
+  from = arrival(samples, from)
+  const a = samples[from]!
+  const b = samples[end]!
+  return (b.distanceM - a.distanceM) / ((b.elapsedMs - a.elapsedMs) / 1000)
 }
 
 /** Within the warning lead of the step's end: the step warning is due, so stay quiet */
@@ -172,19 +201,21 @@ export function nextPaceCue(
           samples: [{ elapsedMs: step.startedElapsedMs, distanceM: step.startedDistanceM }],
         }
   const now = totals.elapsedMs
-  const state: PaceCoachState = { ...base, samples: addSample(base.samples, totals, config.windowS) }
+  // Twice the window kept: `fixSpeed` measures from when the distance came in, which can lie
+  // a few seconds before the window
+  const state: PaceCoachState = { ...base, samples: addSample(base.samples, totals, config.windowS * 2) }
   const none = { state, cue: null }
 
   const target = paceTarget(step, slowestRunPace)
   if (!target) return none
-  const speed = windowSpeed(state.samples, config.windowS)
+  const speed = fixSpeed(state.samples, config.windowS)
   const recent = windowSpeed(state.samples, config.recentS)
   if (speed === null || recent === null) {
-    return { state: { ...state, off: null, inRangeSinceMs: null }, cue: null }
+    return { state: { ...state, off: null, onPaceSinceMs: null }, cue: null }
   }
   // Standing at a crossing (or just stopped there): no corrections, and the wait starts over
   if (speed < MIN_MOVING_SPEED_MPS || recent < config.stoppedMps) {
-    return { state: { ...state, off: null, inRangeSinceMs: null }, cue: null }
+    return { state: { ...state, off: null, onPaceSinceMs: null }, cue: null }
   }
 
   const pace = 1000 / speed
@@ -196,7 +227,7 @@ export function nextPaceCue(
   if (tooFast || tooSlow) {
     const key: Correction = tooSlow ? 'faster' : 'slower'
     const off = state.off?.key === key ? state.off : { key, sinceMs: now }
-    const next = { ...state, off, inRangeSinceMs: null }
+    const next = { ...state, off, onPaceSinceMs: null }
     if (now - off.sinceMs < config.sustainS * 1000 || quiet) return { state: next, cue: null }
     const last = state.lastCorrection
     const wait = last?.key === key ? config.reminderS : config.cooldownS
@@ -207,11 +238,11 @@ export function nextPaceCue(
     }
   }
 
-  const inRange =
-    (target.fast === null || pace >= target.fast) && (target.slow === null || pace <= target.slow)
-  if (!inRange || !state.owesOnPace) return { state: { ...state, off: null, inRangeSinceMs: null }, cue: null }
-  const inRangeSinceMs = state.inRangeSinceMs ?? now
-  const next = { ...state, off: null, inRangeSinceMs }
-  if (now - inRangeSinceMs < config.backOnPaceS * 1000 || quiet) return { state: next, cue: null }
-  return { state: { ...next, owesOnPace: false, inRangeSinceMs: null }, cue: cue('onPace') }
+  // Within the margin counts as back on pace: it takes a while to settle into the range, and
+  // this is not far enough off for a correction either
+  if (!state.owesOnPace) return { state: { ...state, off: null, onPaceSinceMs: null }, cue: null }
+  const onPaceSinceMs = state.onPaceSinceMs ?? now
+  const next = { ...state, off: null, onPaceSinceMs }
+  if (now - onPaceSinceMs < config.backOnPaceS * 1000 || quiet) return { state: next, cue: null }
+  return { state: { ...next, owesOnPace: false, onPaceSinceMs: null }, cue: cue('onPace') }
 }

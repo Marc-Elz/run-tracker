@@ -317,6 +317,10 @@ export const useRunStore = defineStore('run', () => {
     const anchor = segmentAccepted.value[segmentAccepted.value.length - 1] ?? null
     const result = step(anchor, point)
     if (!result.accepted) return
+    // Bring the clock up to now, so new distance and the time it was covered in arrive together:
+    // the pace coach (#103) measures pace between these moments, and a whole-second clock would
+    // make a steady pace swing by half a minute per km
+    tick()
     distanceM.value += result.meters
     movingMs.value += result.movingMs
     segmentAccepted.value.push(point)

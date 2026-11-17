@@ -218,6 +218,43 @@ describe('nextPaceCue', () => {
     expect(said[0]).toBeLessThan(50) // before the step warning's last 10 s
   })
 
+  it('says "Back on pace" at a steady pace inside the range while distance grows in 5 m steps', () => {
+    // As on the phone (PR #141, second test run): a fix only counts once it is 5 m from the last
+    // counted one, so the distance jumps about 6 m every 2 to 3 s. Judged up to the timer tick,
+    // 15 s holds 5 to 7 jumps and reads as 5:57 to 8:20 at a steady 7:13, flipping out of range
+    // every few seconds
+    const step = runStep({ paceMin: 420, paceMax: 480 }) // 7:00-8:00
+    const gaps = [2, 3, 2, 3, 3] // 6 m every 2.6 s on average: 7:13
+    const jumps = new Set<number>()
+    for (let s = 40, i = 0; s <= 120; i++) jumps.add((s += gaps[i % gaps.length]!))
+    let state: PaceCoachState | null = null
+    let d = 0
+    const said: [number, PacePhrase][] = []
+    for (let s = 1; s <= 120; s++) {
+      if (s <= 40) d += 1000 / 600 // 10:00 first, for a "Faster"
+      else if (jumps.has(s)) d += 6
+      const r = nextPaceCue(state, step, { elapsedMs: s * 1000, distanceM: d }, 540, false)
+      state = r.state
+      if (r.cue) said.push([s, r.cue.key])
+    }
+    expect(said.map(([, key]) => key)).toEqual(['faster', 'onPace'])
+  })
+
+  it('counts a pace within the margin as back on pace', () => {
+    // 6:53 after a "Faster": past the 7:00 fast end, but not by the 10 s margin
+    const step = runStep({ paceMin: 420, paceMax: 480 })
+    let state: PaceCoachState | null = null
+    let d = 0
+    const said: PacePhrase[] = []
+    for (let s = 1; s <= 120; s++) {
+      d += 1000 / (s <= 40 ? 600 : 413)
+      const r = nextPaceCue(state, step, { elapsedMs: s * 1000, distanceM: d }, 540, false)
+      state = r.state
+      if (r.cue) said.push(r.cue.key)
+    }
+    expect(said).toEqual(['faster', 'onPace'])
+  })
+
   it('has fixed lines', () => {
     expect(PACE_PHRASES).toEqual({ faster: 'Faster', slower: 'Slower', onPace: 'Back on pace' })
   })
