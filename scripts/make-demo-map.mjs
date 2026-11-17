@@ -25,12 +25,16 @@ const MIN_ZOOM = 9
 // Up to 14 keeps the output near 10 MB (15 would be ~36 MB); MapLibre enlarges z14 when zoomed in
 const MAX_ZOOM = 14
 
-// The only places the demo shows. If the code named here moves elsewhere, regenerate.
+// The only places the demo shows, each from MIN_ZOOM up to its own `maxZoom`. If the code named
+// here moves elsewhere, regenerate.
 const AREAS = {
   // The sample runs of scripts/make-test-backup.mjs (--demo), with room for their loops
-  utrecht: { west: 4.95, south: 52.055, east: 5.19, north: 52.14 },
+  utrecht: { west: 4.95, south: 52.055, east: 5.19, north: 52.14, maxZoom: MAX_ZOOM },
   // The fixed circle of src/lib/simulateGps.ts (52.37 N, 4.90 E, ~170 m), with ~1 km around it
-  amsterdam: { west: 4.885, south: 52.36, east: 4.915, north: 52.38 },
+  amsterdam: { west: 4.885, south: 52.36, east: 4.915, north: 52.38, maxZoom: MAX_ZOOM },
+  // Both cities and their surroundings, only at the zooms of the all-routes overview: zoomed out
+  // that far the screen reaches well past the areas above, which would show a blank band
+  overview: { west: 4.75, south: 51.95, east: 5.35, north: 52.45, maxZoom: 10 },
 }
 const FONTS = ['Noto Sans Regular', 'Noto Sans Medium', 'Noto Sans Italic']
 // Latin, Latin Extended and general punctuation (such as ’ and –) cover Dutch and English names
@@ -66,6 +70,7 @@ function tilesToFetch() {
   const tiles = []
   for (let z = MIN_ZOOM; z <= MAX_ZOOM; z++) {
     for (const a of Object.values(AREAS)) {
+      if (z > a.maxZoom) continue
       for (let x = tileX(a.west, z); x <= tileX(a.east, z); x++) {
         for (let y = tileY(a.north, z); y <= tileY(a.south, z); y++) {
           const key = `${z}/${x}/${y}`
@@ -161,7 +166,8 @@ https://marc-elz.github.io/run-tracker/. GitHub Pages serves these files at ${SI
 demo loads \`style.json\` from there. It needs no API key.
 
 Only two small areas are included, the places the demo shows: Utrecht (its sample runs) and a
-spot in Amsterdam (its simulated GPS), at zoom levels ${MIN_ZOOM} to ${MAX_ZOOM}.
+spot in Amsterdam (its simulated GPS), at zoom levels ${MIN_ZOOM} to ${MAX_ZOOM}, plus the region
+around both at zoom ${MIN_ZOOM} to ${AREAS.overview.maxZoom} for the zoomed-out overview.
 
 **Generated, not edited by hand.** Made with \`scripts/make-demo-map.mjs\` in the Run Tracker repo:
 
