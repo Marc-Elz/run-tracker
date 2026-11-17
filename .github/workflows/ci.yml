@@ -53,13 +53,10 @@ jobs:
 
       - run: npm ci
 
-      # The phone's MapTiler key (the free plan allows one), also allowed on the Pages origin. A
-      # repository variable and not a secret: it ends up in the bundle anyway. Unset, the map
-      # has no tiles.
+      # No MapTiler key: the demo's map comes from the run-tracker-demo-map Pages site (#165).
       - run: npm run build-only -- --base=/run-tracker/
         env:
           VITE_DEMO: 'true'
-          VITE_MAPTILER_KEY: ${{ vars.DEMO_MAPTILER_KEY }}
 
       # Pages has no rewrites: serve the app for every unknown path, so a reload or a deep link
       # like /run-tracker/history opens that screen instead of a 404 page.

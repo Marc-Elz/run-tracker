@@ -14,6 +14,18 @@ describe('mapStyle', () => {
     expect(mapStyleUrl(null)).toBeNull()
   })
 
+  it('uses the keyless demo map in the web demo, whatever the key', () => {
+    vi.stubEnv('VITE_DEMO', 'true')
+    const demo = 'https://marc-elz.github.io/run-tracker-demo-map/style.json'
+    expect(mapStyleUrl('abc')).toBe(demo)
+    expect(mapStyleUrl(null)).toBe(demo)
+  })
+
+  it('uses MapTiler when the demo flag is anything but true', () => {
+    vi.stubEnv('VITE_DEMO', 'false')
+    expect(mapStyleUrl('abc')).toContain('api.maptiler.com')
+  })
+
   it('reads the key from the environment and ignores a blank one', () => {
     vi.stubEnv('VITE_MAPTILER_KEY', '  ')
     expect(mapKey()).toBeNull()
