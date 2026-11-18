@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AUTO_PAUSE_PHRASES,
+  describeFix,
   initAutoPauseState,
   nextAutoPause,
   type AutoPauseEvent,
@@ -197,5 +198,39 @@ describe('auto-pause detector', () => {
       const { events } = feed(inputs)
       expect(events.map((e) => e.event.kind)).toEqual(['stop', 'resume'])
     })
+  })
+})
+
+describe('describeFix, the logcat line', () => {
+  /** Feed inputs, returning the line of the last one */
+  function lastLine(inputs: AutoPauseInput[]) {
+    let state = initAutoPauseState()
+    let line = ''
+    for (const input of inputs) {
+      const result = nextAutoPause(state, input)
+      if (input.kind === 'fix') {
+        line = describeFix(state, input.point, input.at, result.state, result.event)
+      }
+      state = result.state
+    }
+    return line
+  }
+
+  it('shows the speeds, the motion level and the decision while running', () => {
+    expect(lastLine([...run(0, 20, 0, 3, 3), ...stand(21, 25, 60)])).toBe(
+      '[autopause] running acc=5 gps=0.00 pos=0.00 move=0.00 motion=- armed -> stop',
+    )
+  })
+
+  it('shows how far from the stop spot while paused', () => {
+    expect(lastLine([...run(0, 20, 0, 3, 3), ...stand(21, 30, 60), ...run(31, 33, 60, 3, 3)])).toBe(
+      '[autopause] paused acc=5 gps=3.00 pos=2.00 move=3.00 fromStop=6.0m motion=- armed',
+    )
+  })
+
+  it('says when a fix is too poor to use', () => {
+    expect(lastLine([...run(0, 20, 0, 3, 3), ...stand(21, 21, 60, 40)])).toBe(
+      '[autopause] running acc=40 gps=0.00 poor fix, ignored',
+    )
   })
 })

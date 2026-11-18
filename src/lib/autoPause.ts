@@ -162,6 +162,41 @@ export function nextAutoPause(
   return state.paused ? whilePaused(state, input, config) : whileRunning(state, input, config)
 }
 
+const num = (v: number | null | undefined, digits = 2) =>
+  v === null || v === undefined ? '-' : v.toFixed(digits)
+
+/**
+ * One line per fix for `adb logcat`, to tune the thresholds on real runs (#154, #171): what the
+ * detector saw (`prev` is the state before the fix, `next` after) and what it decided.
+ * `gps` is the GPS speed reading, `pos` the speed from positions, `move` the one a resume uses.
+ */
+export function describeFix(
+  prev: AutoPauseState,
+  point: TrackPoint,
+  at: number,
+  next: AutoPauseState,
+  event: AutoPauseEvent | null,
+  config: AutoPauseConfig = AUTO_PAUSE_CONFIG,
+): string {
+  const parts = [
+    '[autopause]',
+    prev.paused ? 'paused' : 'running',
+    `acc=${num(point.accuracy, 0)}`,
+    `gps=${num(point.speed)}`,
+  ]
+  if (!usable(point)) return [...parts, 'poor fix, ignored'].join(' ')
+  parts.push(
+    `pos=${num(positionSpeed(next.fixes, config.speedWindowS))}`,
+    `move=${num(moveSpeed(next.fixes, config))}`,
+  )
+  if (prev.paused && prev.stopSpot) {
+    parts.push(`fromStop=${num(distanceMeters(prev.stopSpot, point), 1)}m`)
+  }
+  parts.push(`motion=${num(freshMotion(next, at, config))}`, next.armed ? 'armed' : 'unarmed')
+  if (event) parts.push(`-> ${event.kind}`)
+  return parts.join(' ')
+}
+
 function whileRunning(
   state: AutoPauseState,
   input: AutoPauseInput,

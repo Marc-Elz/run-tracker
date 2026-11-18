@@ -3,6 +3,7 @@ import { storeToRefs } from 'pinia'
 import { useRunStore } from '@/stores/run'
 import {
   AUTO_PAUSE_PHRASES,
+  describeFix,
   initAutoPauseState,
   nextAutoPause,
   type AutoPauseInput,
@@ -59,6 +60,9 @@ export function useAutoPause(enabled: Ref<boolean>) {
     const autoPaused = status.value === 'paused' && pauseKind.value === 'auto'
     if (!enabled.value || (status.value !== 'running' && !autoPaused)) return
     const result = nextAutoPause(state, input)
+    if (input.kind === 'fix') {
+      console.info(describeFix(state, input.point, input.at, result.state, result.event))
+    }
     state = result.state
     if (result.event?.kind === 'stop') {
       ownChange = true
