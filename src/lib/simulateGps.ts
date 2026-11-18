@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import type { TrackPoint } from '@/lib/geo'
+import type { MotionReading } from '@/lib/runPower'
 
 /**
  * "Stand still" on the run screen while GPS is simulated (#154): the runner stops where they
@@ -46,5 +47,19 @@ export function startGpsSimulation(onPoint: (p: TrackPoint) => void): () => void
     })
   }, 1000)
 
+  return () => clearInterval(id)
+}
+
+/**
+ * The motion level to go with the fake GPS (#154): a phone carried by a runner, or one held still
+ * while "Stand still" is on. One reading a second, like the phone's.
+ */
+export function watchSimulatedMotion(onReading: (reading: MotionReading) => void): () => void {
+  let tick = 0
+  const id = setInterval(() => {
+    tick++
+    const level = simulatedStandStill.value ? 0.05 + (tick % 3) * 0.02 : 3 + (tick % 4) * 0.5
+    onReading({ at: Date.now(), level, samples: 50 })
+  }, 1000)
   return () => clearInterval(id)
 }
