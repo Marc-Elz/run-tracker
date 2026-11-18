@@ -267,12 +267,7 @@ const summary = computed(() => {
           {{ option.label }}
         </button>
       </div>
-      <div
-        v-if="stepCoaching === 'pace'"
-        class="choice"
-        role="group"
-        aria-label="Slowest run pace"
-      >
+      <div v-if="stepCoaching === 'pace'" class="choice" role="group" aria-label="Slowest run pace">
         <span class="choice__label">Slowest run</span>
         <button
           v-for="pace in SLOWEST_RUN_PACE_OPTIONS"

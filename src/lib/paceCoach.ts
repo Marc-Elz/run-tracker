@@ -207,7 +207,10 @@ export function nextPaceCue(
   const now = totals.elapsedMs
   // Twice the window kept: `fixSpeed` measures from when the distance came in, which can lie
   // a few seconds before the window
-  const state: PaceCoachState = { ...base, samples: addSample(base.samples, totals, config.windowS * 2) }
+  const state: PaceCoachState = {
+    ...base,
+    samples: addSample(base.samples, totals, config.windowS * 2),
+  }
   const none = { state, cue: null }
 
   const target = paceTarget(step, slowestRunPace)

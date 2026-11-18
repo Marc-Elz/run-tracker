@@ -63,11 +63,17 @@ function drive(
 describe('paceTarget', () => {
   it('uses the step range, a single pace as both ends', () => {
     expect(paceTarget(runStep(), 540)).toEqual({ fast: 330, slow: 360 })
-    expect(paceTarget(runStep({ paceMin: 330, paceMax: null }), 540)).toEqual({ fast: 330, slow: 330 })
+    expect(paceTarget(runStep({ paceMin: 330, paceMax: null }), 540)).toEqual({
+      fast: 330,
+      slow: 330,
+    })
   })
 
   it('gives a run step without a pace only a slow end: the slowest run pace', () => {
-    expect(paceTarget(runStep({ paceMin: null, paceMax: null }), 600)).toEqual({ fast: null, slow: 600 })
+    expect(paceTarget(runStep({ paceMin: null, paceMax: null }), 600)).toEqual({
+      fast: null,
+      slow: 600,
+    })
   })
 
   it('never coaches warm-up, walk, recovery or cool-down, even with a pace', () => {
@@ -88,7 +94,12 @@ describe('smoothing', () => {
 
   it('averages over the last 25 s only', () => {
     let samples: ReturnType<typeof addSample> = []
-    for (let s = 0; s <= 60; s++) samples = addSample(samples, { elapsedMs: s * 1000, distanceM: s < 30 ? s : 30 + (s - 30) * 3 }, 25)
+    for (let s = 0; s <= 60; s++)
+      samples = addSample(
+        samples,
+        { elapsedMs: s * 1000, distanceM: s < 30 ? s : 30 + (s - 30) * 3 },
+        25,
+      )
     expect(windowSpeed(samples, 25)).toBe(3)
   })
 
@@ -161,7 +172,12 @@ describe('nextPaceCue', () => {
   it('goes quiet as soon as you stop, even while the smoothed pace still reads as moving', () => {
     // Stopped 5 s before the line is due at 25 s: the 15 s average still reads as moving,
     // the last 6 s do not
-    expect(drive([[20, 420], [30, null]])).toEqual([])
+    expect(
+      drive([
+        [20, 420],
+        [30, null],
+      ]),
+    ).toEqual([])
   })
 
   it('stays quiet while standing still, and the wait starts over afterwards', () => {
@@ -190,7 +206,13 @@ describe('nextPaceCue', () => {
     let state: PaceCoachState | null = null
     const walk = runStep({ position: 0, kind: 'walk' })
     for (let s = 1; s <= 60; s++) {
-      state = nextPaceCue(state, walk, { elapsedMs: s * 1000, distanceM: s * 1.4 }, 540, false).state
+      state = nextPaceCue(
+        state,
+        walk,
+        { elapsedMs: s * 1000, distanceM: s * 1.4 },
+        540,
+        false,
+      ).state
     }
     const run = runStep({ position: 1, startedElapsedMs: 60_000, startedDistanceM: 84 })
     const said: number[] = []
@@ -246,7 +268,8 @@ describe('nextPaceCue', () => {
     let d = 0
     const said: [number, PacePhrase][] = []
     for (let s = 1; s <= 120; s++) {
-      if (s <= 40) d += 1000 / 600 // 10:00 first, for a "Faster"
+      if (s <= 40)
+        d += 1000 / 600 // 10:00 first, for a "Faster"
       else if (jumps.has(s)) d += 6
       const r = nextPaceCue(state, step, { elapsedMs: s * 1000, distanceM: d }, 540, false)
       state = r.state

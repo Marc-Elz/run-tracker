@@ -7,12 +7,7 @@ import { buildBackup } from '@/lib/backup'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
 import type { TrackingStatus } from '@/lib/trackingStatus'
-import {
-  setSlowestRunPace,
-  setStepCoaching,
-  slowestRunPace,
-  stepCoaching,
-} from '@/lib/settings'
+import { setSlowestRunPace, setStepCoaching, slowestRunPace, stepCoaching } from '@/lib/settings'
 import SettingsView from '../SettingsView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -185,7 +180,10 @@ describe('SettingsView', () => {
     expect(group.findAll('button').map((b) => b.text())).toEqual(['Off', 'Steps', 'Steps + pace'])
     expect(wrapper.find('[aria-label="Slowest run pace"]').exists()).toBe(false)
 
-    await group.findAll('button').find((b) => b.text() === 'Steps + pace')!.trigger('click')
+    await group
+      .findAll('button')
+      .find((b) => b.text() === 'Steps + pace')!
+      .trigger('click')
     expect(stepCoaching.value).toBe('pace')
     const paces = wrapper.get('[aria-label="Slowest run pace"]').findAll('button')
     expect(paces.map((b) => b.text())).toEqual(['8:00', '9:00', '10:00'])
