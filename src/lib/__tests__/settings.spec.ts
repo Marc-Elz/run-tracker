@@ -15,7 +15,11 @@ import {
   setStepCoaching,
   slowestRunPace,
   stepCoaching,
+  loadTimerPresets,
+  setTimerPresets,
+  timerPresets,
 } from '../settings'
+import { DEFAULT_PRESET } from '../timer'
 
 // Node's own experimental localStorage can shadow jsdom's, so use a plain in-memory one
 function memoryStorage(): Storage {
@@ -148,5 +152,47 @@ describe('auto-pause (#154)', () => {
     expect(loadAutoPause()).toBe(false)
     setAutoPause(true)
     expect(loadAutoPause()).toBe(true)
+  })
+})
+
+describe('timer presets', () => {
+  const plank = { id: 'p', name: 'Plank set', workS: 45, restS: 15, rounds: 4 }
+
+  it('starts with only the 2-minute default', () => {
+    expect(loadTimerPresets()).toEqual([DEFAULT_PRESET])
+  })
+
+  it('survives a restart, default first', () => {
+    expect(setTimerPresets([plank])).toBe(true)
+    expect(timerPresets.value).toEqual([DEFAULT_PRESET, plank])
+    expect(loadTimerPresets()).toEqual([DEFAULT_PRESET, plank])
+  })
+
+  it('keeps an edited default, and brings it back when it was removed', () => {
+    const edited = { ...DEFAULT_PRESET, workS: 90, name: 'Short' }
+    setTimerPresets([edited, plank])
+    expect(loadTimerPresets()[0]).toEqual(edited)
+    setTimerPresets([plank])
+    expect(loadTimerPresets()).toEqual([DEFAULT_PRESET, plank])
+  })
+
+  it('falls back to the default for garbage and skips malformed presets', () => {
+    localStorage.setItem('run-tracker.timer-presets', '{not json')
+    expect(loadTimerPresets()).toEqual([DEFAULT_PRESET])
+    localStorage.setItem('run-tracker.timer-presets', JSON.stringify([plank, { id: 'x' }]))
+    expect(loadTimerPresets()).toEqual([DEFAULT_PRESET, plank])
+  })
+
+  it('reports a failed save and leaves the list unchanged', () => {
+    setTimerPresets([])
+    vi.stubGlobal('localStorage', {
+      ...memoryStorage(),
+      setItem: () => {
+        throw new Error('quota')
+      },
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(setTimerPresets([plank])).toBe(false)
+    expect(timerPresets.value).toEqual([DEFAULT_PRESET])
   })
 })

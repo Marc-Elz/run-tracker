@@ -10,6 +10,8 @@ import ProgramFormView from '@/views/ProgramFormView.vue'
 import SessionEditorView from '@/views/SessionEditorView.vue'
 import SessionView from '@/views/SessionView.vue'
 import StepEditorView from '@/views/StepEditorView.vue'
+import TimerView from '@/views/TimerView.vue'
+import TimerPresetView from '@/views/TimerPresetView.vue'
 import { useRunStore } from '@/stores/run'
 
 export const routes = [
@@ -35,6 +37,9 @@ export const routes = [
     name: 'step-edit',
     component: StepEditorView,
   },
+  { path: '/timer', name: 'timer', component: TimerView },
+  { path: '/timer/new', name: 'timer-preset-new', component: TimerPresetView },
+  { path: '/timer/:id/edit', name: 'timer-preset-edit', component: TimerPresetView },
 ]
 
 const router = createRouter({
