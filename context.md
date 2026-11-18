@@ -64,7 +64,7 @@ Outside the phases, the **Refinements** milestone (created 2026-10-28) holds low
 
 ## Decisions
 - Vue 3 + Capacitor for the app; native fallback only for tracking if needed.
-- GitHub Issues + branches + PRs, no CI (workflow rules are in `CLAUDE.md`).
+- GitHub Issues + branches + PRs (workflow rules are in `CLAUDE.md`). CI in GitHub Actions runs the checks on PRs; no APK build or deploy (#158).
 - Dev laptop as home server; automatic sync to it is a nice-to-have, manual backup file comes first (#23).
 - Units are metric (km, min/km).
 - Personal use only, never published on the Play Store (decided 2026-10-26). The generic app id stays, and the Play Store review concerns for background location and the Strava brand guidelines do not apply. Revisit only if that changes.

@@ -1,4 +1,4 @@
-// PreToolUse hook: before `gh pr create`, run the local checks (there is no CI on purpose).
+// PreToolUse hook: before `gh pr create`, run the local checks (CI runs the same ones, #159).
 // Blocks the PR (exit 2) when one fails. Node so it runs the same on Windows and Linux.
 import { spawnSync } from 'node:child_process'
 
@@ -10,12 +10,13 @@ const command = toolInput?.command ?? ''
 // Only when `gh pr create` is run, not when it merely appears in a string.
 if (!/(^|[;&|]\s*)gh\s+pr\s+create\b/m.test(command)) process.exit(0)
 
-// Same checks as `npm run lint` / `test:unit`, but without --fix and without watch mode,
+// Same checks as `npm run lint` / `format:check` / `test:unit`, but without --fix and without watch mode,
 // so the hook never rewrites files or hangs.
 const checks = [
   ['type-check', 'npm run type-check'],
   ['oxlint', 'npx oxlint .'],
   ['eslint', 'npx eslint . --cache'],
+  ['prettier', 'npm run format:check'],
   ['unit tests', 'npx vitest run'],
 ]
 

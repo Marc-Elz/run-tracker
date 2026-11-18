@@ -52,7 +52,10 @@ describe('getTrackingStatus', () => {
   it('treats a refused-once permission as askable, and anything odd as unknown', async () => {
     checks.location.mockResolvedValue('prompt-with-rationale')
     checks.notifications.mockResolvedValue(undefined)
-    expect(await getTrackingStatus()).toMatchObject({ location: 'prompt', notifications: 'unknown' })
+    expect(await getTrackingStatus()).toMatchObject({
+      location: 'prompt',
+      notifications: 'unknown',
+    })
   })
 
   it('gives unknown for the one check that fails', async () => {

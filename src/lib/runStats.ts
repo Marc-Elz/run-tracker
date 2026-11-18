@@ -16,9 +16,7 @@ export interface RunTotals {
   movingMs: number
 }
 
-export type StepResult =
-  | { accepted: false }
-  | { accepted: true; meters: number; movingMs: number }
+export type StepResult = { accepted: false } | { accepted: true; meters: number; movingMs: number }
 
 export function isAccurate(point: TrackPoint): boolean {
   return point.accuracy === undefined || point.accuracy <= MAX_ACCURACY_M

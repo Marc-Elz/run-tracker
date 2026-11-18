@@ -1,0 +1,84 @@
+# Runs the same checks as the local pre-PR hook (#159, decided in #158). On a push to main that
+# passes them, it also publishes the web demo to GitHub Pages (#162).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run type-check
+
+      # The lint scripts use --fix, so fail if they changed any file.
+      - run: npm run lint
+      - run: git diff --exit-code
+
+      # Formatting drifted on main once (#146); fail instead of reformatting.
+      - run: npm run format:check
+
+      # Vitest runs once (no watch mode) because GitHub sets CI=true.
+      - run: npm run test:unit
+
+      # No .env.local here: the build works without a MapTiler key.
+      - run: npm run build-only
+
+  # The demo build: served from /run-tracker/, with sample data and a banner (VITE_DEMO).
+  build-demo:
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # No MapTiler key: the demo's map comes from the run-tracker-demo-map Pages site (#165).
+      - run: npm run build-only -- --base=/run-tracker/
+        env:
+          VITE_DEMO: 'true'
+
+      # Pages has no rewrites: serve the app for every unknown path, so a reload or a deep link
+      # like /run-tracker/history opens that screen instead of a 404 page.
+      - run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy-demo:
+    needs: build-demo
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # One deploy at a time; a newer push waits instead of cancelling one halfway
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

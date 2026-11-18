@@ -68,7 +68,8 @@ function restore(event: Event) {
 const SAMSUNG_HINT =
   'On Samsung, also add Run Tracker under Settings › Battery › Background usage limits › Never sleeping apps.'
 // Android reports "Only this time" and "While using the app" alike, so this can't be checked
-const LOCATION_HINT = 'When asked, choose “While using the app”. “Only this time” is asked again next run.'
+const LOCATION_HINT =
+  'When asked, choose “While using the app”. “Only this time” is asked again next run.'
 
 const rows = computed<Row[]>(() => {
   const s = status.value
@@ -111,7 +112,13 @@ const rows = computed<Row[]>(() => {
           secondary: { label: 'Revoke in settings', run: openAppSettings },
         }
       : s.location === 'unknown'
-        ? { key: 'location', title: 'Location', tone: 'unknown', text: unknownText, hint: LOCATION_HINT }
+        ? {
+            key: 'location',
+            title: 'Location',
+            tone: 'unknown',
+            text: unknownText,
+            hint: LOCATION_HINT,
+          }
         : {
             key: 'location',
             title: 'Location',
@@ -151,7 +158,13 @@ const rows = computed<Row[]>(() => {
           secondary: { label: 'Change in settings', run: openBatterySettings },
         }
       : s.battery === 'unknown'
-        ? { key: 'battery', title: 'Battery', tone: 'unknown', text: unknownText, hint: SAMSUNG_HINT }
+        ? {
+            key: 'battery',
+            title: 'Battery',
+            tone: 'unknown',
+            text: unknownText,
+            hint: SAMSUNG_HINT,
+          }
         : {
             key: 'battery',
             title: 'Battery',
@@ -201,12 +214,7 @@ const summary = computed(() => {
         <span v-else-if="row.tone === 'warn'" class="badge badge--warn">Action needed</span>
       </div>
       <p>{{ row.text }}</p>
-      <button
-        v-if="row.action"
-        class="btn"
-        :disabled="busy !== null"
-        @click="act(row, row.action)"
-      >
+      <button v-if="row.action" class="btn" :disabled="busy !== null" @click="act(row, row.action)">
         {{ row.action.label }}
       </button>
       <button

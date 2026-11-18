@@ -1,6 +1,35 @@
 # Run Tracker
 
+[![CI](https://github.com/Marc-Elz/run-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/Marc-Elz/run-tracker/actions/workflows/ci.yml)
+
 Run-tracking Android app built with Vue 3 + Capacitor. See [context.md](context.md) for goals and decisions.
+
+**[Try the live demo](https://marc-elz.github.io/run-tracker/)**: the app in a browser, with sample runs, a sample training program and simulated GPS. A reload starts over. See [How the demo differs](#how-the-demo-differs) for what only the phone can do.
+
+## How the demo differs
+
+The demo is the same code as the phone app, built for the browser. It differs only where the code checks whether it runs inside the Android app (`Capacitor.isNativePlatform()`), and in a few additions behind a demo-only build flag (`VITE_DEMO`).
+
+**Simulated**
+- **GPS:** a simulated runner circles a ~170 m loop in central Amsterdam at 5:30 min/km, one fix per second (`src/lib/simulateGps.ts`). There's no permission prompt and no real GPS noise or gaps. After a few minutes in a hidden tab, browsers slow its timers, so the simulated run falls behind; the phone keeps tracking in the background.
+- **Storage:** runs and training programs are kept in memory instead of SQLite, and start from 12 sample runs and a "5K builder" program each time the page loads (`src/demo/`). Settings (spoken cues, followed program, step announcements) are in the browser's storage and survive a reload.
+- **Map:** a keyless OpenStreetMap map (via [Protomaps](https://protomaps.com)) covering only Utrecht and the Amsterdam loop, instead of MapTiler, which needs an API key.
+
+**Replaced by the browser's version**
+- **Spoken cues:** the browser's speech voice instead of the phone's text-to-speech; on some desktops there is none. Other audio isn't lowered while it speaks.
+- **Vibration:** the browser's vibration API. Desktops ignore it; Chrome on Android vibrates.
+- **GPX export and backups:** a file download instead of Android's share sheet.
+- **Back:** the browser's back button follows the page history; the Android back-button handling is off.
+
+**Not in the demo**
+- Keeping the screen awake and the app alive during a run.
+- The battery-optimisation request, the notification permission and the ongoing notification during a run.
+- Settings' tracking checks (location, notifications, battery), which only show on the phone.
+- Refreshing when the app returns to the foreground, and recovering a run after the app was killed.
+
+**Demo-only additions:** a banner saying GPS is simulated, the sample data, and on wide screens a phone-width column.
+
+**How it's built:** every push to `main` that passes CI publishes it to GitHub Pages (`.github/workflows/ci.yml`). The sample data is `src/demo/demo-backup.json`, made with `node scripts/make-test-backup.mjs src/demo/demo-backup.json 12 400 --demo`. The map comes from the separate [run-tracker-demo-map](https://github.com/Marc-Elz/run-tracker-demo-map) repo, made with `node scripts/make-demo-map.mjs <clone of run-tracker-demo-map>`. That repo holds the map data under its own licences (ODbL, OFL), so none of it is in this repo.
 
 ## Status
 

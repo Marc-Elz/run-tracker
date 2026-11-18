@@ -40,7 +40,7 @@ describe('SessionPicker', () => {
     setFollowedProgram(null)
   })
 
-  it('reports a pick, and whether it is the followed program\'s next session', async () => {
+  it("reports a pick, and whether it is the followed program's next session", async () => {
     const { first } = await programs()
     const wrapper = mount(SessionPicker, { props: { title: 'Choose a session' } })
     await flushPromises()
@@ -80,7 +80,10 @@ describe('SessionPicker', () => {
     const wrapper = mount(SessionPicker, { props: { title: 'Choose a session' } })
     await flushPromises()
     expect(wrapper.text()).toContain('Could not read the sessions.')
-    await wrapper.findAll('button').find((b) => b.text() === 'Cancel')!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'Cancel')!
+      .trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackPoint } from '../geo'
-import {
-  MAX_ACCURACY_M,
-  paceSecPerKm,
-  step,
-  summarizeTrack,
-  windowPaceSecPerKm,
-} from '../runStats'
+import { MAX_ACCURACY_M, paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '../runStats'
 
 // Due north along a meridian: 0.0001 degrees of latitude is ~11.1 m
 const M_PER_UNIT = 11.1195
