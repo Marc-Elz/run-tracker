@@ -1,5 +1,6 @@
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 import type { RunStep } from '@/lib/stepProgress'
+import { PAUSE_KINDS, type RunPause } from '@/lib/runPauses'
 import {
   checkProgram,
   checkSession,
@@ -18,13 +19,14 @@ import {
 /**
  * The backup file, version 2. One JSON object:
  *   { format: 'run-tracker-backup', version: 2, exportedAt: <epoch ms>,
- *     runs: [{ run: RunRecord, points: StoredPoint[], steps?: RunStep[] }],
+ *     runs: [{ run: RunRecord, points: StoredPoint[], steps?: RunStep[], pauses?: RunPause[] }],
  *     programs: [{ program: TrainingProgram, sessions: ProgramSession[], steps: SessionStep[],
  *                  skipped?: string[] }] }
  * Only finished runs are in it. Field names are the ones of those types; times are UTC epoch
  * milliseconds. A run's `sessionId` (#40) links it to a session in `programs`; files made before
  * it have no `sessionId`, which reads as null. A run's `steps` (#101) are the session steps as
- * run; files made before them have none, which reads as an empty list. A program's `skipped`
+ * run; files made before them have none, which reads as an empty list. A run's `pauses` (#154)
+ * are its auto-pauses, written only when it has some; missing reads as none. A program's `skipped`
  * (#102) lists its skipped session ids; files made before it have none, which reads as no skips.
  * Version 1 is the same without `programs`, and is
  * still read. The sync to the
@@ -39,6 +41,8 @@ export interface BackupRun {
   points: StoredPoint[]
   /** Session steps as run (#101); missing means none */
   steps?: RunStep[]
+  /** Auto-pauses (#154); missing means none */
+  pauses?: RunPause[]
 }
 
 export interface ParsedBackup {
@@ -193,6 +197,36 @@ function toRunSteps(raw: unknown): RunStep[] | null {
   return positions.size === steps.length ? (steps as RunStep[]) : null
 }
 
+function toRunPause(raw: unknown): RunPause | null {
+  if (!isObject(raw)) return null
+  const { position, kind, startedAt, endedAt, startedElapsedMs, lat, lon } = raw
+  if (!isCount(position) || !oneOf(PAUSE_KINDS, kind)) return null
+  // A finished run's pauses are all closed, never before they started
+  if (!isNumber(startedAt) || !isNumber(endedAt) || endedAt < startedAt) return null
+  if (!isNonNegative(startedElapsedMs)) return null
+  const spot = (lat === null && lon === null) || (isNumber(lat) && isNumber(lon))
+  if (!spot) return null
+  return {
+    position,
+    kind,
+    startedAt,
+    endedAt,
+    startedElapsedMs,
+    lat: lat as number | null,
+    lon: lon as number | null,
+  }
+}
+
+/** A run's pauses: none when the field is missing, null when any is bad or a position repeats */
+function toRunPauses(raw: unknown): RunPause[] | null {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) return null
+  const pauses = raw.map(toRunPause)
+  if (pauses.some((p) => p === null)) return null
+  const positions = new Set(pauses.map((p) => p!.position))
+  return positions.size === pauses.length ? (pauses as RunPause[]) : null
+}
+
 /** The result of a `lib/training` check, or null when the check refuses it */
 function obeys<T>(check: () => T): T | null {
   try {
@@ -329,11 +363,13 @@ export function parseBackup(text: string): ParsedBackup {
     const rawPoints = isObject(entry) ? entry.points : undefined
     const points = Array.isArray(rawPoints) ? rawPoints.map(toPoint) : null
     const steps = isObject(entry) ? toRunSteps(entry.steps) : null
-    if (run === null || points === null || points.some((p) => p === null) || steps === null) {
+    const pauses = isObject(entry) ? toRunPauses(entry.pauses) : null
+    const bad = run === null || points === null || points.some((p) => p === null)
+    if (bad || steps === null || pauses === null) {
       rejected++
       continue
     }
-    runs.push({ run, points: points as StoredPoint[], steps })
+    runs.push({ run, points: points as StoredPoint[], steps, pauses })
   }
 
   const programs: ProgramBundle[] = []

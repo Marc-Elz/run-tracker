@@ -1,6 +1,7 @@
 import type { TrackPoint } from '@/lib/geo'
 import type { RouteOverview } from '@/lib/routeOverview'
 import type { RunStep, RunStepKind } from '@/lib/stepProgress'
+import type { PauseKind, RunPause } from '@/lib/runPauses'
 import type { TargetKind } from '@/lib/training'
 import type { SqlConnection } from './migrations'
 import type { RunRecord, RunRepository, StoredPoint, StoredRunStatus } from './runRepository'
@@ -41,6 +42,18 @@ export function toStoredPoint(row: Row): StoredPoint {
   if (altitude !== undefined) point.altitude = altitude
   if (speed !== undefined) point.speed = speed
   return point
+}
+
+export function toRunPause(row: Row): RunPause {
+  return {
+    position: Number(row.position),
+    kind: String(row.kind) as PauseKind,
+    startedAt: Number(row.started_at),
+    endedAt: optional(row.ended_at) ?? null,
+    startedElapsedMs: Number(row.started_elapsed_ms),
+    lat: optional(row.lat) ?? null,
+    lon: optional(row.lon) ?? null,
+  }
 }
 
 export function toRouteOverview(row: Row): RouteOverview {
@@ -91,6 +104,13 @@ const insertStep = (runId: string, s: RunStep) => ({
     s.endedElapsedMs,
     s.endedDistanceM,
   ],
+})
+
+/** Insert, or replace the pause at the same position (closing an open one) */
+const upsertPause = (runId: string, p: RunPause) => ({
+  statement: `INSERT OR REPLACE INTO run_pauses (run_id, position, kind, started_at, ended_at,
+    started_elapsed_ms, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  values: [runId, p.position, p.kind, p.startedAt, p.endedAt, p.startedElapsedMs, p.lat, p.lon],
 })
 
 /**
@@ -169,7 +189,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       await db.run('UPDATE runs SET name = ?, updated_at = ? WHERE id = ?', [name, Date.now(), id])
     },
     async deleteRun(id) {
-      // Points and steps go with it (ON DELETE CASCADE; the plugin turns foreign keys on)
+      // Points, steps and pauses go with it (ON DELETE CASCADE; the plugin turns foreign keys on)
       await db.run('DELETE FROM runs WHERE id = ?', [id])
     },
     async findUnfinished() {
@@ -197,7 +217,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       )
       return (result.values ?? []).map(toStoredPoint)
     },
-    async importRun(run, points, steps = []) {
+    async importRun(run, points, steps = [], pauses = []) {
       const existing = await db.query('SELECT id FROM runs WHERE id = ?', [run.id])
       if ((existing.values ?? []).length > 0) return false
       const now = Date.now()
@@ -239,6 +259,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
             ],
           })),
           ...steps.map((step) => insertStep(run.id, step)),
+          ...pauses.map((pause) => upsertPause(run.id, pause)),
         ],
         true,
       )
@@ -261,6 +282,16 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
         runId,
       ])
       return (result.values ?? []).map(toRunStep)
+    },
+    async savePause(runId, pause) {
+      const { statement, values } = upsertPause(runId, pause)
+      await db.run(statement, values)
+    },
+    async loadPauses(runId) {
+      const result = await db.query('SELECT * FROM run_pauses WHERE run_id = ? ORDER BY position', [
+        runId,
+      ])
+      return (result.values ?? []).map(toRunPause)
     },
     async readOverviews() {
       const result = await db.query(

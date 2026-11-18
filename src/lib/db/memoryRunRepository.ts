@@ -1,5 +1,6 @@
 import type { RouteOverview } from '@/lib/routeOverview'
 import type { RunStep } from '@/lib/stepProgress'
+import type { RunPause } from '@/lib/runPauses'
 import type { RunRecord, RunRepository, StoredPoint } from './runRepository'
 
 /**
@@ -11,6 +12,7 @@ export function createMemoryRunRepository(): RunRepository {
   const points = new Map<string, StoredPoint[]>()
   const overviews = new Map<string, RouteOverview>()
   const steps = new Map<string, RunStep[]>()
+  const pauses = new Map<string, RunPause[]>()
 
   return {
     async createRun(run) {
@@ -39,6 +41,7 @@ export function createMemoryRunRepository(): RunRepository {
       runs.delete(id)
       points.delete(id)
       steps.delete(id)
+      pauses.delete(id)
       overviews.delete(id)
     },
     async findUnfinished() {
@@ -60,7 +63,7 @@ export function createMemoryRunRepository(): RunRepository {
     async loadPoints(runId) {
       return (points.get(runId) ?? []).map((p) => ({ ...p }))
     },
-    async importRun(run, imported, importedSteps = []) {
+    async importRun(run, imported, importedSteps = [], importedPauses = []) {
       if (runs.has(run.id)) return false
       runs.set(run.id, { ...run })
       points.set(
@@ -70,6 +73,10 @@ export function createMemoryRunRepository(): RunRepository {
       steps.set(
         run.id,
         importedSteps.map((s) => ({ ...s })),
+      )
+      pauses.set(
+        run.id,
+        importedPauses.map((p) => ({ ...p })),
       )
       return true
     },
@@ -88,6 +95,16 @@ export function createMemoryRunRepository(): RunRepository {
     },
     async loadRunSteps(runId) {
       return (steps.get(runId) ?? []).map((s) => ({ ...s })).sort((a, b) => a.position - b.position)
+    },
+    async savePause(runId, pause) {
+      if (!runs.has(runId)) throw new Error(`Run ${runId} not found`)
+      const list = (pauses.get(runId) ?? []).filter((p) => p.position !== pause.position)
+      pauses.set(runId, [...list, { ...pause }])
+    },
+    async loadPauses(runId) {
+      return (pauses.get(runId) ?? [])
+        .map((p) => ({ ...p }))
+        .sort((a, b) => a.position - b.position)
     },
     async readOverviews() {
       return [...overviews.values()].filter((o) => runs.get(o.runId)?.status === 'finished')

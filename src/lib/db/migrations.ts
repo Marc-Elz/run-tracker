@@ -172,6 +172,21 @@ CREATE INDEX runs_session ON runs (session_id);
   skipped_at INTEGER NOT NULL
 );
 `,
+  // The pauses of a run (#154): when, how long and where. Only auto-pauses are written for now;
+  // `kind` leaves room for manual ones (no CHECK, the code checks it). `ended_at` is NULL while
+  // a pause is open. Deleting the run deletes its pauses.
+  `CREATE TABLE run_pauses (
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  started_elapsed_ms INTEGER NOT NULL,
+  lat REAL,
+  lon REAL,
+  PRIMARY KEY (run_id, position)
+);
+`,
 ]
 
 export async function schemaVersion(db: SqlDb): Promise<number> {
