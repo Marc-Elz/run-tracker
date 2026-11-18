@@ -123,7 +123,7 @@ describe('nextPaceCue', () => {
     ])
   })
 
-  it('says "Back on pace" once after 10 s back in range, only after a correction', () => {
+  it('says "Back on pace" once after 6 s back in range, only after a correction', () => {
     const said = drive([
       [50, 420],
       [80, 345],
@@ -131,6 +131,21 @@ describe('nextPaceCue', () => {
     expect(said.map(([, key]) => key)).toEqual(['faster', 'onPace'])
     // Never without a correction first
     expect(drive([[100, 345]])).toEqual([])
+  })
+
+  it('says "Back on pace" after a short stretch back in range', () => {
+    // As on the phone (PR #141): the windowed pace dips into range for a few seconds between GPS
+    // swings. 13 s at 5:45 holds the smoothed pace in range long enough for 6 s, not for 10 s
+    const said = drive([
+      [50, 420],
+      [13, 345],
+      [30, 420],
+    ])
+    expect(said).toEqual([
+      [25, 'faster'],
+      [66, 'onPace'],
+      [85, 'faster'],
+    ])
   })
 
   it('keeps two different corrections at least 60 s apart', () => {

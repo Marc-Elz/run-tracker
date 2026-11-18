@@ -29,8 +29,12 @@ export const PACE_COACH_CONFIG = {
   reminderS: 60,
   /** Least time between two different corrections */
   cooldownS: 60,
-  /** How long back on pace (within the margin) before "Back on pace" is said */
-  backOnPaceS: 10,
+  /**
+   * How long back on pace (within the margin) before "Back on pace" is said. Short, because the
+   * windowed pace already lags: on the phone (PR #141) 10 s rarely came, as the GPS pace swings
+   * in and out of range, and when it did the cue lagged the running by up to 25 s
+   */
+  backOnPaceS: 6,
 }
 export type PaceCoachConfig = typeof PACE_COACH_CONFIG
 
