@@ -3,6 +3,10 @@ package com.runtracker.app;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.net.Uri;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
@@ -10,6 +14,8 @@ import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
 import android.view.View;
 import android.webkit.WebView;
 import android.os.PowerManager;
@@ -24,11 +30,14 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.util.ArrayDeque;
+import java.util.Locale;
 
 /**
  * What a run needs from Android beyond location: the battery optimisation exemption (so the
- * system doesn't kill the app mid-run) and the notification permission for the foreground
- * service notification (Android 13+).
+ * system doesn't kill the app mid-run), the notification permission for the foreground
+ * service notification (Android 13+), audio focus for spoken cues, and the phone's motion
+ * level for auto-pause (#154).
  */
 @CapacitorPlugin(
     name = "RunPower",
@@ -36,8 +45,129 @@ import com.getcapacitor.annotation.PermissionCallback;
 )
 public class RunPowerPlugin extends Plugin {
 
+    private static final String TAG = "RunPower";
+    /** The motion level is the spread of the last this-many ms of acceleration */
+    private static final long MOTION_WINDOW_MS = 2000;
+    /** How often the motion level is sent */
+    private static final long MOTION_EVERY_MS = 1000;
+    /** Fewer samples than this in the window is no level (the sensor stalled) */
+    private static final int MOTION_MIN_SAMPLES = 10;
+
     private AudioFocusRequest focusRequest;
     private boolean keepWebViewAlive = false;
+
+    private final Handler motionHandler = new Handler(Looper.getMainLooper());
+    private boolean motionOn = false;
+    /**
+     * Acceleration samples of the last `MOTION_WINDOW_MS`, oldest first: {arrival time in ms since
+     * boot, magnitude in m/s²}. Kept as samples (not a running sum) so cadence can later be found
+     * in the same data (#171). Only touched on the main thread: the listener is registered there.
+     */
+    private final ArrayDeque<double[]> motionSamples = new ArrayDeque<>();
+
+    private final SensorEventListener motionListener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            float x = event.values[0];
+            float y = event.values[1];
+            float z = event.values[2];
+            long now = SystemClock.elapsedRealtime();
+            motionSamples.addLast(new double[] { now, Math.sqrt(x * x + y * y + z * z) });
+            pruneMotion(now);
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+    };
+
+    private final Runnable emitMotion = new Runnable() {
+        @Override
+        public void run() {
+            if (!motionOn) return;
+            pruneMotion(SystemClock.elapsedRealtime());
+            int count = motionSamples.size();
+            JSObject ret = new JSObject();
+            ret.put("at", System.currentTimeMillis());
+            ret.put("samples", count);
+            if (count >= MOTION_MIN_SAMPLES) {
+                double level = motionSpread();
+                ret.put("level", level);
+                Log.i(TAG, String.format(Locale.ROOT, "[motion] level=%.2f samples=%d", level, count));
+            } else {
+                Log.i(TAG, "[motion] no level, samples=" + count);
+            }
+            notifyListeners("motion", ret);
+            motionHandler.postDelayed(this, MOTION_EVERY_MS);
+        }
+    };
+
+    /**
+     * Auto-pause (#154): starts measuring the phone's motion. Once a second a `motion` event
+     * carries `level`, the standard deviation of the acceleration magnitude over the last 2 s in
+     * m/s² (gravity cancels out), and `samples`, how many readings it is based on. No level when
+     * the sensor delivered too few. Only measures: auto-pause decides in JavaScript. No permission
+     * needed. Resolves with `available: false` on a phone without an accelerometer.
+     */
+    @PluginMethod
+    public void startMotion(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (!motionOn) {
+            SensorManager sensors = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+            Sensor accelerometer = sensors == null ? null : sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            if (accelerometer == null) {
+                ret.put("available", false);
+                call.resolve(ret);
+                return;
+            }
+            sensors.registerListener(motionListener, accelerometer, SensorManager.SENSOR_DELAY_GAME, motionHandler);
+            motionOn = true;
+            motionHandler.postDelayed(emitMotion, MOTION_EVERY_MS);
+            Log.i(TAG, "[motion] started");
+        }
+        ret.put("available", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void stopMotion(PluginCall call) {
+        endMotion();
+        call.resolve();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        endMotion();
+        super.handleOnDestroy();
+    }
+
+    private void endMotion() {
+        if (!motionOn) return;
+        motionOn = false;
+        SensorManager sensors = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+        if (sensors != null) sensors.unregisterListener(motionListener);
+        motionHandler.removeCallbacks(emitMotion);
+        motionSamples.clear();
+        Log.i(TAG, "[motion] stopped");
+    }
+
+    private void pruneMotion(long now) {
+        while (!motionSamples.isEmpty() && motionSamples.peekFirst()[0] < now - MOTION_WINDOW_MS) {
+            motionSamples.pollFirst();
+        }
+    }
+
+    /** Standard deviation of the magnitudes in the window */
+    private double motionSpread() {
+        double sum = 0;
+        double sumSq = 0;
+        for (double[] sample : motionSamples) {
+            sum += sample[1];
+            sumSq += sample[1] * sample[1];
+        }
+        int n = motionSamples.size();
+        double mean = sum / n;
+        return Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+    }
 
     /**
      * While a run is on, keeps the WebView running with the screen off. Android otherwise freezes

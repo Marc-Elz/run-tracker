@@ -26,10 +26,13 @@ export const AUTO_PAUSE_CONFIG = {
   speedWindowS: 3,
   /** No usable fix for this long is "don't know": a hold in progress starts over */
   gapS: 5,
-  /** Motion level (m/s², spread of the acceleration) under this is a still phone (PR 2 tunes it) */
+  /** Motion level (m/s², spread of the acceleration) under this is a still phone */
   stillMotion: 0.3,
-  /** Motion level over this is a phone carried by someone walking or running (PR 2 tunes it) */
-  movingMotion: 1,
+  /**
+   * Motion level over this is a phone carried by someone walking or running. Set low: too high
+   * would veto a real resume and keep the run paused, too low only falls back to GPS alone
+   */
+  movingMotion: 0.5,
   /** A motion level older than this is no signal: GPS decides alone */
   motionStaleS: 3,
 }
