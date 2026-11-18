@@ -10,6 +10,7 @@ import {
 } from '@/lib/backup'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 import type { RunStep } from '@/lib/stepProgress'
+import type { RunPause } from '@/lib/runPauses'
 import type { ProgramBundle, TrainingProgram } from '@/lib/training'
 import type { ImportOutcome } from '@/lib/db/trainingRepository'
 import { reshareFile, shareFile } from '@/lib/shareRun'
@@ -19,6 +20,7 @@ export interface BackupSource {
   listFinished(): Promise<RunRecord[]>
   loadPoints(runId: string): Promise<StoredPoint[]>
   loadRunSteps(runId: string): Promise<RunStep[]>
+  loadPauses(runId: string): Promise<RunPause[]>
   /** Enough to decide whether the last file can be shared again */
   listPrograms(): Promise<TrainingProgram[]>
   /** Everything inside the programs, read only when a new file is built */
@@ -26,7 +28,12 @@ export interface BackupSource {
 }
 
 export interface BackupTarget {
-  importRun(run: RunRecord, points: StoredPoint[], steps: RunStep[]): Promise<boolean>
+  importRun(
+    run: RunRecord,
+    points: StoredPoint[],
+    steps: RunStep[],
+    pauses: RunPause[],
+  ): Promise<boolean>
   importProgram(bundle: ProgramBundle): Promise<ImportOutcome>
 }
 
@@ -57,7 +64,9 @@ export async function* backupPieces(
   for (const run of [...runs].reverse()) {
     const points = await source.loadPoints(run.id)
     const steps = await source.loadRunSteps(run.id)
-    yield backupRunPiece({ run, points, steps }, done)
+    const pauses = await source.loadPauses(run.id)
+    // Pauses only when there are some, so a run without them reads as before (#154)
+    yield backupRunPiece({ run, points, steps, ...(pauses.length > 0 ? { pauses } : {}) }, done)
     done++
     onProgress?.(done, runs.length)
   }
@@ -136,8 +145,8 @@ export async function restoreRuns(
   }
   let added = 0
   let skipped = 0
-  for (const { run, points, steps = [] } of parsed.runs) {
-    if (await target.importRun(run, points, steps)) added++
+  for (const { run, points, steps = [], pauses = [] } of parsed.runs) {
+    if (await target.importRun(run, points, steps, pauses)) added++
     else skipped++
     onProgress?.(added + skipped, parsed.runs.length)
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 import type { RunStep } from '@/lib/stepProgress'
+import type { RunPause } from '@/lib/runPauses'
 import type { ProgramBundle } from '@/lib/training'
 import { BackupError, backupFileName, backupKey, buildBackup, parseBackup } from '../backup'
 
@@ -42,6 +43,17 @@ const runStep = (position: number, over: Partial<RunStep> = {}): RunStep => ({
   ...over,
 })
 
+const runPause = (position: number, over: Partial<RunPause> = {}): RunPause => ({
+  position,
+  kind: 'auto',
+  startedAt: 1_000_000 + position * 60_000,
+  endedAt: 1_000_000 + position * 60_000 + 25_000,
+  startedElapsedMs: position * 50_000,
+  lat: 52.1,
+  lon: 4.2,
+  ...over,
+})
+
 describe('backupFileName', () => {
   it('uses the local date', () => {
     expect(backupFileName(new Date(2026, 9, 28, 23, 59).getTime())).toBe(
@@ -60,8 +72,9 @@ describe('buildBackup and parseBackup', () => {
           runStep(0),
           runStep(1, { kind: 'cooldown', targetKind: 'none', targetValue: null }),
         ],
+        pauses: [runPause(0), runPause(1, { lat: null, lon: null })],
       },
-      { run: run('b'), points: [], steps: [] },
+      { run: run('b'), points: [], steps: [], pauses: [] },
     ]
     const text = buildBackup(runs, [], 5_000)
     expect(JSON.parse(text)).toMatchObject({
@@ -73,7 +86,7 @@ describe('buildBackup and parseBackup', () => {
   })
 
   it('keeps the session a run was started from, and reads a run without one as a free run (#40)', () => {
-    const linked = { run: run('a', { sessionId: 's1' }), points: [], steps: [] }
+    const linked = { run: run('a', { sessionId: 's1' }), points: [], steps: [], pauses: [] }
     expect(parseBackup(buildBackup([linked], [], 0)).runs).toEqual([linked])
 
     // Files made before #40 have no sessionId at all
@@ -159,6 +172,33 @@ describe('buildBackup and parseBackup', () => {
     expect(parsed.rejected).toBe(9)
   })
 
+  it('reads a run without pauses as none, and rejects a run with a bad pause (#154)', () => {
+    const entry = (pauses: unknown) => ({ run: run('x'), points: [], pauses })
+    const text = JSON.stringify({
+      format: 'run-tracker-backup',
+      version: 2,
+      exportedAt: 0,
+      runs: [
+        { run: run('old'), points: [] },
+        entry([runPause(0)]),
+        entry('not a list'),
+        entry([runPause(0), runPause(0)]),
+        entry([runPause(0, { kind: 'stop' as RunPause['kind'] })]),
+        entry([runPause(0, { endedAt: null })]),
+        entry([runPause(0, { endedAt: 999_999 })]),
+        entry([runPause(0, { startedElapsedMs: -1 })]),
+        entry([runPause(0, { lat: null })]),
+        entry([{ position: 0 }]),
+      ],
+    })
+    const parsed = parseBackup(text)
+    expect(parsed.runs.map((r) => [r.run.id, r.pauses])).toEqual([
+      ['old', []],
+      ['x', [runPause(0)]],
+    ])
+    expect(parsed.rejected).toBe(8)
+  })
+
   it('reads a run without steps as none, and rejects a run with a bad step list (#101)', () => {
     const entry = (steps: unknown) => ({ run: run('x'), points: [], steps })
     const text = JSON.stringify({
@@ -240,7 +280,7 @@ describe('training programs in the backup', () => {
     JSON.stringify({ format: 'run-tracker-backup', version, exportedAt: 0, runs: [], programs })
 
   it('round-trips programs with their sessions and steps next to the runs', () => {
-    const runs = [{ run: run('a'), points: [point()], steps: [] }]
+    const runs = [{ run: run('a'), points: [point()], steps: [], pauses: [] }]
     const programs = [bundle('p'), bundle('q')]
     expect(parseBackup(buildBackup(runs, programs, 0))).toEqual({ runs, programs, rejected: 0 })
   })

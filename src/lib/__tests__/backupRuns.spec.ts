@@ -182,10 +182,23 @@ describe('backup and restore of runs', () => {
         endedDistanceM: 180,
       },
     ]
+    // Auto-pauses (#154) come along too
+    const pauses = [
+      {
+        position: 0,
+        kind: 'auto' as const,
+        startedAt: 30_000,
+        endedAt: 55_000,
+        startedElapsedMs: 29_000,
+        lat: 52.1,
+        lon: 4.2,
+      },
+    ]
     await source.importRun(
       { ...finished('a', 1), name: 'Haren' },
       [point(5), point(5), point(2)],
       steps,
+      pauses,
     )
     await backUpRuns(source, 0)
     const text = share.shared.text
@@ -203,6 +216,7 @@ describe('backup and restore of runs', () => {
     expect(await target.getRun('a')).toEqual(await source.getRun('a'))
     expect(await target.loadPoints('a')).toEqual(await source.loadPoints('a'))
     expect(await target.loadRunSteps('a')).toEqual(steps)
+    expect(await target.loadPauses('a')).toEqual(pauses)
     expect(await restoreRuns(target, text)).toMatchObject({ added: 0, skipped: 1, rejected: 0 })
     expect(await target.listFinished()).toHaveLength(1)
   })

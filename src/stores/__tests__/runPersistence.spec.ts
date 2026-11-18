@@ -207,6 +207,88 @@ describe('run store persistence', () => {
     ])
   })
 
+  describe('auto-pause rows (#154)', () => {
+    /** Ran by 10 s, auto-paused at 14 s; the spot is the last accepted fix */
+    function autoPaused() {
+      vi.setSystemTime(0)
+      const run = store()
+      run.start(0)
+      run.addPoint(at(1_000, 0))
+      run.addPoint(at(10_000, 0.0003))
+      run.autoPause(14_000)
+      return run
+    }
+
+    it('opens a row at the pause with its spot and run time, and closes it where the run moves on', async () => {
+      const run = autoPaused()
+      await settle()
+      const [open] = await repo.loadPauses(run.runId!)
+      expect(open).toEqual({
+        position: 0,
+        kind: 'auto',
+        startedAt: 14_000,
+        endedAt: null,
+        startedElapsedMs: 14_000,
+        lat: 52.0003,
+        lon: 4,
+      })
+      run.addPoint(at(30_000, 0.0004))
+      run.autoResume(30_000, 33_000)
+      await settle()
+      // Ends where the new segment starts: its length is the time the run did not count
+      expect((await repo.loadPauses(run.runId!))[0]!.endedAt).toBe(30_000)
+      run.addPoint(at(40_000, 0.0008))
+      run.autoPause(50_000)
+      await settle()
+      expect((await repo.loadPauses(run.runId!)).map((p) => p.position)).toEqual([0, 1])
+    })
+
+    it('Pause, Resume and Stop each close the open row', async () => {
+      const held = autoPaused()
+      held.holdPause(20_000)
+      await settle()
+      expect((await repo.loadPauses(held.runId!))[0]!.endedAt).toBe(20_000)
+
+      setActivePinia(createPinia())
+      const resumed = autoPaused()
+      resumed.resume(25_000)
+      await settle()
+      expect((await repo.loadPauses(resumed.runId!))[0]!.endedAt).toBe(25_000)
+
+      setActivePinia(createPinia())
+      const stopped = autoPaused()
+      const id = await stopped.finish(40_000)
+      expect((await repo.loadPauses(id!))[0]!.endedAt).toBe(40_000)
+    })
+
+    it('recovery closes a killed open pause at the last stored fix, never before it started', async () => {
+      autoPaused()
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      // The last stored fix (10 s) lies before the pause (14 s): zero long, not negative
+      expect(again.runPauses).toEqual([
+        expect.objectContaining({ startedAt: 14_000, endedAt: 14_000 }),
+      ])
+      expect((await repo.loadPauses(again.runId!))[0]!.endedAt).toBe(14_000)
+    })
+
+    it('recovery also closes the open pause of an older unfinished run it finishes', async () => {
+      const first = autoPaused()
+      await settle()
+      const firstId = first.runId!
+      // A second run killed later; the first is now the older one
+      const second = relaunch()
+      vi.setSystemTime(100_000)
+      second.start(100_000)
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      expect(again.runId).not.toBe(firstId)
+      expect((await repo.loadPauses(firstId))[0]!.endedAt).toBe(14_000)
+    })
+  })
+
   it('recovers a run killed while auto-paused as a manual pause, with its fixes stored so far', async () => {
     const run = store()
     run.start(0)

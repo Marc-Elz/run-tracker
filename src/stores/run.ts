@@ -7,11 +7,12 @@ import { loadRouteOverviews } from '@/lib/routeOverview'
 import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
 import { applyChange, closeOpenStep, type RunStep, type StepChange } from '@/lib/stepProgress'
 import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runRepository'
+import { closePause, type PauseKind, type RunPause } from '@/lib/runPauses'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
 /** Why a run is paused: the Pause button, or auto-pause (#154) waiting for the runner to move */
-export type PauseKind = 'manual' | 'auto'
+export type { PauseKind } from '@/lib/runPauses'
 
 /** Window used for the "current pace" figure */
 const CURRENT_PACE_WINDOW_MS = 20_000
@@ -31,6 +32,8 @@ export const useRunStore = defineStore('run', () => {
   const status = ref<RunStatus>('idle')
   // Set while paused; an auto-pause resumes by itself, a manual one never does
   const pauseKind = ref<PauseKind | null>(null)
+  // The run's stored pauses (#154): auto-pauses, the last one open while auto-paused
+  const runPauses = ref<RunPause[]>([])
   const runId = ref<string | null>(null)
   const startedAt = ref<number | null>(null)
   const finishedAt = ref<number | null>(null)
@@ -170,19 +173,50 @@ export const useRunStore = defineStore('run', () => {
     saveRun()
   }
 
-  /** Auto-pause (#154): paused like the Pause button, but resumes by itself (`autoResume`) */
+  /** Store a pause row in the background, like a fix */
+  function savePause(pause: RunPause) {
+    const id = runId.value
+    if (id === null) return
+    runPauses.value = [...runPauses.value.filter((p) => p.position !== pause.position), pause]
+    persist((r) => r.savePause(id, pause))
+  }
+
+  /** The open pause row, if any, ends at `t`: the run moved on, was held or stopped */
+  function closeOpenPause(t: number) {
+    const open = runPauses.value.find((p) => p.endedAt === null)
+    if (open) savePause(closePause(open, t))
+  }
+
+  /**
+   * Auto-pause (#154): paused like the Pause button, but resumes by itself (`autoResume`). A
+   * pause row opens at the last accepted fix, for the run's history.
+   */
   function autoPause(t: number = Date.now()) {
     if (status.value !== 'running') return
+    const spot = segmentAccepted.value[segmentAccepted.value.length - 1] ?? null
     pause(t)
     pauseKind.value = 'auto'
     autoBuffer = []
+    savePause({
+      position: runPauses.value.length,
+      kind: 'auto',
+      startedAt: t,
+      endedAt: null,
+      startedElapsedMs: elapsedMs.value,
+      lat: spot?.lat ?? null,
+      lon: spot?.lon ?? null,
+    })
   }
 
-  /** Pause tapped during an auto-pause: it becomes a manual pause, so it never resumes by itself */
-  function holdPause() {
+  /**
+   * Pause tapped during an auto-pause (or auto-pause switched off): it becomes a manual pause and
+   * never resumes by itself. The auto-pause row ends here; manual pauses are not stored.
+   */
+  function holdPause(t: number = Date.now()) {
     if (status.value !== 'paused' || pauseKind.value !== 'auto') return
     pauseKind.value = 'manual'
     autoBuffer = []
+    closeOpenPause(t)
   }
 
   /**
@@ -203,6 +237,8 @@ export const useRunStore = defineStore('run', () => {
 
   function resume(t: number = Date.now()) {
     if (status.value !== 'paused') return
+    // An auto-pause ends where the new segment starts (manual Resume, or `autoResume`)
+    closeOpenPause(t)
     pauseKind.value = null
     pausedAt = null
     autoBuffer = []
@@ -220,6 +256,7 @@ export const useRunStore = defineStore('run', () => {
   function stop(t: number = Date.now()) {
     if (status.value === 'running') pause(t)
     if (status.value !== 'paused') return
+    closeOpenPause(t)
     status.value = 'finished'
     finishedAt.value = t
     saveRun()
@@ -264,9 +301,14 @@ export const useRunStore = defineStore('run', () => {
   /** Finished runs with their route for the all-routes map; builds missing overviews first. */
   const loadOverviews = (onProgress?: (done: number, total: number) => void) =>
     loadRouteOverviews(repo, onProgress)
-  const importRun = (run: RunRecord, points: StoredPoint[], steps: RunStep[] = []) =>
-    repo.importRun(run, points, steps)
+  const importRun = (
+    run: RunRecord,
+    points: StoredPoint[],
+    steps: RunStep[] = [],
+    pauses: RunPause[] = [],
+  ) => repo.importRun(run, points, steps, pauses)
   const loadRunSteps = (id: string) => repo.loadRunSteps(id)
+  const loadPauses = (id: string) => repo.loadPauses(id)
   const doneSessionIds = () => repo.doneSessionIds()
   /** Link a saved run to a session, or unlink it with null; resolves with the link as stored */
   const linkRun = (id: string, session: string | null) => repo.setRunSession(id, session)
@@ -288,6 +330,7 @@ export const useRunStore = defineStore('run', () => {
     runId.value = null
     sessionId.value = null
     runSteps.value = []
+    runPauses.value = []
     startedAt.value = null
     finishedAt.value = null
     recovered.value = false
@@ -311,6 +354,25 @@ export const useRunStore = defineStore('run', () => {
    * Bring back a run the app was killed in, paused, with totals recomputed from its raw points.
    * Older unfinished runs (repeated crashes) are saved as finished.
    */
+  /**
+   * An auto-pause left open when the app was killed ends at the last stored fix: the fixes held
+   * back while auto-paused were never stored, so a later end is unknown. Never before it started.
+   */
+  async function closeKilledPauses(id: string, lastFix: TrackPoint | undefined) {
+    const stored = await repo.loadPauses(id)
+    const closed: RunPause[] = []
+    for (const p of stored) {
+      if (p.endedAt !== null) {
+        closed.push(p)
+        continue
+      }
+      const ended = closePause(p, lastFix?.timestamp ?? p.startedAt)
+      await repo.savePause(id, ended)
+      closed.push(ended)
+    }
+    return closed
+  }
+
   async function recover() {
     if (status.value !== 'idle') return
     const [latest, ...older] = await repo.findUnfinished()
@@ -325,6 +387,7 @@ export const useRunStore = defineStore('run', () => {
         distanceM: totals.distanceM,
       })
       if (open) await repo.saveStepChange(run.id, open, [])
+      await closeKilledPauses(run.id, lastFix)
       await repo.updateRun({
         ...run,
         ...totals,
@@ -339,6 +402,8 @@ export const useRunStore = defineStore('run', () => {
     const restored = toSegments(await repo.loadPoints(latest.id), latest.segment)
     const totals = summarizeTrack(restored)
     const steps = await repo.loadRunSteps(latest.id)
+    const latestFixes = restored.flat()
+    runPauses.value = await closeKilledPauses(latest.id, latestFixes[latestFixes.length - 1])
     runId.value = latest.id
     sessionId.value = latest.sessionId
     runSteps.value = steps
@@ -416,6 +481,8 @@ export const useRunStore = defineStore('run', () => {
     deleteRun,
     importRun,
     loadRunSteps,
+    loadPauses,
+    runPauses,
     applyStepChange,
     doneSessionIds,
     linkRun,
