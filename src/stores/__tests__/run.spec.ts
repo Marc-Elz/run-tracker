@@ -39,6 +39,18 @@ describe('run store', () => {
     expect(run.distanceM).toBeLessThan(115)
   })
 
+  it('brings the clock up to a counted fix, between the timer ticks', () => {
+    vi.setSystemTime(0)
+    const run = useRunStore()
+    run.start(0)
+    vi.setSystemTime(1400)
+    run.addPoint(at(1400, 0))
+    expect(run.elapsedMs).toBe(1400)
+    vi.setSystemTime(2700)
+    run.addPoint(at(2700, 0.00001)) // ~1 m: jitter, not counted, so the clock waits for its tick
+    expect(run.elapsedMs).toBe(1400)
+  })
+
   it('stores filtered fixes but leaves them out of distance and moving time', () => {
     const run = useRunStore()
     run.start(0)
