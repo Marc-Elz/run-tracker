@@ -25,8 +25,12 @@ vi.mock('@/lib/shareRun', () => share)
 
 // MapLibre needs WebGL, which jsdom does not have; the map has its own checks in the browser
 const RouteMap = {
-  props: ['route'],
-  template: '<div class="map-stub">{{ route.lines.length }}</div>',
+  props: ['route', 'pauses', 'selected'],
+  emits: ['select-pause'],
+  template: `<div>
+    <div class="map-stub" :data-pauses="(pauses ?? []).length" :data-selected="selected">{{ route.lines.length }}</div>
+    <button class="dot-stub" @click="$emit('select-pause', 1)">dot</button>
+  </div>`,
 }
 
 const record: RunRecord = {
@@ -91,6 +95,66 @@ describe('RunSummaryView', () => {
     const rows = wrapper.findAll('.split')
     expect(rows).toHaveLength(1)
     expect(rows[0]!.text()).toContain('0.03 km')
+  })
+
+  describe('auto-pauses (#154)', () => {
+    const pause = (position: number, startedAt: number, endedAt: number) => ({
+      position,
+      kind: 'auto' as const,
+      startedAt,
+      endedAt,
+      startedElapsedMs: 0,
+      lat: 52,
+      lon: 4,
+    })
+
+    it('lists each auto-pause with its time and length, and the total', async () => {
+      const repo = createMemoryRunRepository()
+      await repo.importRun(
+        record,
+        [],
+        [],
+        [
+          pause(0, Date.UTC(2026, 9, 26, 7, 20, 5), Date.UTC(2026, 9, 26, 7, 20, 30)),
+          pause(1, Date.UTC(2026, 9, 26, 7, 31), Date.UTC(2026, 9, 26, 7, 32, 10)),
+        ],
+      )
+      useRunStore().useRepository(repo)
+      const wrapper = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      const section = wrapper.get('[aria-label="Auto-pauses"]')
+      expect(section.text()).toContain('2 · 01:35 not counted')
+      const rows = section.findAll('button.pause')
+      const clock = (t: number) =>
+        new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+      expect(rows.map((r) => r.findAll('span').map((span) => span.text()))).toEqual([
+        ['', `1 · ${clock(Date.UTC(2026, 9, 26, 7, 20, 5))}`, '00:25'],
+        ['', `2 · ${clock(Date.UTC(2026, 9, 26, 7, 31))}`, '01:10'],
+      ])
+      expect(wrapper.get('.map-stub').attributes('data-pauses')).toBe('2')
+    })
+
+    it('shows a pause on the map from its row or its dot, and lets go on a second tap', async () => {
+      const repo = createMemoryRunRepository()
+      await repo.importRun(record, [], [], [pause(0, 1_000, 2_000), pause(1, 5_000, 9_000)])
+      useRunStore().useRepository(repo)
+      const wrapper = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      const rows = () => wrapper.findAll('button.pause')
+      await rows()[0]!.trigger('click')
+      expect(rows()[0]!.attributes('aria-pressed')).toBe('true')
+      expect(wrapper.get('.map-stub').attributes('data-selected')).toBe('0')
+      await rows()[0]!.trigger('click')
+      expect(rows()[0]!.attributes('aria-pressed')).toBe('false')
+      // A tap on a dot selects its row
+      await wrapper.get('.dot-stub').trigger('click')
+      expect(rows()[1]!.attributes('aria-pressed')).toBe('true')
+    })
+
+    it('has no auto-pause section for a run without any', async () => {
+      const { wrapper } = await open()
+      expect(wrapper.find('[aria-label="Auto-pauses"]').exists()).toBe(false)
+    })
   })
 
   it('titles an unnamed run by its date and renames it from the editor', async () => {
