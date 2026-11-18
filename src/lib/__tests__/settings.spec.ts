@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  autoPause,
   cueConfig,
   followedProgramId,
+  loadAutoPause,
   loadCueConfig,
   loadFollowedProgram,
   loadSlowestRunPace,
   loadStepCoaching,
+  setAutoPause,
   setCueConfig,
   setFollowedProgram,
   setSlowestRunPace,
@@ -125,5 +128,25 @@ describe('slowest run pace (#103)', () => {
     setSlowestRunPace(600)
     expect(slowestRunPace.value).toBe(600)
     expect(loadSlowestRunPace()).toBe(600)
+  })
+})
+
+describe('auto-pause (#154)', () => {
+  it('is on by default and when storage is unreadable', () => {
+    expect(loadAutoPause()).toBe(true)
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('blocked')
+      },
+    })
+    expect(loadAutoPause()).toBe(true)
+  })
+
+  it('keeps it switched off, and on again', () => {
+    setAutoPause(false)
+    expect(autoPause.value).toBe(false)
+    expect(loadAutoPause()).toBe(false)
+    setAutoPause(true)
+    expect(loadAutoPause()).toBe(true)
   })
 })

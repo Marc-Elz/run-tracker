@@ -68,6 +68,11 @@ function gapLogger() {
   }
 }
 
+/** Whether `startGps` uses the fake GPS: when asked, and always outside the native app */
+export function usesSimulatedGps(simulate: boolean): boolean {
+  return simulate || !Capacitor.isNativePlatform()
+}
+
 /**
  * Start delivering GPS fixes; resolves with a stop function. On the phone this runs a
  * foreground service, so fixes keep coming with the screen off or another app open.
@@ -79,7 +84,7 @@ export async function startGps(
   onError: (err: Error) => void,
   { simulate = false }: GpsOptions = {},
 ): Promise<() => void> {
-  if (simulate || !Capacitor.isNativePlatform()) return startGpsSimulation(onPoint)
+  if (usesSimulatedGps(simulate)) return startGpsSimulation(onPoint)
 
   const log = gapLogger()
   let id: string | null = null

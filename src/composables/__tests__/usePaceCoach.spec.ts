@@ -56,6 +56,19 @@ async function runSlow(run: ReturnType<typeof useRunStore>, seconds: number) {
   }
 }
 
+/** Wall clock for `go`, in ms */
+let clock = 0
+
+/** Go on for this many seconds at `secPerKm` (0: standing), one tick a second */
+async function go(run: ReturnType<typeof useRunStore>, seconds: number, secPerKm: number) {
+  for (let i = 0; i < seconds; i++) {
+    if (secPerKm > 0) run.distanceM += 1000 / secPerKm
+    clock += 1000
+    run.tick(clock)
+    await nextTick()
+  }
+}
+
 beforeEach(() => {
   speech.speak.mockClear()
   speech.speaking = false
@@ -84,6 +97,24 @@ describe('usePaceCoach', () => {
     enabled.value = true
     run.runSteps = []
     await runSlow(run, 50)
+    expect(speech.speak).not.toHaveBeenCalled()
+  })
+
+  it('does not judge the stop before a pause once the run resumes (#154)', async () => {
+    const run = setup()
+    clock = 0
+    run.start(clock)
+    run.runSteps = [runStep]
+    await nextTick()
+    await go(run, 40, 345) // on pace
+    await go(run, 4, 0) // standing at a light for the auto-pause hold
+    run.pause(clock)
+    await nextTick()
+    clock += 60_000
+    run.resume(clock)
+    await nextTick()
+    await go(run, 30, 345)
+    expect(run.elapsedMs).toBe(74_000)
     expect(speech.speak).not.toHaveBeenCalled()
   })
 

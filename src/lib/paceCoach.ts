@@ -94,6 +94,15 @@ export function initPaceCoachState(position: number): PaceCoachState {
 }
 
 /**
+ * After a pause (manual or auto, #154): the window starts again from these totals. Run time is
+ * frozen while paused, so without this the window right after a resume would still hold the
+ * slowdown before the stop and call "Faster" at once. Timers between corrections are kept.
+ */
+export function restartWindow(state: PaceCoachState, totals: StepTotals): PaceCoachState {
+  return { ...state, samples: [totals], off: null, onPaceSinceMs: null }
+}
+
+/**
  * What the step is coached against: its own pace range, or for a run step without one only a
  * slow end. Warm-up, walk, recovery and cool-down are never coached.
  */

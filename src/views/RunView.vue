@@ -10,10 +10,12 @@ import { usePlannedSession } from '@/composables/usePlannedSession'
 import { useSessionSteps } from '@/composables/useSessionSteps'
 import { useStepCues } from '@/composables/useStepCues'
 import { usePaceCoach } from '@/composables/usePaceCoach'
+import { useAutoPause } from '@/composables/useAutoPause'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import SessionPicker from '@/components/SessionPicker.vue'
-import { cueConfig, slowestRunPace, stepCoaching } from '@/lib/settings'
-import { GpsError, openAppSettings, startGps, type GpsFailure } from '@/lib/gps'
+import { autoPause, cueConfig, slowestRunPace, stepCoaching } from '@/lib/settings'
+import { GpsError, openAppSettings, startGps, usesSimulatedGps, type GpsFailure } from '@/lib/gps'
+import { simulatedStandStill } from '@/lib/simulateGps'
 import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatMetres, formatPace } from '@/lib/format'
 import {
@@ -31,6 +33,7 @@ const router = useRouter()
 const route = useRoute()
 const {
   status,
+  pauseKind,
   sessionId,
   hasFix,
   recovered,
@@ -87,6 +90,9 @@ usePaceCoach(
   computed(() => stepCoaching.value === 'pace'),
   slowestRunPace,
 )
+// Pauses at a stop and carries on when moving again (#154); the one consumer of GPS fixes
+const { onFix } = useAutoPause(autoPause)
+const autoPaused = computed(() => status.value === 'paused' && pauseKind.value === 'auto')
 /** "Target 5:30–6:00 /km" on a step with a pace target */
 const stepTarget = computed(() => {
   const step = steps.value?.current
@@ -128,6 +134,8 @@ onBeforeUnmount(() => void keepWebViewAlive(false))
 
 const isDev = import.meta.env.DEV
 const simulate = ref(isDev)
+// Fake GPS (dev, and the web demo): "Stand still" tries auto-pause in the browser (#154)
+const simulating = computed(() => usesSimulatedGps(isDev && simulate.value))
 const starting = ref(false)
 const gpsFailure = ref<GpsFailure | null>(null)
 const batteryHint = ref(false)
@@ -159,7 +167,7 @@ async function beginTracking(advance: () => void, undo: () => void) {
     await ensureNotifications()
     batteryHint.value = !(await ensureBatteryExemption())
     advance()
-    stopGps = await startGps(run.addPoint, onGpsError, { simulate: isDev && simulate.value })
+    stopGps = await startGps(onFix, onGpsError, { simulate: isDev && simulate.value })
   } catch (err) {
     console.warn('GPS could not start', err)
     undo()
@@ -201,7 +209,10 @@ async function onStop() {
 
 // GPS stays on while paused (the store ignores those fixes) and stops with the run
 watch(status, (s) => {
-  if (s === 'finished' || s === 'idle') endGps()
+  if (s === 'finished' || s === 'idle') {
+    endGps()
+    simulatedStandStill.value = false
+  }
   // Back on the start screen without leaving it (a discarded run): offer the session again
   if (s === 'idle') void reloadPlanned()
 })
@@ -280,6 +291,7 @@ onBeforeUnmount(endGps)
     </p>
 
     <p v-if="status === 'running' && !hasFix && !gpsFailure" class="gps-status">Acquiring GPS…</p>
+    <p v-if="autoPaused" class="gps-status" role="status">Auto-paused · moves on when you do</p>
 
     <section class="stats" aria-live="off">
       <!-- With a step panel its number is the one big number; the totals step down a size -->
@@ -356,6 +368,9 @@ onBeforeUnmount(endGps)
       </button>
 
       <template v-else-if="status === 'paused'">
+        <button v-if="autoPaused" class="btn btn--secondary btn--wide" @click="run.holdPause()">
+          Pause
+        </button>
         <button class="btn btn--primary" :disabled="starting" @click="onResume()">Resume</button>
         <button class="btn btn--danger" :disabled="stopping" @click="onStop()">Stop</button>
       </template>
@@ -376,6 +391,9 @@ onBeforeUnmount(endGps)
 
     <label v-if="status === 'idle' && isDev" class="dev">
       <input v-model="simulate" type="checkbox" /> Simulate GPS (dev only)
+    </label>
+    <label v-if="(status === 'running' || status === 'paused') && simulating" class="dev">
+      <input v-model="simulatedStandStill" type="checkbox" /> Stand still (simulated GPS)
     </label>
   </main>
 </template>
@@ -457,6 +475,9 @@ onBeforeUnmount(endGps)
 }
 
 /* Side by side, so both stay in view on a 360 px phone with the session card above */
+.btn--wide {
+  flex-basis: 100%;
+}
 .controls--session .btn--primary {
   flex: 3;
 }

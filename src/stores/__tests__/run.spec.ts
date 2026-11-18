@@ -184,6 +184,86 @@ describe('run store', () => {
     })
   })
 
+  describe('auto-pause (#154)', () => {
+    /** Ran 33 m by 10 s, auto-paused at 14 s */
+    function autoPaused() {
+      vi.setSystemTime(0)
+      const run = useRunStore()
+      run.start(0)
+      run.addPoint(at(1000, 0))
+      run.addPoint(at(10_000, 0.0003))
+      run.autoPause(14_000)
+      return run
+    }
+
+    it('pauses like the Pause button, marked as auto', () => {
+      const run = autoPaused()
+      run.tick(60_000)
+      expect(run.status).toBe('paused')
+      expect(run.pauseKind).toBe('auto')
+      expect(run.elapsedMs).toBe(14_000)
+    })
+
+    it('resumes from the first moving fix: drift dropped, the metres of the resume kept', () => {
+      const run = autoPaused()
+      const before = run.distanceM
+      run.addPoint(at(20_000, 0.0006)) // drift while standing, 33 m off
+      for (let s = 0; s <= 3; s++) run.addPoint(at(30_000 + s * 1000, 0.0003 + s * 0.00003))
+      vi.setSystemTime(33_500)
+      run.autoResume(30_000, 33_500)
+
+      expect(run.status).toBe('running')
+      expect(run.pauseKind).toBeNull()
+      // 14 s before the pause, then from the first moving fix (30 s) to now
+      expect(run.elapsedMs).toBe(17_500)
+      expect(run.segments).toHaveLength(2)
+      expect(run.segments[1]).toHaveLength(4)
+      // 10 m on from where it stopped, counted in steps of 5 m or more (so 6.7 m here); the
+      // drift fix would have added 66 m
+      expect(run.distanceM - before).toBeGreaterThan(5)
+      expect(run.distanceM - before).toBeLessThan(12)
+    })
+
+    it('never moves elapsed time backwards when the GPS clock is behind or ahead', () => {
+      const behind = autoPaused()
+      behind.autoResume(5_000, 20_000) // GPS time before the pause
+      expect(behind.elapsedMs).toBe(14_000 + 6_000)
+
+      setActivePinia(createPinia())
+      const ahead = autoPaused()
+      ahead.autoResume(90_000, 20_000) // GPS time after now
+      expect(ahead.elapsedMs).toBe(14_000)
+    })
+
+    it('Pause during an auto-pause holds it: no resume by itself, nothing held back', () => {
+      const run = autoPaused()
+      run.holdPause()
+      expect(run.pauseKind).toBe('manual')
+      run.addPoint(at(30_000, 0.0004))
+      run.autoResume(30_000, 33_000)
+      expect(run.status).toBe('paused')
+      run.resume(40_000)
+      expect(run.segments[1]).toEqual([])
+    })
+
+    it('Resume during an auto-pause resumes now and stores none of the held-back fixes', () => {
+      const run = autoPaused()
+      run.addPoint(at(20_000, 0.0004))
+      run.resume(25_000)
+      expect(run.pauseKind).toBeNull()
+      expect(run.elapsedMs).toBe(14_000)
+      expect(run.segments[1]).toEqual([])
+    })
+
+    it('only auto-pauses a running run', () => {
+      const run = useRunStore()
+      run.start(0)
+      run.pause(5000)
+      run.autoPause(6000)
+      expect(run.pauseKind).toBe('manual')
+    })
+  })
+
   it('ticks the clock while running', () => {
     const run = useRunStore()
     run.start(Date.now())

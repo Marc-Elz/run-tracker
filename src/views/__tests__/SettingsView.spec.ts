@@ -7,7 +7,14 @@ import { buildBackup } from '@/lib/backup'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
 import type { TrackingStatus } from '@/lib/trackingStatus'
-import { setSlowestRunPace, setStepCoaching, slowestRunPace, stepCoaching } from '@/lib/settings'
+import {
+  autoPause,
+  setAutoPause,
+  setSlowestRunPace,
+  setStepCoaching,
+  slowestRunPace,
+  stepCoaching,
+} from '@/lib/settings'
 import SettingsView from '../SettingsView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -56,9 +63,9 @@ vi.mock('@/composables/useAppResume', () => ({
 
 const allGood: TrackingStatus = { location: 'granted', notifications: 'granted', battery: 'exempt' }
 
-// The audio cue and backup sections have their own buttons; these tests are about the permission rows
+// The audio cue, auto-pause and backup sections have their own buttons; these tests are about the permission rows
 const permissionButtons = (wrapper: ReturnType<typeof mount>) =>
-  wrapper.findAll('.row:not(.cues):not(.backup) button')
+  wrapper.findAll('.row:not(.cues):not(.auto-pause):not(.backup) button')
 
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>
   wrapper.findAll('button').find((b) => b.text() === label)
@@ -191,6 +198,19 @@ describe('SettingsView', () => {
     expect(slowestRunPace.value).toBe(600)
     setStepCoaching('steps')
     setSlowestRunPace(540)
+  })
+
+  it('switches auto-pause off and on (#154)', async () => {
+    setAutoPause(true)
+    const wrapper = await open(null)
+    const group = wrapper.get('[aria-label="Auto-pause"]')
+    const [on, off] = group.findAll('button')
+    expect(on!.attributes('aria-pressed')).toBe('true')
+    await off!.trigger('click')
+    expect(autoPause.value).toBe(false)
+    expect(off!.attributes('aria-pressed')).toBe('true')
+    await on!.trigger('click')
+    expect(autoPause.value).toBe(true)
   })
 
   describe('backup', () => {

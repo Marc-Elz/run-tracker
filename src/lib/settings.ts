@@ -127,3 +127,25 @@ export function setSlowestRunPace(next: SlowestRunPace) {
     console.warn('Could not save settings', err)
   }
 }
+
+const AUTO_PAUSE_KEY = 'run-tracker.auto-pause'
+
+/** Auto-pause when standing still (#154), on every run, free or session; on unless switched off */
+export function loadAutoPause(): boolean {
+  try {
+    return localStorage.getItem(AUTO_PAUSE_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export const autoPause = ref(loadAutoPause())
+
+export function setAutoPause(on: boolean) {
+  autoPause.value = on
+  try {
+    localStorage.setItem(AUTO_PAUSE_KEY, on ? 'on' : 'off')
+  } catch (err) {
+    console.warn('Could not save settings', err)
+  }
+}

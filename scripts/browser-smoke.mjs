@@ -66,7 +66,7 @@ try {
   check('Settings shows metric units', settings.includes('Metric (km, min/km)'))
   check(
     'Settings has no permission buttons in the browser',
-    (await page.locator('.settings .row:not(.cues):not(.backup) button').count()) === 0,
+    (await page.locator('.settings .row:not(.cues):not(.auto-pause):not(.backup) button').count()) === 0,
   )
   check('Back up is disabled before the first run or program', await page.getByRole('button', { name: 'Back up', exact: true }).isDisabled())
   check('no horizontal scroll at 360 px', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
@@ -88,6 +88,20 @@ try {
   check('tab bar hidden while paused', (await tabBar()) === 0)
   await page.getByRole('button', { name: 'Resume' }).click()
   await page.waitForTimeout(3000)
+  // Auto-pause (#154): standing still pauses the run, moving on resumes it
+  await page.getByLabel('Stand still (simulated GPS)').check()
+  await page.waitForSelector('main.run[data-status="paused"]', { timeout: 15000 })
+  const autoText = await page.locator('main.run').innerText()
+  check('Stand still auto-pauses, shown apart from a manual pause', autoText.includes('Auto-paused'))
+  check(
+    'auto-paused offers Pause, Resume and Stop',
+    ['Pause', 'Resume', 'Stop'].every((n) => autoText.includes(n)),
+  )
+  check('no horizontal scroll while auto-paused', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  await page.getByLabel('Stand still (simulated GPS)').uncheck()
+  await page.waitForSelector('main.run[data-status="running"]', { timeout: 15000 })
+  check('moving on resumes by itself', !(await page.locator('main.run').innerText()).includes('Auto-paused'))
+  await page.waitForTimeout(2000)
   await page.getByRole('button', { name: 'Pause' }).click()
   await page.getByRole('button', { name: 'Stop' }).click()
   // Stop saves the run and opens its summary
@@ -136,7 +150,7 @@ try {
   const xml = readFileSync(await download.path(), 'utf8')
   const segments = (xml.match(/<trkseg>/g) ?? []).length
   const points = (xml.match(/<trkpt /g) ?? []).length
-  check('GPX has one segment per pause/resume', segments === 2, `${segments} segments, ${points} points`)
+  check('GPX has one segment per resume, manual and auto', segments === 3, `${segments} segments, ${points} points`)
   check('GPX points have UTC times', points > 5 && !/<trkpt [^>]*><(?!ele|time)/.test(xml) && /<time>\d{4}-\d{2}-\d{2}T[\d:.]+Z<\/time>/.test(xml))
 
   // Training: a program with one session, which the backup below then holds too
