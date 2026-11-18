@@ -6,7 +6,9 @@ import { askBatteryExemption, ensureNotifications, openBatterySettings } from '@
 import { getTrackingStatus, type TrackingStatus } from '@/lib/trackingStatus'
 import { CUE_DISTANCE_OPTIONS, CUE_TIME_OPTIONS, cueText } from '@/lib/cues'
 import {
+  autoPause,
   cueConfig,
+  setAutoPause,
   setCueConfig,
   setSlowestRunPace,
   setStepCoaching,
@@ -281,6 +283,25 @@ const summary = computed(() => {
       </div>
       <p class="hint">{{ coachingHint }}</p>
       <button class="btn btn--quiet" @click="testCue">Test cue</button>
+    </section>
+
+    <section class="row auto-pause" aria-labelledby="auto-pause-title">
+      <h2 id="auto-pause-title">Auto-pause</h2>
+      <p>
+        Pauses the run when you stop, at a crossing or a light, and carries on when you move again.
+        Says "Stop detected" and "Resumed".
+      </p>
+      <div class="choice" role="group" aria-label="Auto-pause">
+        <button
+          v-for="on in [true, false]"
+          :key="String(on)"
+          class="btn btn--choice"
+          :aria-pressed="autoPause === on"
+          @click="setAutoPause(on)"
+        >
+          {{ on ? 'On' : 'Off' }}
+        </button>
+      </div>
     </section>
 
     <section class="row backup" aria-labelledby="backup-title">

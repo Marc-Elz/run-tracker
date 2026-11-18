@@ -207,6 +207,22 @@ describe('run store persistence', () => {
     ])
   })
 
+  it('recovers a run killed while auto-paused as a manual pause, with its fixes stored so far', async () => {
+    const run = store()
+    run.start(0)
+    run.addPoint(at(1_000, 0))
+    run.addPoint(at(10_000, 0.0003))
+    run.autoPause(14_000)
+    run.addPoint(at(20_000, 0.0003)) // held back while auto-paused, never stored
+
+    const again = relaunch()
+    await again.recover()
+    expect(again.status).toBe('paused')
+    expect(again.pauseKind).toBe('manual')
+    expect(again.elapsedMs).toBe(14_000)
+    expect(again.points).toHaveLength(2)
+  })
+
   it('recovers a run killed while paused with its banked time', async () => {
     const run = store()
     run.start(0)

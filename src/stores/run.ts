@@ -10,10 +10,14 @@ import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runReposito
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
+/** Why a run is paused: the Pause button, or auto-pause (#154) waiting for the runner to move */
+export type PauseKind = 'manual' | 'auto'
 
 /** Window used for the "current pace" figure */
 const CURRENT_PACE_WINDOW_MS = 20_000
 const MIN_CURRENT_PACE_DISTANCE_M = 5
+/** Fixes kept while auto-paused; a resume only needs the last few seconds */
+const AUTO_PAUSE_BUFFER = 120
 
 /** Running time of a saved run: banked time plus the open segment up to its last fix */
 function savedElapsedMs(run: RunRecord, segments: TrackPoint[][]): number {
@@ -25,6 +29,8 @@ function savedElapsedMs(run: RunRecord, segments: TrackPoint[][]): number {
 
 export const useRunStore = defineStore('run', () => {
   const status = ref<RunStatus>('idle')
+  // Set while paused; an auto-pause resumes by itself, a manual one never does
+  const pauseKind = ref<PauseKind | null>(null)
   const runId = ref<string | null>(null)
   const startedAt = ref<number | null>(null)
   const finishedAt = ref<number | null>(null)
@@ -50,6 +56,9 @@ export const useRunStore = defineStore('run', () => {
   const bankedMs = ref(0)
   const segmentStart = ref<number | null>(null)
   const now = ref(Date.now())
+  // While auto-paused: when it paused, and the fixes since, not stored until the run moves on
+  let pausedAt: number | null = null
+  let autoBuffer: TrackPoint[] = []
 
   let timer: ReturnType<typeof setInterval> | null = null
   let repo: RunRepository = createMemoryRunRepository()
@@ -154,13 +163,49 @@ export const useRunStore = defineStore('run', () => {
     segmentStart.value = null
     segmentAccepted.value = []
     status.value = 'paused'
+    pauseKind.value = 'manual'
+    pausedAt = t
     tick(t)
     stopTimer()
     saveRun()
   }
 
+  /** Auto-pause (#154): paused like the Pause button, but resumes by itself (`autoResume`) */
+  function autoPause(t: number = Date.now()) {
+    if (status.value !== 'running') return
+    pause(t)
+    pauseKind.value = 'auto'
+    autoBuffer = []
+  }
+
+  /** Pause tapped during an auto-pause: it becomes a manual pause, so it never resumes by itself */
+  function holdPause() {
+    if (status.value !== 'paused' || pauseKind.value !== 'auto') return
+    pauseKind.value = 'manual'
+    autoBuffer = []
+  }
+
+  /**
+   * The runner moved on after an auto-pause. `fromTimestamp` is the GPS time of the first moving
+   * fix: the new segment starts there, and the fixes since are stored and counted, so the metres
+   * covered while the resume was being confirmed are kept. Fixes before it (drift while
+   * standing) are dropped. The GPS clock can differ from the phone's, so the start is kept
+   * between the pause and now and elapsed time never goes backwards.
+   */
+  function autoResume(fromTimestamp: number, t: number = Date.now()) {
+    if (status.value !== 'paused' || pauseKind.value !== 'auto') return
+    const moved = autoBuffer.filter((p) => p.timestamp >= fromTimestamp)
+    const start = Math.min(Math.max(fromTimestamp, pausedAt ?? t), t)
+    resume(start)
+    for (const p of moved) addPoint(p)
+    tick(t)
+  }
+
   function resume(t: number = Date.now()) {
     if (status.value !== 'paused') return
+    pauseKind.value = null
+    pausedAt = null
+    autoBuffer = []
     segmentStart.value = t
     segments.value.push([])
     // Never measure the first fix from a point before the pause (or before the app was killed)
@@ -203,6 +248,7 @@ export const useRunStore = defineStore('run', () => {
       console.warn('[db] write failed', err)
       saveError.value = true
       status.value = 'paused'
+      pauseKind.value = 'manual'
       finishedAt.value = null
       return null
     }
@@ -236,6 +282,9 @@ export const useRunStore = defineStore('run', () => {
   function reset() {
     stopTimer()
     status.value = 'idle'
+    pauseKind.value = null
+    pausedAt = null
+    autoBuffer = []
     runId.value = null
     sessionId.value = null
     runSteps.value = []
@@ -301,14 +350,22 @@ export const useRunStore = defineStore('run', () => {
     bankedMs.value = savedElapsedMs(latest, restored)
     segmentStart.value = null
     status.value = 'paused'
+    pauseKind.value = 'manual'
     recovered.value = true
     tick()
     saveRun()
     console.info('[db] recovered run', latest.id, restored.flat().length, 'points')
   }
 
-  /** Feed a GPS fix. Ignored unless a run is in progress; kept even when filtered out. */
+  /**
+   * Feed a GPS fix. Ignored unless a run is in progress; kept even when filtered out. While
+   * auto-paused it is held back, for `autoResume` to store if it is part of moving on.
+   */
   function addPoint(point: TrackPoint) {
+    if (status.value === 'paused' && pauseKind.value === 'auto') {
+      autoBuffer = [...autoBuffer.slice(1 - AUTO_PAUSE_BUFFER), point]
+      return
+    }
     if (status.value !== 'running') return
     segments.value[segments.value.length - 1]!.push(point)
     const id = runId.value!
@@ -328,6 +385,7 @@ export const useRunStore = defineStore('run', () => {
 
   return {
     status,
+    pauseKind,
     runId,
     sessionId,
     runSteps,
@@ -345,6 +403,9 @@ export const useRunStore = defineStore('run', () => {
     currentPaceSecPerKm,
     start,
     pause,
+    autoPause,
+    holdPause,
+    autoResume,
     resume,
     stop,
     finish,
