@@ -192,7 +192,8 @@ describe('useAutoPause', () => {
       expect(motion.stopped).toBe(2)
     })
 
-    it('a still phone pauses the run even while GPS drifts', async () => {
+    it('a still phone pauses the run even while GPS drifts, and logs it', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
       const { run, onFix } = setup()
       run.start(0)
       await nextTick()
@@ -206,6 +207,9 @@ describe('useAutoPause', () => {
         await nextTick()
       }
       expect(run.pauseKind).toBe('auto')
+      // The stop came from a motion reading, between fixes
+      expect(info).toHaveBeenCalledWith('[autopause] running motion=0.05 -> stop')
+      info.mockRestore()
     })
 
     it('a still phone vetoes a resume; a reading without a level is no signal', async () => {

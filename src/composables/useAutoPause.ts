@@ -68,6 +68,10 @@ export function useAutoPause(enabled: Ref<boolean>, motion: MotionSource = () =>
     const result = nextAutoPause(state, input)
     if (input.kind === 'fix') {
       console.info(describeFix(state, input.point, input.at, result.state, result.event))
+    } else if (result.event) {
+      // A still phone can stop the run between fixes: log that decision too
+      const from = state.paused ? 'paused' : 'running'
+      console.info(`[autopause] ${from} motion=${input.level.toFixed(2)} -> ${result.event.kind}`)
     }
     state = result.state
     if (result.event?.kind === 'stop') {
