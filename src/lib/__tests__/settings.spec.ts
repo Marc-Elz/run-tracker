@@ -7,13 +7,16 @@ import {
   loadCueConfig,
   loadFollowedProgram,
   loadSlowestRunPace,
+  loadSlowestWalk,
   loadStepCoaching,
   setAutoPause,
   setCueConfig,
   setFollowedProgram,
   setSlowestRunPace,
+  setSlowestWalk,
   setStepCoaching,
   slowestRunPace,
+  slowestWalk,
   stepCoaching,
   loadTimerPresets,
   setTimerPresets,
@@ -132,6 +135,31 @@ describe('slowest run pace (#103)', () => {
     setSlowestRunPace(600)
     expect(slowestRunPace.value).toBe(600)
     expect(loadSlowestRunPace()).toBe(600)
+  })
+})
+
+describe('slowest walk (#153)', () => {
+  const KEY = 'run-tracker.slowest-walk'
+
+  it('is off by default, with no typed pace', () => {
+    expect(loadSlowestWalk()).toEqual({ on: false, typed: null, breaks: false })
+  })
+
+  it('keeps a choice', () => {
+    setSlowestWalk({ on: true, typed: 635, breaks: true })
+    expect(slowestWalk.value).toEqual({ on: true, typed: 635, breaks: true })
+    expect(loadSlowestWalk()).toEqual({ on: true, typed: 635, breaks: true })
+  })
+
+  it('falls back to the defaults for corrupt or out-of-range values', () => {
+    localStorage.setItem(KEY, '{not json')
+    expect(loadSlowestWalk()).toEqual({ on: false, typed: null, breaks: false })
+    localStorage.setItem(KEY, JSON.stringify({ on: 'yes', typed: 300, breaks: true }))
+    expect(loadSlowestWalk()).toEqual({ on: false, typed: null, breaks: true })
+    localStorage.setItem(KEY, JSON.stringify({ on: true, typed: 1201 }))
+    expect(loadSlowestWalk()).toEqual({ on: true, typed: null, breaks: false })
+    localStorage.setItem(KEY, JSON.stringify({ on: true, typed: 630.5 }))
+    expect(loadSlowestWalk().typed).toBeNull()
   })
 })
 

@@ -12,6 +12,7 @@ const speech = vi.hoisted(() => ({
 vi.mock('@/lib/speech', () => ({ speak: speech.speak, isSpeaking: () => speech.speaking }))
 
 import { usePaceCoach } from '../usePaceCoach'
+import type { SessionType } from '@/lib/training'
 
 const enabled = ref(true)
 
@@ -30,6 +31,10 @@ const runStep: RunStep = {
   endedDistanceM: null,
 }
 
+const walkFloor = ref<number | null>(null)
+const sessionType = ref<SessionType | null>(null)
+const breaks = ref(false)
+
 function setup() {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -37,7 +42,7 @@ function setup() {
   mount(
     defineComponent({
       setup() {
-        usePaceCoach(enabled, ref(540))
+        usePaceCoach(enabled, ref(540), { floor: walkFloor, sessionType, breaks })
         return () => null
       },
     }),
@@ -73,6 +78,9 @@ beforeEach(() => {
   speech.speak.mockClear()
   speech.speaking = false
   enabled.value = true
+  walkFloor.value = null
+  sessionType.value = null
+  breaks.value = false
 })
 
 describe('usePaceCoach', () => {
@@ -129,5 +137,51 @@ describe('usePaceCoach', () => {
     speech.speaking = false
     await runSlow(run, 1)
     expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Faster')
+  })
+
+  describe('walk steps (#153)', () => {
+    const walkStep: RunStep = { ...runStep, kind: 'walk', paceMin: null, paceMax: null }
+
+    /** A walk step at 12:00 /km against a 10:30 floor, in a session of this type */
+    async function stroll(type: SessionType) {
+      walkFloor.value = 630
+      sessionType.value = type
+      const run = setup()
+      clock = 0
+      run.start(clock)
+      run.runSteps = [walkStep]
+      await nextTick()
+      await go(run, 50, 720)
+    }
+
+    it('says "Faster" on a walk step slower than the walk floor in a walk session', async () => {
+      await stroll('walk')
+      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Faster')
+    })
+
+    it('coaches run/walk breaks only with "Also during run/walk breaks" on', async () => {
+      await stroll('runwalk')
+      expect(speech.speak).not.toHaveBeenCalled()
+      breaks.value = true
+      await stroll('runwalk')
+      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Faster')
+    })
+
+    it('never uses the floor in other sessions', async () => {
+      breaks.value = true
+      await stroll('easy')
+      expect(speech.speak).not.toHaveBeenCalled()
+    })
+
+    it('coaches a walk step with its own pace in any session', async () => {
+      sessionType.value = 'runwalk'
+      const run = setup()
+      clock = 0
+      run.start(clock)
+      run.runSteps = [{ ...walkStep, paceMin: 540, paceMax: 600 }]
+      await nextTick()
+      await go(run, 50, 480)
+      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Slower')
+    })
   })
 })

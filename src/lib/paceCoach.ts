@@ -103,15 +103,27 @@ export function restartWindow(state: PaceCoachState, totals: StepTotals): PaceCo
 }
 
 /**
- * What the step is coached against: its own pace range, or for a run step without one only a
- * slow end. Warm-up, walk, recovery and cool-down are never coached.
+ * The slow end for a step without its own pace (s/km): `run` for run steps (#103), `walk` for
+ * walk steps (#153), or null when walk steps get none
+ */
+export interface PaceFloors {
+  run: number
+  walk: number | null
+}
+
+/**
+ * What the step is coached against: its own pace range, or without one only a slow end, the
+ * floor for its kind. Run and walk steps only; warm-up, recovery and cool-down are never coached.
  */
 export function paceTarget(
   step: Pick<RunStep, 'kind' | 'paceMin' | 'paceMax'>,
-  slowestRunPace: number,
+  floors: PaceFloors,
 ): PaceTarget | null {
-  if (step.kind !== 'run') return null
-  if (step.paceMin === null && step.paceMax === null) return { fast: null, slow: slowestRunPace }
+  if (step.kind !== 'run' && step.kind !== 'walk') return null
+  if (step.paceMin === null && step.paceMax === null) {
+    const slow = step.kind === 'run' ? floors.run : floors.walk
+    return slow === null ? null : { fast: null, slow }
+  }
   // A single pace is both ends of its range
   return { fast: step.paceMin ?? step.paceMax, slow: step.paceMax ?? step.paceMin }
 }
@@ -201,7 +213,7 @@ export function nextPaceCue(
   prev: PaceCoachState | null,
   step: RunStep,
   totals: StepTotals,
-  slowestRunPace: number,
+  floors: PaceFloors,
   speaking: boolean,
   config: PaceCoachConfig = PACE_COACH_CONFIG,
 ): { state: PaceCoachState; cue: PaceCue | null } {
@@ -222,7 +234,7 @@ export function nextPaceCue(
   }
   const none = { state, cue: null }
 
-  const target = paceTarget(step, slowestRunPace)
+  const target = paceTarget(step, floors)
   if (!target) return none
   const speed = fixSpeed(state.samples, config.windowS)
   const recent = windowSpeed(state.samples, config.recentS)

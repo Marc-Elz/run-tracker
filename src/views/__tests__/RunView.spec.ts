@@ -5,8 +5,9 @@ import type { TrackPoint } from '@/lib/geo'
 import { GpsError, startGps } from '@/lib/gps'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
-import { setFollowedProgram } from '@/lib/settings'
-import type { SessionStep } from '@/lib/training'
+import { setFollowedProgram, setSlowestWalk, setStepCoaching } from '@/lib/settings'
+import type { SessionStep, SessionType } from '@/lib/training'
+import type { RunStep } from '@/lib/stepProgress'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
 import RunView from '../RunView.vue'
@@ -36,6 +37,10 @@ vi.mock('@/lib/gps', async (importOriginal) => ({
   }),
   openAppSettings: vi.fn<() => Promise<void>>(async () => {}),
 }))
+
+// Spoken lines, to hear the pace coach; nothing is said out loud in the tests
+const speech = vi.hoisted(() => ({ speak: vi.fn<(t: string) => Promise<void>>(async () => {}) }))
+vi.mock('@/lib/speech', () => ({ speak: speech.speak, isSpeaking: () => false }))
 
 const nav = vi.hoisted(() => ({
   push: vi.fn<(to: unknown) => Promise<void>>(async () => {}),
@@ -502,7 +507,7 @@ describe('RunView', () => {
       step({ kind, targetKind: 'duration', targetValue: seconds })
 
     /** Start a run of a followed session with these steps */
-    async function runSession(steps: SessionStep[]) {
+    async function runSession(steps: SessionStep[], type: SessionType = 'runwalk') {
       const training = useTrainingStore()
       const programId = await training.createProgram({
         name: 'Couch to 5K',
@@ -512,7 +517,7 @@ describe('RunView', () => {
       })
       const id = await training.saveSession(programId, {
         week: 1,
-        type: 'runwalk',
+        type,
         title: 'Run/walk 1',
         notes: null,
       })
@@ -607,6 +612,85 @@ describe('RunView', () => {
       expect(panel(wrapper).find('.step-panel__target').text()).toBe('Target 5:30–6:00 /km')
       await at(61)
       expect(panel(wrapper).find('.step-panel__target').exists()).toBe(false)
+    })
+
+    describe('walk pace (#153)', () => {
+      const DAY = 86_400_000
+      /** Two earlier walks of 10 min at 10:00 /km: a 10:30 suggestion */
+      async function addWalks(pace = 600) {
+        const walk: RunStep = {
+          position: 0,
+          kind: 'walk',
+          targetKind: 'duration',
+          targetValue: 600,
+          paceMin: null,
+          paceMax: null,
+          repetition: null,
+          repetitions: null,
+          startedElapsedMs: 0,
+          startedDistanceM: 0,
+          endedElapsedMs: 600_000,
+          endedDistanceM: 600_000 / pace,
+        }
+        for (const daysAgo of [1, 2]) {
+          const startedAt = Date.now() - daysAgo * DAY
+          await useRunStore().importRun(
+            {
+              id: `walk-${pace}-${daysAgo}`,
+              name: null,
+              status: 'finished',
+              startedAt,
+              finishedAt: startedAt + 600_000,
+              elapsedMs: 600_000,
+              segment: 0,
+              segmentStartedAt: null,
+              movingMs: 600_000,
+              distanceM: walk.endedDistanceM!,
+              sessionId: null,
+            },
+            [],
+            [walk],
+          )
+        }
+      }
+
+      /** Walk on at `secPerKm` for this many seconds, one tick a second */
+      async function walkOn(seconds: number, secPerKm: number) {
+        const run = useRunStore()
+        const from = Math.round(run.elapsedMs / 1000)
+        for (let s = from + 1; s <= from + seconds; s++) {
+          run.distanceM += 1000 / secPerKm
+          await at(s)
+        }
+      }
+
+      beforeEach(() => {
+        setStepCoaching('pace')
+        setSlowestWalk({ on: true, typed: null, breaks: false })
+      })
+
+      afterEach(() => {
+        setStepCoaching('steps')
+        setSlowestWalk({ on: false, typed: null, breaks: false })
+      })
+
+      it('says "Faster" in a walk session once a walk slows below the suggested floor', async () => {
+        await addWalks()
+        await runSession([timed('walk', 600)], 'walk')
+        // Fast walks saved mid-run would make the floor 7:10; it stays at 10:30 for this run
+        await addWalks(400)
+        await walkOn(40, 570) // brisk 9:30, under the 10:30 floor
+        expect(speech.speak).not.toHaveBeenCalledWith('Faster')
+        await walkOn(40, 720) // 12:00
+        expect(speech.speak).toHaveBeenCalledWith('Faster')
+      })
+
+      it('leaves the walk breaks of a run/walk session alone unless asked', async () => {
+        await addWalks()
+        await runSession([timed('walk', 600)], 'runwalk')
+        await walkOn(60, 720)
+        expect(speech.speak).not.toHaveBeenCalledWith('Faster')
+      })
     })
 
     it('shows no panel for a session without steps', async () => {

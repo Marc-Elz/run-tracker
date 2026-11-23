@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAppResume } from '@/composables/useAppResume'
 import { openAppSettings, requestLocationPermission } from '@/lib/gps'
 import { askBatteryExemption, ensureNotifications, openBatterySettings } from '@/lib/runPower'
@@ -10,16 +10,22 @@ import {
   cueConfig,
   setAutoPause,
   setCueConfig,
+  isWalkPace,
   setSlowestRunPace,
+  setSlowestWalk,
   setStepCoaching,
   slowestRunPace,
+  slowestWalk,
   stepCoaching,
   type StepCoaching,
 } from '@/lib/settings'
 import { SLOWEST_RUN_PACE_OPTIONS } from '@/lib/paceCoach'
-import { formatPace } from '@/lib/format'
+import { effectiveWalkFloor, type SlowestWalk, type WalkSuggestion } from '@/lib/walkPace'
+import { formatMinSec, parseMinSec } from '@/lib/training'
+import { formatDayMonth, formatPace } from '@/lib/format'
 import { speak } from '@/lib/speech'
 import { useBackupStore } from '@/stores/backup'
+import { useRunStore } from '@/stores/run'
 
 type Tone = 'ok' | 'warn' | 'unknown' | 'info'
 interface Row {
@@ -190,9 +196,61 @@ const COACHING_OPTIONS: { value: StepCoaching; label: string }[] = [
 ]
 const coachingHint = computed(() =>
   stepCoaching.value === 'pace'
-    ? 'Spoken steps and a vibration, plus "Faster" or "Slower" when you stay off a step\'s target pace. A run step without a pace only hears "Faster" when slower than the pace above.'
+    ? 'Spoken steps and a vibration, plus "Faster" or "Slower" when you stay off a step\'s target pace. A run or walk step without a pace only hears "Faster" when slower than the pace above.'
     : 'Spoken steps, warnings and a vibration in a training session.',
 )
+
+// "Slowest walk" (#153): a typed pace, else the one suggested from recent walks
+const runStore = useRunStore()
+const walkSuggestion = ref<WalkSuggestion | null>(null)
+onMounted(async () => {
+  try {
+    walkSuggestion.value = await runStore.loadWalkSuggestion()
+  } catch (err) {
+    console.warn('[db] could not load recent walks', err)
+  }
+})
+const suggestedWalk = computed(() =>
+  walkSuggestion.value && 'pace' in walkSuggestion.value ? walkSuggestion.value : null,
+)
+const noWalkSuggestion = computed(() => {
+  const s = walkSuggestion.value
+  if (!s || !('reason' in s)) return ''
+  const start = slowestWalk.value.typed === null ? ' Type a pace to start.' : ''
+  return `No suggestion yet: ${s.reason}.${start}`
+})
+const newerWalkSuggestion = computed(
+  () => effectiveWalkFloor(slowestWalk.value, walkSuggestion.value).newerSuggestion,
+)
+const walkText = ref('')
+const walkError = ref<string | null>(null)
+watch(
+  () => slowestWalk.value.typed,
+  (typed) => {
+    walkText.value = typed === null ? '' : formatMinSec(typed)
+    walkError.value = null
+  },
+  { immediate: true },
+)
+const updateWalk = (change: Partial<SlowestWalk>) =>
+  setSlowestWalk({ ...slowestWalk.value, ...change })
+
+/** Save the typed pace when it is valid; an empty field follows the suggestion */
+function saveWalkText() {
+  if (walkText.value.trim() === '') {
+    walkError.value = null
+    if (slowestWalk.value.typed !== null) updateWalk({ typed: null })
+    return
+  }
+  const pace = parseMinSec(walkText.value)
+  if (!isWalkPace(pace)) {
+    walkError.value = 'Enter a pace from 6:00 to 20:00 per km, for example 10:30.'
+    return
+  }
+  walkError.value = null
+  if (pace === slowestWalk.value.typed) walkText.value = formatMinSec(pace)
+  else updateWalk({ typed: pace })
+}
 
 const summary = computed(() => {
   if (status.value === undefined) return ''
@@ -280,6 +338,64 @@ const summary = computed(() => {
         >
           {{ formatPace(pace) }}
         </button>
+      </div>
+      <div v-if="stepCoaching === 'pace'" class="walk">
+        <div class="choice" role="group" aria-label="Slowest walk">
+          <span class="choice__label">Slowest walk</span>
+          <button
+            v-for="on in [false, true]"
+            :key="String(on)"
+            class="btn btn--choice"
+            :aria-pressed="slowestWalk.on === on"
+            @click="updateWalk({ on })"
+          >
+            {{ on ? 'On' : 'Off' }}
+          </button>
+        </div>
+        <template v-if="slowestWalk.on">
+          <div class="walk__field">
+            <input
+              v-model="walkText"
+              class="input"
+              type="text"
+              aria-label="Slowest walk pace"
+              :placeholder="suggestedWalk ? formatPace(suggestedWalk.pace) : 'min:s'"
+              @change="saveWalkText"
+            />
+            <span class="walk__unit">min/km</span>
+            <button
+              v-if="slowestWalk.typed !== null"
+              class="btn btn--quiet walk__clear"
+              @click="updateWalk({ typed: null })"
+            >
+              Clear
+            </button>
+          </div>
+          <p v-if="walkError" class="field-error" role="alert">{{ walkError }}</p>
+          <div v-if="suggestedWalk" class="walk__suggestion">
+            <p class="hint">
+              Suggested {{ formatPace(suggestedWalk.pace) }}, from {{ suggestedWalk.runs }}
+              {{ suggestedWalk.runs === 1 ? 'walk' : 'walks' }} since
+              {{ formatDayMonth(suggestedWalk.since) }}
+            </p>
+            <button
+              v-if="newerWalkSuggestion !== null"
+              class="btn btn--quiet walk__use"
+              @click="updateWalk({ typed: newerWalkSuggestion })"
+            >
+              Use
+            </button>
+          </div>
+          <p v-else-if="noWalkSuggestion" class="hint">{{ noWalkSuggestion }}</p>
+          <label class="check">
+            <input
+              type="checkbox"
+              :checked="slowestWalk.breaks"
+              @change="updateWalk({ breaks: ($event.target as HTMLInputElement).checked })"
+            />
+            Also during run/walk breaks
+          </label>
+        </template>
       </div>
       <p class="hint">{{ coachingHint }}</p>
       <button class="btn btn--quiet" @click="testCue">Test cue</button>
@@ -485,5 +601,63 @@ p {
 
 .btn:disabled {
   opacity: 0.6;
+}
+
+.walk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.walk__field,
+.walk__suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.walk__field .input {
+  box-sizing: border-box;
+  width: 7rem;
+  min-height: 3.5rem;
+  padding: 0 1rem;
+  border: 2px solid #3b4652;
+  border-radius: 1rem;
+  background: #101418;
+  color: #f4f6f8;
+  font: inherit;
+  font-size: 1.1rem;
+  color-scheme: dark;
+}
+
+.walk__unit {
+  color: #9aa5b1;
+}
+
+.walk__clear,
+.walk__use {
+  margin-left: auto;
+  padding: 0 1rem;
+}
+
+.walk__suggestion .hint {
+  flex: 1;
+}
+
+.field-error {
+  color: #ff9b9b;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3rem;
+}
+
+.check input {
+  width: 1.5rem;
+  height: 1.5rem;
+  accent-color: #1f9d55;
 }
 </style>

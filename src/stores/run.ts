@@ -8,6 +8,14 @@ import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
 import { applyChange, closeOpenStep, type RunStep, type StepChange } from '@/lib/stepProgress'
 import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runRepository'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
+import {
+  WALK_SUGGESTION_CONFIG,
+  suggestWalkFloor,
+  suggestionSince,
+  usableWalkSteps,
+  type RunWithSteps,
+  type WalkSuggestion,
+} from '@/lib/walkPace'
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
 /** Why a run is paused: the Pause button, or auto-pause (#154) waiting for the runner to move */
@@ -267,6 +275,27 @@ export const useRunStore = defineStore('run', () => {
   const importRun = (run: RunRecord, points: StoredPoint[], steps: RunStep[] = []) =>
     repo.importRun(run, points, steps)
   const loadRunSteps = (id: string) => repo.loadRunSteps(id)
+
+  /**
+   * Finished runs since `since`, newest first, that hold usable walk steps, for the walk pace
+   * suggestion (#153); stops at the most the suggestion uses. Every run's `run_steps` is read,
+   * not only linked runs: a run whose session was deleted still has its steps.
+   */
+  async function loadRecentWalkRuns(since: number): Promise<RunWithSteps[]> {
+    const out: RunWithSteps[] = []
+    for (const r of await repo.listFinished()) {
+      if (r.startedAt < since || out.length >= WALK_SUGGESTION_CONFIG.maxRuns) break
+      const steps = await repo.loadRunSteps(r.id)
+      if (usableWalkSteps(steps).length > 0) out.push({ startedAt: r.startedAt, steps })
+    }
+    return out
+  }
+
+  /** The walk pace suggested from recent walks (#153) */
+  async function loadWalkSuggestion(now: number = Date.now()): Promise<WalkSuggestion> {
+    return suggestWalkFloor(await loadRecentWalkRuns(suggestionSince(now)), now)
+  }
+
   const doneSessionIds = () => repo.doneSessionIds()
   /** Link a saved run to a session, or unlink it with null; resolves with the link as stored */
   const linkRun = (id: string, session: string | null) => repo.setRunSession(id, session)
@@ -416,6 +445,8 @@ export const useRunStore = defineStore('run', () => {
     deleteRun,
     importRun,
     loadRunSteps,
+    loadRecentWalkRuns,
+    loadWalkSuggestion,
     applyStepChange,
     doneSessionIds,
     linkRun,

@@ -7,6 +7,7 @@ import {
   paceTarget,
   windowSpeed,
   type PaceCoachState,
+  type PaceFloors,
   type PacePhrase,
 } from '../paceCoach'
 
@@ -26,6 +27,9 @@ const runStep = (over: Partial<RunStep> = {}): RunStep => ({
   ...over,
 })
 
+/** The run floor most tests use, and no walk floor */
+const NO_WALK: PaceFloors = { run: 540, walk: null }
+
 /** A stretch of the run: this many seconds at this pace (s/km); null stands still */
 type Leg = [seconds: number, pace: number | null]
 
@@ -35,7 +39,7 @@ type Leg = [seconds: number, pace: number | null]
  */
 function drive(
   legs: Leg[],
-  opts: { step?: RunStep; slowest?: number; speakingAt?: (s: number) => boolean } = {},
+  opts: { step?: RunStep; floors?: Partial<PaceFloors>; speakingAt?: (s: number) => boolean } = {},
 ) {
   const step = opts.step ?? runStep()
   let state: PaceCoachState | null = null
@@ -50,7 +54,7 @@ function drive(
         state,
         step,
         { elapsedMs: t * 1000, distanceM: d },
-        opts.slowest ?? 540,
+        { ...NO_WALK, ...opts.floors },
         opts.speakingAt?.(t) ?? false,
       )
       state = result.state
@@ -62,24 +66,38 @@ function drive(
 
 describe('paceTarget', () => {
   it('uses the step range, a single pace as both ends', () => {
-    expect(paceTarget(runStep(), 540)).toEqual({ fast: 330, slow: 360 })
-    expect(paceTarget(runStep({ paceMin: 330, paceMax: null }), 540)).toEqual({
+    expect(paceTarget(runStep(), NO_WALK)).toEqual({ fast: 330, slow: 360 })
+    expect(paceTarget(runStep({ paceMin: 330, paceMax: null }), NO_WALK)).toEqual({
       fast: 330,
       slow: 330,
     })
   })
 
   it('gives a run step without a pace only a slow end: the slowest run pace', () => {
-    expect(paceTarget(runStep({ paceMin: null, paceMax: null }), 600)).toEqual({
-      fast: null,
-      slow: 600,
-    })
+    expect(paceTarget(runStep({ paceMin: null, paceMax: null }), { run: 600, walk: null })).toEqual(
+      {
+        fast: null,
+        slow: 600,
+      },
+    )
   })
 
-  it('never coaches warm-up, walk, recovery or cool-down, even with a pace', () => {
-    for (const kind of ['warmup', 'walk', 'recovery', 'cooldown'] as const) {
-      expect(paceTarget(runStep({ kind }), 540)).toBeNull()
+  it('never coaches warm-up, recovery or cool-down, even with a pace', () => {
+    for (const kind of ['warmup', 'recovery', 'cooldown'] as const) {
+      expect(paceTarget(runStep({ kind }), { run: 540, walk: 600 })).toBeNull()
     }
+  })
+
+  it('gives a walk step without a pace the walk floor, or nothing when there is none (#153)', () => {
+    const walk = runStep({ kind: 'walk', paceMin: null, paceMax: null })
+    expect(paceTarget(walk, { run: 540, walk: 630 })).toEqual({ fast: null, slow: 630 })
+    expect(paceTarget(walk, NO_WALK)).toBeNull()
+  })
+
+  it('gives a walk step with its own pace that range, not the floor (#153)', () => {
+    const walk = runStep({ kind: 'walk', paceMin: 540, paceMax: 600 })
+    expect(paceTarget(walk, { run: 540, walk: 630 })).toEqual({ fast: 540, slow: 600 })
+    expect(paceTarget(walk, NO_WALK)).toEqual({ fast: 540, slow: 600 })
   })
 })
 
@@ -204,13 +222,13 @@ describe('nextPaceCue', () => {
 
   it('starts over on a new step, so the previous step pace never counts', () => {
     let state: PaceCoachState | null = null
-    const walk = runStep({ position: 0, kind: 'walk' })
+    const walk = runStep({ position: 0, kind: 'walk', paceMin: null, paceMax: null })
     for (let s = 1; s <= 60; s++) {
       state = nextPaceCue(
         state,
         walk,
         { elapsedMs: s * 1000, distanceM: s * 1.4 },
-        540,
+        NO_WALK,
         false,
       ).state
     }
@@ -219,7 +237,7 @@ describe('nextPaceCue', () => {
     let d = 84
     for (let s = 61; s <= 120; s++) {
       d += 1000 / 345
-      const r = nextPaceCue(state, run, { elapsedMs: s * 1000, distanceM: d }, 540, false)
+      const r = nextPaceCue(state, run, { elapsedMs: s * 1000, distanceM: d }, NO_WALK, false)
       state = r.state
       if (r.cue) said.push(s)
     }
@@ -231,7 +249,55 @@ describe('nextPaceCue', () => {
     expect(drive([[100, 300]], { step })).toEqual([]) // fast is fine
     expect(drive([[100, 500]], { step })).toEqual([]) // 8:20, under 9:00
     expect(drive([[50, 660]], { step })).toEqual([[25, 'faster']]) // 11:00, walking
-    expect(drive([[50, 660]], { step, slowest: 720 })).toEqual([])
+    expect(drive([[50, 660]], { step, floors: { run: 720 } })).toEqual([])
+  })
+
+  describe('walk steps (#153)', () => {
+    const walk = runStep({ kind: 'walk', paceMin: null, paceMax: null })
+    const floors = { walk: 630 } // 10:30
+
+    it('says "Faster" when a walk without a pace slows below the walk floor, like a run step', () => {
+      expect(drive([[100, 570]], { step: walk, floors })).toEqual([]) // brisk 9:30
+      expect(drive([[100, 400]], { step: walk, floors })).toEqual([]) // no fast end
+      expect(drive([[170, 720]], { step: walk, floors })).toEqual([
+        [25, 'faster'],
+        [85, 'faster'],
+        [145, 'faster'],
+      ])
+      const said = drive(
+        [
+          [50, 720],
+          [80, 570],
+        ],
+        { step: walk, floors },
+      )
+      expect(said.map(([, key]) => key)).toEqual(['faster', 'onPace'])
+    })
+
+    it('stays quiet on a stop during a walk', () => {
+      expect(
+        drive(
+          [
+            [20, 720],
+            [60, null],
+            [15, 720],
+          ],
+          { step: walk, floors },
+        ),
+      ).toEqual([])
+    })
+
+    it('says nothing on a walk without a pace when there is no walk floor', () => {
+      expect(drive([[100, 900]], { step: walk })).toEqual([])
+    })
+
+    it('coaches a walk with its own pace against that range, and can say "Slower"', () => {
+      const ranged = runStep({ kind: 'walk', paceMin: 540, paceMax: 600 }) // 9:00-10:00
+      expect(drive([[50, 480]], { step: ranged, floors })).toEqual([[25, 'slower']])
+      // 10:20 is under the 10:30 floor, but over the step's own 10:00 slow end
+      expect(drive([[50, 620]], { step: ranged, floors })).toEqual([[25, 'faster']])
+      expect(drive([[50, 480]], { step: ranged })).toEqual([[25, 'slower']])
+    })
   })
 
   it('coaches a 1-minute run step at a slow jog, where distance grows in 5 m steps', () => {
@@ -247,7 +313,7 @@ describe('nextPaceCue', () => {
     for (let s = 1; s <= 60; s++) {
       if (jumps.has(s)) d += 5.3
       const totals = { elapsedMs: s * 1000, distanceM: d }
-      const r = nextPaceCue(state, step, totals, 480, false)
+      const r = nextPaceCue(state, step, totals, { run: 480, walk: null }, false)
       state = r.state
       if (r.cue) said.push(s)
     }
@@ -271,7 +337,7 @@ describe('nextPaceCue', () => {
       if (s <= 40)
         d += 1000 / 600 // 10:00 first, for a "Faster"
       else if (jumps.has(s)) d += 6
-      const r = nextPaceCue(state, step, { elapsedMs: s * 1000, distanceM: d }, 540, false)
+      const r = nextPaceCue(state, step, { elapsedMs: s * 1000, distanceM: d }, NO_WALK, false)
       state = r.state
       if (r.cue) said.push([s, r.cue.key])
     }
@@ -286,7 +352,7 @@ describe('nextPaceCue', () => {
     const said: PacePhrase[] = []
     for (let s = 1; s <= 120; s++) {
       d += 1000 / (s <= 40 ? 600 : 413)
-      const r = nextPaceCue(state, step, { elapsedMs: s * 1000, distanceM: d }, 540, false)
+      const r = nextPaceCue(state, step, { elapsedMs: s * 1000, distanceM: d }, NO_WALK, false)
       state = r.state
       if (r.cue) said.push(r.cue.key)
     }

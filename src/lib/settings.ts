@@ -13,6 +13,12 @@ import {
   type SlowestRunPace,
 } from '@/lib/paceCoach'
 import { toPreset, withDefaultPreset, type TimerPreset } from '@/lib/timer'
+import {
+  DEFAULT_SLOWEST_WALK,
+  WALK_PACE_MAX,
+  WALK_PACE_MIN,
+  type SlowestWalk,
+} from '@/lib/walkPace'
 
 const CUES_KEY = 'run-tracker.cues'
 
@@ -124,6 +130,45 @@ export function setSlowestRunPace(next: SlowestRunPace) {
   slowestRunPace.value = next
   try {
     localStorage.setItem(SLOWEST_RUN_PACE_KEY, String(next))
+  } catch (err) {
+    console.warn('Could not save settings', err)
+  }
+}
+
+const SLOWEST_WALK_KEY = 'run-tracker.slowest-walk'
+
+/** A typed walk pace in range, whole seconds; anything else is no typed pace */
+export function isWalkPace(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= WALK_PACE_MIN &&
+    value <= WALK_PACE_MAX
+  )
+}
+
+/** "Slowest walk" for walk steps (#153); off unless switched on, a bad field falls back alone */
+export function loadSlowestWalk(): SlowestWalk {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(SLOWEST_WALK_KEY) ?? 'null')
+    if (typeof raw !== 'object' || raw === null) return { ...DEFAULT_SLOWEST_WALK }
+    const { on, typed, breaks } = raw as Record<string, unknown>
+    return {
+      on: typeof on === 'boolean' ? on : DEFAULT_SLOWEST_WALK.on,
+      typed: isWalkPace(typed) ? typed : null,
+      breaks: typeof breaks === 'boolean' ? breaks : DEFAULT_SLOWEST_WALK.breaks,
+    }
+  } catch {
+    return { ...DEFAULT_SLOWEST_WALK }
+  }
+}
+
+export const slowestWalk = ref<SlowestWalk>(loadSlowestWalk())
+
+export function setSlowestWalk(next: SlowestWalk) {
+  slowestWalk.value = next
+  try {
+    localStorage.setItem(SLOWEST_WALK_KEY, JSON.stringify(next))
   } catch (err) {
     console.warn('Could not save settings', err)
   }
