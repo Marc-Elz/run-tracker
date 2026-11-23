@@ -6,10 +6,11 @@ import type { TimerPreset } from '@/lib/timer'
 const speak = vi.hoisted(() => vi.fn<(t: string) => Promise<void>>(async () => {}))
 const vibrate = vi.hoisted(() => vi.fn<() => Promise<void>>(async () => {}))
 const keepAlive = vi.hoisted(() => vi.fn<(keep: boolean) => Promise<void>>(async () => {}))
+const service = vi.hoisted(() => vi.fn<(on: boolean) => Promise<void>>(async () => {}))
 const keepAwake = vi.hoisted(() => ({ active: null as Ref<boolean> | null }))
 vi.mock('@/lib/speech', () => ({ speak }))
 vi.mock('@/lib/haptics', () => ({ vibrateStepChange: vibrate }))
-vi.mock('@/lib/runPower', () => ({ keepWebViewAlive: keepAlive }))
+vi.mock('@/lib/runPower', () => ({ keepWebViewAlive: keepAlive, timerService: service }))
 vi.mock('@/composables/useKeepAwake', () => ({
   useKeepAwake: (active: Ref<boolean>) => (keepAwake.active = active),
 }))
@@ -39,6 +40,7 @@ beforeEach(() => {
   speak.mockClear()
   vibrate.mockClear()
   keepAlive.mockClear()
+  service.mockClear()
 })
 
 describe('useCountdown', () => {
@@ -102,21 +104,25 @@ describe('useCountdown', () => {
     expect(wrapper.vm.c.status.value).toBe('done')
   })
 
-  it('keeps the screen on and the page alive only while running', async () => {
+  it('keeps the screen on, the page alive and the timer service on only while running', async () => {
     const { countdown, wrapper } = setup()
     expect(keepAwake.active?.value).toBe(false)
     countdown.start(twoMin, 0)
     await nextTick()
     expect(keepAwake.active?.value).toBe(true)
     expect(keepAlive).toHaveBeenLastCalledWith(true)
+    expect(service).toHaveBeenLastCalledWith(true)
     countdown.pause(1000)
     await nextTick()
     expect(keepAwake.active?.value).toBe(false)
     expect(keepAlive).toHaveBeenLastCalledWith(false)
+    expect(service).toHaveBeenLastCalledWith(false)
     countdown.resume(1000)
     await nextTick()
+    expect(service).toHaveBeenLastCalledWith(true)
     wrapper.unmount()
     expect(keepAlive).toHaveBeenLastCalledWith(false)
+    expect(service).toHaveBeenLastCalledWith(false)
   })
 
   it('stop goes back to idle with nothing kept', () => {

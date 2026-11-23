@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useKeepAwake } from '@/composables/useKeepAwake'
 import { vibrateStepChange } from '@/lib/haptics'
-import { keepWebViewAlive } from '@/lib/runPower'
+import { keepWebViewAlive, timerService } from '@/lib/runPower'
 import { speak } from '@/lib/speech'
 import { buildTimeline, phaseCue, timerState, type TimerPreset } from '@/lib/timer'
 
@@ -14,7 +14,8 @@ const TICK_MS = 250
  * The exercise timer (#124). Time comes from the clock, not from counting ticks: when Android
  * holds the page back, the next tick catches up instead of drifting. Each phase start is spoken
  * and buzzed once; phases that passed while the page was held back are skipped, only the
- * current one is cued. While running the screen stays on and the page keeps running when locked.
+ * current one is cued. While running the screen stays on, and a foreground service plus the
+ * page keep-alive keep the cues coming when the phone is locked.
  */
 export function useCountdown(clock: () => number = () => Date.now()) {
   const preset = ref<TimerPreset | null>(null)
@@ -111,10 +112,14 @@ export function useCountdown(clock: () => number = () => Date.now()) {
 
   const running = computed(() => status.value === 'running')
   useKeepAwake(running)
-  watch(running, (on) => void keepWebViewAlive(on))
+  function stayAlive(on: boolean) {
+    void timerService(on)
+    void keepWebViewAlive(on)
+  }
+  watch(running, stayAlive)
   onBeforeUnmount(() => {
     stopTicking()
-    if (running.value) void keepWebViewAlive(false)
+    if (running.value) stayAlive(false)
   })
 
   return {
