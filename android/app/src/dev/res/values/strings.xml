@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- Launcher name of the dev copy, so it can be told apart from the normal app (#184) -->
+    <string name="app_name">Run Tracker DEV</string>
+    <string name="title_activity_main">Run Tracker DEV</string>
+</resources>

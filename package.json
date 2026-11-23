@@ -17,7 +17,8 @@
     "format:check": "prettier --check --experimental-cli src/",
     "android:sync": "npm run build-only && cap sync android",
     "android:open": "cap open android",
-    "android:run": "npm run android:sync && cap run android",
+    "android:run": "npm run android:sync && cap run android --flavor live",
+    "android:run:dev": "npm run android:sync && cap run android --flavor dev",
     "test:browser": "node scripts/browser-smoke.mjs",
     "doctor": "node scripts/doctor.mjs",
     "make:test-backup": "node scripts/make-test-backup.mjs dummy-runs.backup.json"
