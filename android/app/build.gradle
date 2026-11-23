@@ -16,6 +16,19 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Two installable copies (#184): "live" is the normal app, "dev" installs next to it
+    // with its own id, launcher name and database, so a PR build doesn't replace the copy
+    // being tested. Its name is overridden in src/dev/res/values/strings.xml.
+    flavorDimensions = ["copy"]
+    productFlavors {
+        live {
+            dimension "copy"
+        }
+        dev {
+            dimension "copy"
+            applicationIdSuffix ".dev"
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false

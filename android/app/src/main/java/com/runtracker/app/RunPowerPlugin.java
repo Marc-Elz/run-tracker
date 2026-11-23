@@ -21,6 +21,7 @@ import android.webkit.WebView;
 import android.os.PowerManager;
 import android.provider.Settings;
 import androidx.activity.result.ActivityResult;
+import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -216,6 +217,27 @@ public class RunPowerPlugin extends Plugin {
             },
             500
         );
+    }
+
+    /**
+     * Starts or stops the exercise timer's foreground service (TimerService). Keeping the page
+     * alive alone isn't enough without a run: Android still freezes the whole process once it
+     * counts as background, so the timer needs a foreground service of its own.
+     */
+    @PluginMethod
+    public void setTimerService(PluginCall call) {
+        Intent intent = new Intent(getContext(), TimerService.class);
+        try {
+            if (Boolean.TRUE.equals(call.getBoolean("on", false))) {
+                ContextCompat.startForegroundService(getContext(), intent);
+            } else {
+                getContext().stopService(intent);
+            }
+            call.resolve();
+        } catch (RuntimeException err) {
+            // e.g. ForegroundServiceStartNotAllowedException when started from the background
+            call.reject("Could not start the timer service", err);
+        }
     }
 
     /** Asks other apps (music) to lower their volume while a spoken cue plays. */

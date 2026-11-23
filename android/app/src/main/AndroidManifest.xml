@@ -33,6 +33,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Keeps the exercise timer's cues coming with the screen locked (#124). Not a
+             standard type (location, media, health), so "specialUse" with the reason below.
+             Revisit before any Play Store upload: Play reviews specialUse declarations. -->
+        <service
+            android:name=".TimerService"
+            android:exported="false"
+            android:stopWithTask="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Exercise interval timer: spoken and vibration cues at each work and rest change while the screen is locked" />
+        </service>
     </application>
 
     <!-- Android 11+: lets the app see the installed text-to-speech engine for spoken cues -->
@@ -48,4 +61,7 @@
     <!-- Lets the app ask to be exempt from battery optimisation, so a run isn't killed.
          Restricted by Play policy: revisit before any Play Store upload. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- The exercise timer's foreground service (TimerService); granted at install, no prompt -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 </manifest>

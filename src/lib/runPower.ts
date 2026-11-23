@@ -19,6 +19,7 @@ interface RunPowerPlugin {
   requestAudioFocus(): Promise<void>
   abandonAudioFocus(): Promise<void>
   setKeepWebViewAlive(options: { keep: boolean }): Promise<void>
+  setTimerService(options: { on: boolean }): Promise<void>
   startMotion(): Promise<{ available: boolean }>
   stopMotion(): Promise<void>
   addListener(
@@ -96,6 +97,19 @@ export async function abandonAudioFocus(): Promise<void> {
     await RunPower.abandonAudioFocus()
   } catch (err) {
     console.warn('Audio focus unavailable', err)
+  }
+}
+
+/**
+ * Start or stop the exercise timer's foreground service, which keeps Android from freezing the
+ * app while the phone is locked (a run has the GPS service for that). Never throws.
+ */
+export async function timerService(on: boolean): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await RunPower.setTimerService({ on })
+  } catch (err) {
+    console.warn('Timer service unavailable; cues may stop with the screen locked', err)
   }
 }
 
