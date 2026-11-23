@@ -91,6 +91,22 @@ describe('run store', () => {
     })
   })
 
+  it('matches summarizeTrack after a bad first fix is overruled (#178)', () => {
+    vi.setSystemTime(0)
+    const run = useRunStore()
+    run.start(0)
+    run.addPoint(at(0, 0.00158)) // 176 m off
+    for (let i = 1; i <= 8; i++) run.addPoint(at(i * 4000, (i - 1) * 0.0001))
+    run.tick(32_000)
+    expect(run.distanceM).toBeCloseTo(7 * 11.12, 0)
+    // 11 m per 4 s over the last 20 s: the bad fix no longer holds the pace back
+    expect(run.currentPaceSecPerKm).toBeCloseTo(4 / 0.01112, -1)
+    expect(summarizeTrack(run.segments)).toEqual({
+      distanceM: run.distanceM,
+      movingMs: run.movingMs,
+    })
+  })
+
   it('ignores points when not running', () => {
     const run = useRunStore()
     run.addPoint(at(0, 0))
@@ -253,6 +269,17 @@ describe('run store', () => {
       expect(run.pauseKind).toBeNull()
       expect(run.elapsedMs).toBe(14_000)
       expect(run.segments[1]).toEqual([])
+    })
+
+    it('pauses at the real spot when the first fix was 176 m off (#178)', () => {
+      vi.setSystemTime(0)
+      const run = useRunStore()
+      run.start(0)
+      run.addPoint({ ...at(1000, 0.00158), accuracy: 20 })
+      for (const t of [1300, 2000, 3000, 4000, 10_000]) run.addPoint(at(t, 0))
+      run.autoPause(14_000)
+      expect(run.runPauses[0]).toMatchObject({ lat: 52, lon: 4 })
+      expect(run.distanceM).toBe(0)
     })
 
     it('only auto-pauses a running run', () => {

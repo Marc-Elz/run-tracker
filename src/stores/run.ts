@@ -1,7 +1,14 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { TrackPoint } from '@/lib/geo'
-import { isAccurate, paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/runStats'
+import {
+  addToSegment,
+  emptySegmentFilter,
+  isAccurate,
+  paceSecPerKm,
+  summarizeTrack,
+  windowPaceSecPerKm,
+} from '@/lib/runStats'
 import { toSegments } from '@/lib/runSummary'
 import { loadRouteOverviews } from '@/lib/routeOverview'
 import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
@@ -60,8 +67,11 @@ export const useRunStore = defineStore('run', () => {
   // Raw fixes per running segment (start/resume to pause), inaccurate ones included
   const segments = ref<TrackPoint[][]>([])
   const points = computed(() => segments.value.flat())
-  // Fixes of the current segment that passed the filters; feeds the current pace
-  const segmentAccepted = ref<TrackPoint[]>([])
+  // Filter state of the current segment, the same one `summarizeTrack` runs over saved points
+  const segmentFilter = ref(emptySegmentFilter())
+  // Fixes of the current segment that passed the filters; feeds the current pace. Read-only:
+  // fixes only get in through `addToSegment`, so the live totals match the saved ones
+  const segmentAccepted = computed(() => segmentFilter.value.accepted)
   // False until the current segment has a usable fix: the screen shows "Acquiring GPS"
   const hasFix = computed(() => segmentAccepted.value.length > 0)
   const distanceM = ref(0)
@@ -176,7 +186,7 @@ export const useRunStore = defineStore('run', () => {
     if (status.value !== 'running' || segmentStart.value === null) return
     bankedMs.value += t - segmentStart.value
     segmentStart.value = null
-    segmentAccepted.value = []
+    segmentFilter.value = emptySegmentFilter()
     status.value = 'paused'
     pauseKind.value = 'manual'
     pausedAt = t
@@ -259,7 +269,7 @@ export const useRunStore = defineStore('run', () => {
     segmentStart.value = t
     segments.value.push([])
     // Never measure the first fix from a point before the pause (or before the app was killed)
-    segmentAccepted.value = []
+    segmentFilter.value = emptySegmentFilter()
     recovered.value = false
     status.value = 'running'
     tick(t)
@@ -350,7 +360,7 @@ export const useRunStore = defineStore('run', () => {
     recovered.value = false
     saveError.value = false
     segments.value = []
-    segmentAccepted.value = []
+    segmentFilter.value = emptySegmentFilter()
     distanceM.value = 0
     movingMs.value = 0
     bankedMs.value = 0
@@ -419,7 +429,7 @@ export const useRunStore = defineStore('run', () => {
     runSteps.value = steps
     startedAt.value = latest.startedAt
     segments.value = restored
-    segmentAccepted.value = []
+    segmentFilter.value = emptySegmentFilter()
     distanceM.value = totals.distanceM
     movingMs.value = totals.movingMs
     bankedMs.value = savedElapsedMs(latest, restored)
@@ -446,8 +456,7 @@ export const useRunStore = defineStore('run', () => {
     const id = runId.value!
     const segment = segments.value.length - 1
     persist((r) => r.addPoint(id, segment, point))
-    const anchor = segmentAccepted.value[segmentAccepted.value.length - 1] ?? null
-    const result = step(anchor, point)
+    const result = addToSegment(segmentFilter.value, point)
     if (!result.accepted) return
     // Bring the clock up to now, so new distance and the time it was covered in arrive together:
     // the pace coach (#103) measures pace between these moments, and a whole-second clock would
@@ -455,7 +464,6 @@ export const useRunStore = defineStore('run', () => {
     tick()
     distanceM.value += result.meters
     movingMs.value += result.movingMs
-    segmentAccepted.value.push(point)
   }
 
   return {
