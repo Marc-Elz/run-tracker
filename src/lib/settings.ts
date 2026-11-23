@@ -12,6 +12,7 @@ import {
   SLOWEST_RUN_PACE_OPTIONS,
   type SlowestRunPace,
 } from '@/lib/paceCoach'
+import { toPreset, withDefaultPreset, type TimerPreset } from '@/lib/timer'
 
 const CUES_KEY = 'run-tracker.cues'
 
@@ -148,4 +149,35 @@ export function setAutoPause(on: boolean) {
   } catch (err) {
     console.warn('Could not save settings', err)
   }
+}
+
+const TIMER_PRESETS_KEY = 'run-tracker.timer-presets'
+
+/**
+ * Exercise timer presets (#124), kept on this phone only (not in the backup). The 2-minute
+ * default is always first; malformed entries are left out.
+ */
+export function loadTimerPresets(): TimerPreset[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(TIMER_PRESETS_KEY) ?? 'null')
+    if (!Array.isArray(raw)) return withDefaultPreset([])
+    return withDefaultPreset(raw.map(toPreset).filter((p): p is TimerPreset => p !== null))
+  } catch {
+    return withDefaultPreset([])
+  }
+}
+
+export const timerPresets = ref<TimerPreset[]>(loadTimerPresets())
+
+/** Save the whole list; false when the phone would not store it (the list is left unchanged) */
+export function setTimerPresets(next: TimerPreset[]): boolean {
+  const list = withDefaultPreset(next)
+  try {
+    localStorage.setItem(TIMER_PRESETS_KEY, JSON.stringify(list))
+  } catch (err) {
+    console.warn('Could not save timer presets', err)
+    return false
+  }
+  timerPresets.value = list
+  return true
 }
