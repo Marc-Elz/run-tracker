@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { compareToPlan, plannedTotals, weekSummary, type PlannedTotals } from '../planVsDone'
+import {
+  compareToPlan,
+  isOffPlan,
+  OFF_PLAN_TOLERANCE,
+  offPlanSessions,
+  plannedTotals,
+  weekSummary,
+  type PlannedTotals,
+} from '../planVsDone'
 import type { ProgramSession, SessionStep } from '../training'
 
 const step = (over: Partial<SessionStep>): SessionStep => ({
@@ -134,6 +142,64 @@ describe('weekSummary', () => {
       sessions: 0,
       plannedSeconds: null,
       plannedMetres: null,
+    })
+  })
+})
+
+describe('off plan (#134)', () => {
+  const thirtyMin = { seconds: 1800, metres: null }
+  const fiveKm = { seconds: null, metres: 5000 }
+  const run = (elapsedMs: number, distanceM = 0) => ({ elapsedMs, distanceM })
+
+  it('has its threshold in one constant: 20% either way', () => {
+    expect(OFF_PLAN_TOLERANCE).toBe(0.2)
+  })
+
+  it('marks a run whose time is more than 20% from the planned time', () => {
+    expect(isOffPlan(thirtyMin, run(1_800_000))).toBe(false)
+    expect(isOffPlan(thirtyMin, run(2_160_000))).toBe(false) // +20% exactly
+    expect(isOffPlan(thirtyMin, run(1_440_000))).toBe(false) // -20% exactly
+    expect(isOffPlan(thirtyMin, run(2_161_000))).toBe(true)
+    expect(isOffPlan(thirtyMin, run(1_439_000))).toBe(true)
+  })
+
+  it('compares distance when the plan has distance targets, whatever the time', () => {
+    expect(isOffPlan(fiveKm, run(9_999_000, 4500))).toBe(false)
+    expect(isOffPlan(fiveKm, run(60_000, 3900))).toBe(true)
+    expect(isOffPlan(fiveKm, run(60_000, 6100))).toBe(true)
+  })
+
+  it('never marks a run against a plan without totals', () => {
+    expect(isOffPlan({ seconds: null, metres: null }, run(1, 1))).toBe(false)
+  })
+
+  describe('offPlanSessions', () => {
+    const planned = new Map<string, PlannedTotals>([
+      ['a', thirtyMin],
+      ['b', fiveKm],
+      ['none', { seconds: null, metres: null }],
+    ])
+    const ran = (sessionId: string | null, elapsedMs: number, distanceM = 0) => ({
+      sessionId,
+      elapsedMs,
+      distanceM,
+    })
+
+    it('marks sessions whose run was off plan, and no others', () => {
+      const runs = [ran('a', 600_000), ran('b', 1_800_000, 5000)]
+      expect(offPlanSessions(planned, runs)).toEqual(new Set(['a']))
+    })
+
+    it('marks nothing for a session without planned totals, an unknown session or an unlinked run', () => {
+      const runs = [ran('none', 1), ran('elsewhere', 1), ran(null, 1)]
+      expect(offPlanSessions(planned, runs)).toEqual(new Set())
+    })
+
+    it('clears the mark when a redo of the session went to plan', () => {
+      expect(offPlanSessions(planned, [ran('a', 600_000), ran('a', 1_800_000)])).toEqual(new Set())
+      expect(offPlanSessions(planned, [ran('a', 600_000), ran('a', 3_600_000)])).toEqual(
+        new Set(['a']),
+      )
     })
   })
 })

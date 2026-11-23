@@ -7,7 +7,7 @@ import { useRunStore } from '@/stores/run'
 import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import type { RunRecord } from '@/lib/db/runRepository'
 import { formatDistanceKm } from '@/lib/format'
-import { plannedTotals, weekSummary, type PlannedTotals } from '@/lib/planVsDone'
+import { offPlanSessions, plannedTotals, weekSummary, type PlannedTotals } from '@/lib/planVsDone'
 import {
   localDate,
   nextSession,
@@ -46,6 +46,8 @@ const planned = computed<ReadonlyMap<string, PlannedTotals>>(() =>
           .map((s) => [s.id, plannedTotals(steps.value.get(s.id) ?? [])] as const),
       ),
 )
+// Done sessions whose runs were all far from the plan (#134): a hint only, still done
+const offPlan = computed(() => offPlanSessions(planned.value, finishedRuns.value))
 const next = computed(() => nextSession(sessions.value, done.value, skipped.value))
 const following = computed(() => followedProgramId.value === id.value)
 
@@ -205,6 +207,7 @@ onMounted(load)
               <span v-else class="session__number">{{ i + 1 }}</span>
               <span class="session__type">{{ SESSION_TYPE_LABELS[s.type] }}</span>
               <span class="row__title session__title">{{ rowTitle(s) }}</span>
+              <span v-if="offPlan.has(s.id)" class="off-plan">Off plan</span>
               <span v-if="skipped.has(s.id) && !done.has(s.id)" class="skipped">Skipped</span>
               <span v-else-if="next?.id === s.id" class="next">Next</span>
               <span class="row__chevron" aria-hidden="true">›</span>
@@ -271,6 +274,13 @@ onMounted(load)
 .row--skipped .session__title {
   color: #9aa5b1;
   text-decoration: line-through;
+}
+
+.off-plan {
+  flex-shrink: 0;
+  color: #f0b429;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .skipped {

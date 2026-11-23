@@ -412,6 +412,33 @@ describe('running sessions (#40)', () => {
     expect(lines[1]).toBe('0 of 1 session · 1 skipped')
   })
 
+  it('marks a done session that was far off its plan, keeping it done and the next one next (#134)', async () => {
+    const { id, easy, long } = await program({ doneFirst: true })
+    const training = useTrainingStore()
+    const target = (sessionId: string, seconds: number): SessionStep => ({
+      id: `step-${sessionId}`,
+      sessionId,
+      position: 0,
+      kind: 'run',
+      targetKind: 'duration',
+      targetValue: seconds,
+      paceMin: null,
+      paceMax: null,
+      repetitions: null,
+      span: null,
+    })
+    // The easy run took 1 s of its 30 min; the long run has a plan but no run
+    await training.replaceSteps(easy, [target(easy, 1800)])
+    await training.replaceSteps(long, [target(long, 3600)])
+    const { wrapper } = await open(`/training/${id}`)
+    const rows = wrapper.findAll('.row')
+    expect(rows[0]!.classes()).toContain('row--done')
+    expect(rows[0]!.find('.off-plan').text()).toBe('Off plan')
+    expect(rows[1]!.find('.off-plan').exists()).toBe(false)
+    expect(rows[2]!.find('.off-plan').exists()).toBe(false)
+    expect(rows[2]!.text()).toContain('Next')
+  })
+
   it('lists the runs of a session, each opening its summary (#102)', async () => {
     const { id, easy } = await program({ doneFirst: true })
     const run = useRunStore()

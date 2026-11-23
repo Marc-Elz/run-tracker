@@ -52,6 +52,44 @@ export function compareToPlan(
   return lines
 }
 
+/** How far a run may be from its planned total, either way, before it shows as off plan (#134) */
+export const OFF_PLAN_TOLERANCE = 0.2
+
+/**
+ * Whether a run was clearly off its plan: its time or distance is more than
+ * {@link OFF_PLAN_TOLERANCE} away from a planned total. Only a hint: it never changes "done".
+ */
+export function isOffPlan(
+  planned: PlannedTotals,
+  run: { elapsedMs: number; distanceM: number },
+): boolean {
+  return compareToPlan(planned, run).some(
+    (c) => c.planned > 0 && Math.abs(c.done - c.planned) > c.planned * OFF_PLAN_TOLERANCE,
+  )
+}
+
+/**
+ * The sessions to mark off plan in a program: those whose finished runs were all off plan. A redo
+ * that went to plan clears the mark. A session missing from `planned` (a rest day, or steps that
+ * could not be read) gets no mark.
+ */
+export function offPlanSessions(
+  planned: ReadonlyMap<string, PlannedTotals>,
+  runs: readonly { sessionId: string | null; elapsedMs: number; distanceM: number }[],
+): Set<string> {
+  const off = new Set<string>()
+  const onPlan = new Set<string>()
+  for (const r of runs) {
+    if (r.sessionId === null) continue
+    const totals = planned.get(r.sessionId)
+    if (!totals) continue
+    if (isOffPlan(totals, r)) off.add(r.sessionId)
+    else onPlan.add(r.sessionId)
+  }
+  for (const id of onPlan) off.delete(id)
+  return off
+}
+
 /** A week of a program against its runs (#102) */
 export interface WeekSummary {
   /** Sessions that can be run: every session but the rest days */

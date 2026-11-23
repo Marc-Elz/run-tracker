@@ -368,6 +368,31 @@ describe('RunSummaryView', () => {
       expect(button(again, 'Link to a session')).toBeDefined()
     })
 
+    it('marks a run far from its plan as off plan, and an unlinked one not (#134)', async () => {
+      await plan()
+      const { wrapper } = await open()
+      expect(wrapper.find('.off-plan').exists()).toBe(false)
+      await button(wrapper, 'Link to a session')!.trigger('click')
+      await flushPromises()
+      await wrapper.find('.choice').trigger('click')
+      await flushPromises()
+      // 3 s against a plan of 5 s is 40% short
+      expect(wrapper.find('.off-plan').text()).toContain('more than 20%')
+      expect(button(wrapper, 'Unlink from session')).toBeDefined()
+    })
+
+    it('shows no off-plan mark for a run within 20% of its plan (#134)', async () => {
+      const { easy } = await plan()
+      await useTrainingStore().replaceSteps(easy, [{ ...planStep(easy), targetValue: 3 }])
+      const { wrapper, repo } = await open()
+      await repo.setRunSession('r1', easy)
+      await wrapper.unmount()
+      const again = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      expect(again.find('.plan__row').exists()).toBe(true)
+      expect(again.find('.off-plan').exists()).toBe(false)
+    })
+
     it('says so when the session has no planned total', async () => {
       const { easy } = await plan()
       await useTrainingStore().replaceSteps(easy, [])
