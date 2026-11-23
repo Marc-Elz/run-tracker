@@ -187,6 +187,13 @@ describe('auto-pause detector', () => {
       expect(events.map((e) => e.event.kind)).toEqual(['stop'])
     })
 
+    it('a still phone does not stop a run the GPS speed reading says is moving (a mount)', () => {
+      const inputs = withMotion([...run(0, 40, 0, 3, 3), ...stand(41, 50, 120)], () => 0.05)
+      const { events } = feed(inputs)
+      // No stop while running at 3 m/s; standing then stops it after the hold, as GPS would
+      expect(events).toEqual([{ s: 45, event: { kind: 'stop' } }])
+    })
+
     it('a motion level gone quiet leaves GPS to decide alone', () => {
       // One still level at 21 s, then no more: by the time GPS moves on it no longer vetoes
       const inputs = [

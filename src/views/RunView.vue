@@ -16,8 +16,13 @@ import SessionPicker from '@/components/SessionPicker.vue'
 import { autoPause, cueConfig, slowestRunPace, slowestWalk, stepCoaching } from '@/lib/settings'
 import { effectiveWalkFloor, type WalkSuggestion } from '@/lib/walkPace'
 import { GpsError, openAppSettings, startGps, usesSimulatedGps, type GpsFailure } from '@/lib/gps'
-import { simulatedStandStill } from '@/lib/simulateGps'
-import { ensureBatteryExemption, ensureNotifications, keepWebViewAlive } from '@/lib/runPower'
+import { simulatedStandStill, watchSimulatedMotion } from '@/lib/simulateGps'
+import {
+  ensureBatteryExemption,
+  ensureNotifications,
+  keepWebViewAlive,
+  watchMotion,
+} from '@/lib/runPower'
 import { formatDistanceKm, formatDuration, formatMetres, formatPace } from '@/lib/format'
 import {
   SESSION_TYPE_LABELS,
@@ -116,8 +121,18 @@ usePaceCoach(
     breaks: computed(() => slowestWalk.value.breaks),
   },
 )
+const isDev = import.meta.env.DEV
+const simulate = ref(isDev)
+// Fake GPS (dev, and the web demo): "Stand still" tries auto-pause in the browser (#154)
+const simulating = computed(() => usesSimulatedGps(isDev && simulate.value))
+const gpsFailure = ref<GpsFailure | null>(null)
 // Pauses at a stop and carries on when moving again (#154); the one consumer of GPS fixes
-const { onFix } = useAutoPause(autoPause)
+// The phone's motion level helps tell standing from GPS drift; the simulator gives its own.
+// Off while GPS has failed: a still phone would pause a run that could never resume
+const autoPauseOn = computed(() => autoPause.value && gpsFailure.value === null)
+const { onFix } = useAutoPause(autoPauseOn, (onReading) =>
+  simulating.value ? watchSimulatedMotion(onReading) : watchMotion(onReading),
+)
 const autoPaused = computed(() => status.value === 'paused' && pauseKind.value === 'auto')
 /** "Target 5:30–6:00 /km" on a step with a pace target */
 const stepTarget = computed(() => {
@@ -158,12 +173,7 @@ const runActive = computed(() => status.value === 'running' || status.value === 
 watch(runActive, (on) => void keepWebViewAlive(on), { immediate: true })
 onBeforeUnmount(() => void keepWebViewAlive(false))
 
-const isDev = import.meta.env.DEV
-const simulate = ref(isDev)
-// Fake GPS (dev, and the web demo): "Stand still" tries auto-pause in the browser (#154)
-const simulating = computed(() => usesSimulatedGps(isDev && simulate.value))
 const starting = ref(false)
-const gpsFailure = ref<GpsFailure | null>(null)
 const batteryHint = ref(false)
 const stopping = ref(false)
 let stopGps: (() => void) | null = null
@@ -193,7 +203,7 @@ async function beginTracking(advance: () => void, undo: () => void) {
     await ensureNotifications()
     batteryHint.value = !(await ensureBatteryExemption())
     advance()
-    stopGps = await startGps(onFix, onGpsError, { simulate: isDev && simulate.value })
+    stopGps = await startGps(onFix, onGpsError, { simulate: simulating.value })
   } catch (err) {
     console.warn('GPS could not start', err)
     undo()

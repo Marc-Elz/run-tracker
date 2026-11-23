@@ -42,6 +42,13 @@ vi.mock('@/lib/gps', async (importOriginal) => ({
 const speech = vi.hoisted(() => ({ speak: vi.fn<(t: string) => Promise<void>>(async () => {}) }))
 vi.mock('@/lib/speech', () => ({ speak: speech.speak, isSpeaking: () => false }))
 
+// The simulator's motion source (GPS is simulated off the phone): count starts and stops
+const simMotion = vi.hoisted(() => ({ stop: vi.fn<() => void>() }))
+vi.mock('@/lib/simulateGps', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/simulateGps')>()),
+  watchSimulatedMotion: vi.fn<() => () => void>(() => simMotion.stop),
+}))
+
 const nav = vi.hoisted(() => ({
   push: vi.fn<(to: unknown) => Promise<void>>(async () => {}),
   replace: vi.fn<(to: unknown) => Promise<void>>(async () => {}),
@@ -127,6 +134,8 @@ describe('RunView', () => {
 
     expect(wrapper.attributes('data-status')).toBe('running')
     expect(wrapper.text()).toContain('Location is off')
+    // Auto-pause is off without GPS: a still phone would pause a run that could never resume
+    expect(simMotion.stop).toHaveBeenCalledOnce()
   })
 
   it('deletes the run when location is refused before the first fix', async () => {
