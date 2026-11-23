@@ -1,6 +1,6 @@
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 import type { RunStep } from '@/lib/stepProgress'
-import { PAUSE_KINDS, type RunPause } from '@/lib/runPauses'
+import type { RunPause } from '@/lib/runPauses'
 import {
   checkProgram,
   checkSession,
@@ -115,11 +115,29 @@ const isWhole = (v: unknown, min: number): v is number => isCount(v) && v >= min
 const oneOf = <T extends string>(list: readonly T[], v: unknown): v is T =>
   (list as readonly unknown[]).includes(v)
 
+const isLat = (v: unknown): v is number => isNumber(v) && v >= -90 && v <= 90
+const isLon = (v: unknown): v is number => isNumber(v) && v >= -180 && v <= 180
+
+/**
+ * A run's steps or pauses: none when the field is missing, null when any item is bad or a
+ * position repeats
+ */
+function toPositioned<T extends { position: number }>(
+  raw: unknown,
+  parseOne: (item: unknown) => T | null,
+): T[] | null {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) return null
+  const items = raw.map(parseOne)
+  if (items.some((i) => i === null)) return null
+  const positions = new Set(items.map((i) => i!.position))
+  return positions.size === items.length ? (items as T[]) : null
+}
+
 function toPoint(raw: unknown): StoredPoint | null {
   if (!isObject(raw)) return null
   const { lat, lon, timestamp, segment, accuracy, altitude, speed } = raw
-  if (!isNumber(lat) || lat < -90 || lat > 90) return null
-  if (!isNumber(lon) || lon < -180 || lon > 180) return null
+  if (!isLat(lat) || !isLon(lon)) return null
   if (!isNumber(timestamp) || !isCount(segment)) return null
   if (!optionalNumber(accuracy) || !optionalNumber(altitude) || !optionalNumber(speed)) return null
   const point: StoredPoint = { segment, timestamp, lat, lon }
@@ -187,24 +205,15 @@ function toRunStep(raw: unknown): RunStep | null {
   }
 }
 
-/** A run's steps: none when the field is missing, null when any step is bad or a position repeats */
-function toRunSteps(raw: unknown): RunStep[] | null {
-  if (raw === undefined) return []
-  if (!Array.isArray(raw)) return null
-  const steps = raw.map(toRunStep)
-  if (steps.some((s) => s === null)) return null
-  const positions = new Set(steps.map((s) => s!.position))
-  return positions.size === steps.length ? (steps as RunStep[]) : null
-}
-
 function toRunPause(raw: unknown): RunPause | null {
   if (!isObject(raw)) return null
   const { position, kind, startedAt, endedAt, startedElapsedMs, lat, lon } = raw
-  if (!isCount(position) || !oneOf(PAUSE_KINDS, kind)) return null
+  // Only auto-pauses are stored and shown so far: a manual one would be kept but never seen
+  if (!isCount(position) || kind !== 'auto') return null
   // A finished run's pauses are all closed, never before they started
   if (!isNumber(startedAt) || !isNumber(endedAt) || endedAt < startedAt) return null
   if (!isNonNegative(startedElapsedMs)) return null
-  const spot = (lat === null && lon === null) || (isNumber(lat) && isNumber(lon))
+  const spot = (lat === null && lon === null) || (isLat(lat) && isLon(lon))
   if (!spot) return null
   return {
     position,
@@ -215,16 +224,6 @@ function toRunPause(raw: unknown): RunPause | null {
     lat: lat as number | null,
     lon: lon as number | null,
   }
-}
-
-/** A run's pauses: none when the field is missing, null when any is bad or a position repeats */
-function toRunPauses(raw: unknown): RunPause[] | null {
-  if (raw === undefined) return []
-  if (!Array.isArray(raw)) return null
-  const pauses = raw.map(toRunPause)
-  if (pauses.some((p) => p === null)) return null
-  const positions = new Set(pauses.map((p) => p!.position))
-  return positions.size === pauses.length ? (pauses as RunPause[]) : null
 }
 
 /** The result of a `lib/training` check, or null when the check refuses it */
@@ -362,8 +361,8 @@ export function parseBackup(text: string): ParsedBackup {
     const run = isObject(entry) && status === 'finished' ? toRun(entry.run) : null
     const rawPoints = isObject(entry) ? entry.points : undefined
     const points = Array.isArray(rawPoints) ? rawPoints.map(toPoint) : null
-    const steps = isObject(entry) ? toRunSteps(entry.steps) : null
-    const pauses = isObject(entry) ? toRunPauses(entry.pauses) : null
+    const steps = isObject(entry) ? toPositioned(entry.steps, toRunStep) : null
+    const pauses = isObject(entry) ? toPositioned(entry.pauses, toRunPause) : null
     const bad = run === null || points === null || points.some((p) => p === null)
     if (bad || steps === null || pauses === null) {
       rejected++

@@ -4,11 +4,12 @@ import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
 import { mapStyleUrl } from '@/lib/mapStyle'
 import { BLANK_STYLE, loadMapLibre } from '@/lib/mapSetup'
 import type { LngLat, RunSummary } from '@/lib/runSummary'
+import type { PauseRow } from '@/lib/runPauses'
 
 const props = defineProps<{
   route: Pick<RunSummary, 'lines' | 'start' | 'end' | 'bounds'>
   /** Auto-pauses to mark (#154): each with its position and spot, if it has one */
-  pauses?: { position: number; spot: LngLat | null }[]
+  pauses?: Pick<PauseRow, 'position' | 'spot'>[]
   /** The pause shown: its dot is larger and the map centres on it */
   selected?: number | null
 }>()

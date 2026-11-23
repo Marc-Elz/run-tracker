@@ -1,13 +1,19 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { TrackPoint } from '@/lib/geo'
-import { paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/runStats'
+import { isAccurate, paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '@/lib/runStats'
 import { toSegments } from '@/lib/runSummary'
 import { loadRouteOverviews } from '@/lib/routeOverview'
 import { MAX_RUN_NAME_LENGTH } from '@/lib/format'
 import { applyChange, closeOpenStep, type RunStep, type StepChange } from '@/lib/stepProgress'
 import type { RunRecord, RunRepository, StoredPoint } from '@/lib/db/runRepository'
-import { closePause, type PauseKind, type RunPause } from '@/lib/runPauses'
+import {
+  closePause,
+  killedPauseEnd,
+  nextPausePosition,
+  type PauseKind,
+  type RunPause,
+} from '@/lib/runPauses'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
@@ -26,6 +32,12 @@ function savedElapsedMs(run: RunRecord, segments: TrackPoint[][]): number {
   const open = segments[run.segment] ?? []
   const lastFix = open[open.length - 1]
   return run.elapsedMs + (lastFix ? Math.max(0, lastFix.timestamp - run.segmentStartedAt) : 0)
+}
+
+/** The latest fix accurate enough to count, null when there is none */
+function lastAccurate(fixes: readonly TrackPoint[]): TrackPoint | null {
+  for (let i = fixes.length - 1; i >= 0; i--) if (isAccurate(fixes[i]!)) return fixes[i]!
+  return null
 }
 
 export const useRunStore = defineStore('run', () => {
@@ -189,16 +201,18 @@ export const useRunStore = defineStore('run', () => {
 
   /**
    * Auto-pause (#154): paused like the Pause button, but resumes by itself (`autoResume`). A
-   * pause row opens at the last accepted fix, for the run's history.
+   * pause row opens at the last accepted fix, for the run's history; before the segment has
+   * one (just after a Resume), at the run's last accurate stored fix.
    */
   function autoPause(t: number = Date.now()) {
     if (status.value !== 'running') return
-    const spot = segmentAccepted.value[segmentAccepted.value.length - 1] ?? null
+    const spot =
+      segmentAccepted.value[segmentAccepted.value.length - 1] ?? lastAccurate(points.value)
     pause(t)
     pauseKind.value = 'auto'
     autoBuffer = []
     savePause({
-      position: runPauses.value.length,
+      position: nextPausePosition(runPauses.value),
       kind: 'auto',
       startedAt: t,
       endedAt: null,
@@ -350,15 +364,8 @@ export const useRunStore = defineStore('run', () => {
     if (id !== null) persist((r) => r.deleteRun(id))
   }
 
-  /**
-   * Bring back a run the app was killed in, paused, with totals recomputed from its raw points.
-   * Older unfinished runs (repeated crashes) are saved as finished.
-   */
-  /**
-   * An auto-pause left open when the app was killed ends at the last stored fix: the fixes held
-   * back while auto-paused were never stored, so a later end is unknown. Never before it started.
-   */
-  async function closeKilledPauses(id: string, lastFix: TrackPoint | undefined) {
+  /** A pause left open when the app was killed ends where the run moved on (`killedPauseEnd`) */
+  async function closeKilledPauses(id: string, segments: TrackPoint[][]) {
     const stored = await repo.loadPauses(id)
     const closed: RunPause[] = []
     for (const p of stored) {
@@ -366,13 +373,17 @@ export const useRunStore = defineStore('run', () => {
         closed.push(p)
         continue
       }
-      const ended = closePause(p, lastFix?.timestamp ?? p.startedAt)
+      const ended = closePause(p, killedPauseEnd(p, segments))
       await repo.savePause(id, ended)
       closed.push(ended)
     }
     return closed
   }
 
+  /**
+   * Bring back a run the app was killed in, paused, with totals recomputed from its raw points.
+   * Older unfinished runs (repeated crashes) are saved as finished.
+   */
   async function recover() {
     if (status.value !== 'idle') return
     const [latest, ...older] = await repo.findUnfinished()
@@ -387,7 +398,7 @@ export const useRunStore = defineStore('run', () => {
         distanceM: totals.distanceM,
       })
       if (open) await repo.saveStepChange(run.id, open, [])
-      await closeKilledPauses(run.id, lastFix)
+      await closeKilledPauses(run.id, restored)
       await repo.updateRun({
         ...run,
         ...totals,
@@ -402,8 +413,7 @@ export const useRunStore = defineStore('run', () => {
     const restored = toSegments(await repo.loadPoints(latest.id), latest.segment)
     const totals = summarizeTrack(restored)
     const steps = await repo.loadRunSteps(latest.id)
-    const latestFixes = restored.flat()
-    runPauses.value = await closeKilledPauses(latest.id, latestFixes[latestFixes.length - 1])
+    runPauses.value = await closeKilledPauses(latest.id, restored)
     runId.value = latest.id
     sessionId.value = latest.sessionId
     runSteps.value = steps

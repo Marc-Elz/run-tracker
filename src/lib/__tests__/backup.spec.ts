@@ -189,6 +189,11 @@ describe('buildBackup and parseBackup', () => {
         entry([runPause(0, { startedElapsedMs: -1 })]),
         entry([runPause(0, { lat: null })]),
         entry([{ position: 0 }]),
+        // Out of range: the map would throw on it
+        entry([runPause(0, { lat: 123 })]),
+        entry([runPause(0, { lon: -181 })]),
+        // Not stored or shown yet: kept, it would never be seen
+        entry([runPause(0, { kind: 'manual' })]),
       ],
     })
     const parsed = parseBackup(text)
@@ -196,7 +201,7 @@ describe('buildBackup and parseBackup', () => {
       ['old', []],
       ['x', [runPause(0)]],
     ])
-    expect(parsed.rejected).toBe(8)
+    expect(parsed.rejected).toBe(11)
   })
 
   it('reads a run without steps as none, and rejects a run with a bad step list (#101)', () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { closePause, pauseList, type RunPause } from '../runPauses'
+import {
+  closePause,
+  killedPauseEnd,
+  nextPausePosition,
+  pauseList,
+  type RunPause,
+} from '../runPauses'
 
 const pause = (position: number, over: Partial<RunPause> = {}): RunPause => ({
   position,
@@ -17,6 +23,32 @@ describe('closePause (#154)', () => {
     const open = pause(0, { endedAt: null })
     expect(closePause(open, 130_000).endedAt).toBe(130_000)
     expect(closePause(open, 50_000).endedAt).toBe(100_000)
+  })
+})
+
+describe('nextPausePosition (#154)', () => {
+  it('comes after the highest stored position, so a gap is never filled over a stored row', () => {
+    expect(nextPausePosition([])).toBe(0)
+    // Pause 0 was never stored (both writes failed), pause 1 was
+    expect(nextPausePosition([pause(1)])).toBe(2)
+  })
+})
+
+describe('killedPauseEnd (#154)', () => {
+  const fix = (timestamp: number) => ({ lat: 52, lon: 4, timestamp })
+  it('ends where the next segment starts, not at a later fix', () => {
+    const segments = [
+      [fix(1_000), fix(10_000)],
+      [fix(30_000), fix(1_800_000)],
+    ]
+    expect(killedPauseEnd(pause(0, { startedAt: 14_000 }), segments)).toBe(30_000)
+  })
+
+  it('ends at the last fix when the run never moved on, or at its start without fixes', () => {
+    expect(killedPauseEnd(pause(0, { startedAt: 14_000 }), [[fix(1_000), fix(10_000)]])).toBe(
+      10_000,
+    )
+    expect(killedPauseEnd(pause(0, { startedAt: 14_000 }), [])).toBe(14_000)
   })
 })
 

@@ -273,6 +273,57 @@ describe('run store persistence', () => {
       expect((await repo.loadPauses(again.runId!))[0]!.endedAt).toBe(14_000)
     })
 
+    it('recovery ends a killed pause where the run moved on, not at a later fix', async () => {
+      const run = autoPaused()
+      run.addPoint(at(30_000, 0.0004))
+      run.autoResume(30_000, 33_000)
+      run.addPoint(at(1_800_000, 0.01))
+      await settle()
+      // The close write failed: the row is still open when the app is killed 30 min later
+      await repo.savePause(run.runId!, { ...run.runPauses[0]!, endedAt: null })
+      const again = relaunch()
+      await again.recover()
+      expect(again.runPauses[0]!.endedAt).toBe(30_000)
+    })
+
+    it('a new pause never overwrites a stored one after a pause row was lost', async () => {
+      vi.setSystemTime(0)
+      const run = store()
+      run.start(0)
+      run.addPoint(at(1_000, 0))
+      await settle()
+      const id = run.runId!
+      // Pause 0's writes failed, pause 1 was stored; then the app was killed
+      const stored = { position: 1, kind: 'auto' as const, startedAt: 5_000, endedAt: 8_000 }
+      await repo.savePause(id, { ...stored, startedElapsedMs: 5_000, lat: 52, lon: 4 })
+      const again = relaunch()
+      await again.recover()
+      again.resume(40_000)
+      again.addPoint(at(41_000, 0.001))
+      again.autoPause(50_000)
+      await settle()
+      const pauses = await repo.loadPauses(id)
+      expect(pauses.map((p) => [p.position, p.startedAt])).toEqual([
+        [1, 5_000],
+        [2, 50_000],
+      ])
+    })
+
+    it('a pause just after Resume is placed at the last accurate fix', async () => {
+      vi.setSystemTime(0)
+      const run = store()
+      run.start(0)
+      run.addPoint(at(1_000, 0))
+      run.addPoint(at(10_000, 0.0003))
+      run.pause(12_000)
+      run.resume(15_000)
+      // No fix accepted in the new segment yet (only a poor one)
+      run.addPoint({ ...at(16_000, 0.01), accuracy: 80 })
+      run.autoPause(20_000)
+      await settle()
+      expect(run.runPauses[0]).toMatchObject({ lat: 52.0003, lon: 4 })
+    })
+
     it('recovery also closes the open pause of an older unfinished run it finishes', async () => {
       const first = autoPaused()
       await settle()
