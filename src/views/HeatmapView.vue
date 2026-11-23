@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import RoutesMap from '@/components/RoutesMap.vue'
 import { useRunStore } from '@/stores/run'
 import { useBackInterceptor } from '@/composables/useBackButton'
+import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import {
   formatClock,
   formatDistanceKm,
@@ -63,16 +64,12 @@ function step(by: number) {
   index.value = (index.value + by + n) % n
 }
 
-function goBack() {
-  if (window.history.state?.back) router.back()
-  else void router.replace({ name: 'history' })
-}
-
 function openRun() {
   if (selectedId.value) void router.push({ name: 'run-summary', params: { id: selectedId.value } })
 }
 
-// Android back clears the selection first, then leaves the screen
+// ‹ and Android back go back to History; Android back clears the selection first
+const goBack = useLeaveScreen(() => ({ name: 'history' }))
 useBackInterceptor(
   computed(() => picked.value.length > 0),
   () => (picked.value = []),

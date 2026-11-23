@@ -157,16 +157,21 @@ describe('HeatmapView', () => {
     expect(wrapper.find('.card').exists()).toBe(false)
   })
 
-  it('goes back in history, or to History when there is nothing behind', async () => {
+  it('goes back in history', async () => {
     useRunStore().useRepository(createMemoryRunRepository())
     const wrapper = await mountView()
-
     window.history.replaceState({ back: '/history' }, '')
     await wrapper.find('.back').trigger('click')
     expect(nav.back).toHaveBeenCalled()
+    expect(nav.replace).not.toHaveBeenCalled()
+  })
 
+  it('goes to History when there is nothing behind', async () => {
+    useRunStore().useRepository(createMemoryRunRepository())
+    const wrapper = await mountView()
     window.history.replaceState({}, '')
     await wrapper.find('.back').trigger('click')
     expect(nav.replace).toHaveBeenCalledWith({ name: 'history' })
+    expect(nav.back).not.toHaveBeenCalled()
   })
 })
