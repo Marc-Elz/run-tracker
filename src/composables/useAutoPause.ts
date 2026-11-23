@@ -91,16 +91,18 @@ export function useAutoPause(enabled: Ref<boolean>, motion: MotionSource = () =>
   }
 
   function onMotion(reading: MotionReading) {
-    const level = reading.level === undefined ? 'none' : reading.level.toFixed(2)
-    console.info(`[autopause] motion level=${level} samples=${reading.samples}`)
+    // Each reading is logged natively ([motion]); a decision it makes is logged in feed()
     // Timed on arrival, like the fixes: the hold times run on one clock
     if (reading.level !== undefined) feed({ kind: 'motion', at: Date.now(), level: reading.level })
   }
 
-  // Motion readings while a run is on (running or paused) and auto-pause is on
+  // Motion readings while auto-pause is on and could act: running or auto-paused (not during a
+  // manual pause, where feed() ignores them)
   let stopMotion: (() => void) | null = null
   const watching = computed(
-    () => enabled.value && (status.value === 'running' || status.value === 'paused'),
+    () =>
+      enabled.value &&
+      (status.value === 'running' || (status.value === 'paused' && pauseKind.value === 'auto')),
   )
   watch(
     watching,

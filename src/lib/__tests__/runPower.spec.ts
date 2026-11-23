@@ -75,6 +75,26 @@ describe('watchMotion (#154)', () => {
     expect(lastStop).toBeGreaterThan(lastStart)
   })
 
+  it("an old watcher's late stop leaves a newer watcher's sensor on", async () => {
+    // A's start is still pending when A is stopped and B starts
+    let finishStart = () => {}
+    plugin.startMotion.mockImplementationOnce(
+      () => new Promise((resolve) => (finishStart = () => resolve({ available: true }))),
+    )
+    const stopA = watchMotion(() => {})
+    await settle()
+    stopA()
+    const stopB = watchMotion(() => {})
+    await settle()
+    const stopsBefore = plugin.stopMotion.mock.calls.length
+    finishStart()
+    await settle()
+    expect(plugin.stopMotion.mock.calls.length).toBe(stopsBefore)
+    // And B can still switch it off
+    stopB()
+    expect(plugin.stopMotion.mock.calls.length).toBe(stopsBefore + 1)
+  })
+
   it('never throws when the sensor is missing', async () => {
     state.available = false
     const stop = watchMotion(() => {})

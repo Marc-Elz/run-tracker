@@ -109,6 +109,9 @@ export async function keepWebViewAlive(keep: boolean): Promise<void> {
   }
 }
 
+/** Id of the newest `watchMotion` call */
+let newestWatch = 0
+
 /**
  * Auto-pause (#154): call `onReading` about once a second with the phone's motion level while
  * watching; returns the function that stops it. Does nothing off the phone, or on a phone without
@@ -116,6 +119,13 @@ export async function keepWebViewAlive(keep: boolean): Promise<void> {
  */
 export function watchMotion(onReading: (reading: MotionReading) => void): () => void {
   if (!Capacitor.isNativePlatform()) return () => {}
+  const id = ++newestWatch
+  // The phone has one sensor switch: only the newest watcher may turn it off, so a stop that
+  // lands late (an old watcher's) never switches off a newer watcher's sensor
+  const stopSensor = () => {
+    if (id !== newestWatch) return Promise.resolve()
+    return RunPower.stopMotion()
+  }
   let stopped = false
   let handle: PluginListenerHandle | null = null
   void (async () => {
@@ -126,7 +136,7 @@ export function watchMotion(onReading: (reading: MotionReading) => void): () => 
       if (stopped) return void handle.remove()
       const { available } = await RunPower.startMotion()
       // Stopped while starting: the stop's stopMotion may have run first, so stop again
-      if (stopped) return void (await RunPower.stopMotion())
+      if (stopped) return void (await stopSensor())
       if (!available) console.info('[motion] no accelerometer: auto-pause goes by GPS alone')
     } catch (err) {
       console.warn('Motion sensor unavailable', err)
@@ -136,8 +146,6 @@ export function watchMotion(onReading: (reading: MotionReading) => void): () => 
     if (stopped) return
     stopped = true
     void handle?.remove()
-    RunPower.stopMotion().catch((err: unknown) =>
-      console.warn('Could not stop the motion sensor', err),
-    )
+    stopSensor().catch((err: unknown) => console.warn('Could not stop the motion sensor', err))
   }
 }

@@ -172,24 +172,31 @@ describe('useAutoPause', () => {
   })
 
   describe('with the motion level (#154 PR 2)', () => {
-    it('reads motion while a run is on, and stops with the run or the setting', async () => {
-      const { run } = setup()
+    it('reads motion while running or auto-paused, and stops with a manual pause, the run or the setting', async () => {
+      const { run, onFix } = setup()
       expect(motion.started).toBe(0)
       run.start(0)
       await nextTick()
       expect(motion.started).toBe(1)
-      run.pause(5000)
+      await move(onFix, 0, 20, 0, 3)
+      await move(onFix, 21, 30, 60, 0)
+      expect(run.pauseKind).toBe('auto')
+      expect(motion.stopped).toBe(0) // still on while auto-paused
+      run.holdPause()
       await nextTick()
-      expect(motion.stopped).toBe(0) // still on while paused
-      enabled.value = false
-      await nextTick()
-      expect(motion.stopped).toBe(1)
-      enabled.value = true
+      expect(motion.stopped).toBe(1) // a manual pause never resumes by itself
+      run.resume(31_000)
       await nextTick()
       expect(motion.started).toBe(2)
-      run.stop(6000)
+      enabled.value = false
       await nextTick()
       expect(motion.stopped).toBe(2)
+      enabled.value = true
+      await nextTick()
+      expect(motion.started).toBe(3)
+      run.stop(40_000)
+      await nextTick()
+      expect(motion.stopped).toBe(3)
     })
 
     it('a still phone pauses the run even while GPS drifts, and logs it', async () => {

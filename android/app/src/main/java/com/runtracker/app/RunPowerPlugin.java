@@ -59,9 +59,11 @@ public class RunPowerPlugin extends Plugin {
     private final Handler motionHandler = new Handler(Looper.getMainLooper());
     private boolean motionOn = false;
     /**
-     * Acceleration samples of the last `MOTION_WINDOW_MS`, oldest first: {arrival time in ms since
+     * Acceleration samples of the last `MOTION_WINDOW_MS`, oldest first: {sensor time in ms since
      * boot, magnitude in m/s²}. Kept as samples (not a running sum) so cadence can later be found
-     * in the same data (#171). Only touched on the main thread: the listener is registered there.
+     * in the same data (#171). `motionOn` and the samples are only touched on the main thread:
+     * the listener and `emitMotion` run there, and start/stop are posted to it, as plugin methods
+     * run on Capacitor's own thread.
      */
     private final ArrayDeque<double[]> motionSamples = new ArrayDeque<>();
 
@@ -72,7 +74,10 @@ public class RunPowerPlugin extends Plugin {
             float y = event.values[1];
             float z = event.values[2];
             long now = SystemClock.elapsedRealtime();
-            motionSamples.addLast(new double[] { now, Math.sqrt(x * x + y * y + z * z) });
+            // The sensor's own time: with the screen off readings can arrive in batches
+            long at = event.timestamp / 1_000_000L;
+            if (Math.abs(at - now) > MOTION_WINDOW_MS * 5) at = now; // not the boot clock on this phone
+            motionSamples.addLast(new double[] { at, Math.sqrt(x * x + y * y + z * z) });
             pruneMotion(now);
         }
 
@@ -110,6 +115,10 @@ public class RunPowerPlugin extends Plugin {
      */
     @PluginMethod
     public void startMotion(PluginCall call) {
+        motionHandler.post(() -> beginMotion(call));
+    }
+
+    private void beginMotion(PluginCall call) {
         JSObject ret = new JSObject();
         if (!motionOn) {
             SensorManager sensors = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
@@ -130,13 +139,15 @@ public class RunPowerPlugin extends Plugin {
 
     @PluginMethod
     public void stopMotion(PluginCall call) {
-        endMotion();
-        call.resolve();
+        motionHandler.post(() -> {
+            endMotion();
+            call.resolve();
+        });
     }
 
     @Override
     protected void handleOnDestroy() {
-        endMotion();
+        endMotion(); // already on the main thread
         super.handleOnDestroy();
     }
 
