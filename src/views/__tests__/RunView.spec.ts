@@ -492,6 +492,58 @@ describe('RunView', () => {
     })
   })
 
+  describe('opening the session from the card (#115)', () => {
+    async function followedProgram() {
+      const training = useTrainingStore()
+      const programId = await training.createProgram({
+        name: 'Half marathon',
+        goal: null,
+        weeks: 2,
+        startDate: null,
+      })
+      const easy = await training.saveSession(programId, {
+        week: 1,
+        type: 'easy',
+        title: '30 min easy',
+        notes: null,
+      })
+      setFollowedProgram(programId)
+      return { programId, easy }
+    }
+
+    it("opens the card's session view, marked as coming from the Run screen", async () => {
+      const { programId, easy } = await followedProgram()
+      const wrapper = mount(RunView)
+      await flushPromises()
+      await wrapper.find('.session-card__open').trigger('click')
+      expect(nav.push).toHaveBeenCalledExactlyOnceWith({
+        name: 'session',
+        params: { id: programId, sid: easy },
+        state: { fromRun: true },
+      })
+      expect(wrapper.find('.dialog').exists()).toBe(false)
+    })
+
+    it('leaves the ⇄ strip to the picker', async () => {
+      await followedProgram()
+      const wrapper = mount(RunView)
+      await flushPromises()
+      await wrapper.find('button[aria-label="Choose another session"]').trigger('click')
+      expect(nav.push).not.toHaveBeenCalled()
+    })
+
+    it('has nothing to open on the "All sessions done" card', async () => {
+      const { easy } = await followedProgram()
+      const run = useRunStore()
+      run.start(0, easy)
+      await run.finish(1_000)
+      const wrapper = mount(RunView)
+      await flushPromises()
+      expect(wrapper.text()).toContain('All sessions done')
+      expect(wrapper.find('.session-card__open').exists()).toBe(false)
+    })
+  })
+
   describe('session steps (#101)', () => {
     let ids = 0
     const step = (over: Partial<SessionStep>): SessionStep => ({

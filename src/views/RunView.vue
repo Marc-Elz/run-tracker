@@ -64,6 +64,17 @@ function onPickSession(id: string, isNext: boolean) {
   void router.replace(isNext ? { name: 'run' } : { name: 'run', query: { session: id } })
 }
 
+// The rest of the card (#115): that session's view, to check it before starting. Its Back returns
+// here; `fromRun` makes its "Run this session" come back here without stacking another Run screen.
+function openSession(session: ProgramSession) {
+  if (starting.value) return
+  void router.push({
+    name: 'session',
+    params: { id: session.programId, sid: session.id },
+    state: { fromRun: true },
+  })
+}
+
 // The session the current run belongs to, for the line at the top (#101 builds on it)
 const linked = ref<{ session: ProgramSession; title: string } | null>(null)
 watch(
@@ -232,19 +243,25 @@ onBeforeUnmount(endGps)
 <template>
   <main class="run" :data-status="status">
     <section v-if="status === 'idle' && planned" class="session-card" aria-label="Training session">
-      <div class="session-card__info">
-        <template v-if="nextUp">
-          <p class="session-card__label">
+      <button
+        v-if="nextUp"
+        class="session-card__open"
+        :disabled="starting"
+        @click="openSession(nextUp)"
+      >
+        <span class="session-card__info">
+          <span class="session-card__label">
             {{ planned.chosen ? 'Session' : 'Next session' }} · Week {{ nextUp.week }}
-          </p>
-          <p class="session-card__type">{{ SESSION_TYPE_LABELS[nextUp.type] }}</p>
-          <p class="session-card__title">{{ planned.title }}</p>
-          <p class="session-card__program">{{ planned.program.name }}</p>
-        </template>
-        <template v-else>
-          <p class="session-card__title">{{ planned.program.name }}</p>
-          <p class="session-card__program">All sessions done</p>
-        </template>
+          </span>
+          <span class="session-card__type">{{ SESSION_TYPE_LABELS[nextUp.type] }}</span>
+          <span class="session-card__title">{{ planned.title }}</span>
+          <span class="session-card__program">{{ planned.program.name }}</span>
+        </span>
+        <span class="session-card__chevron" aria-hidden="true">›</span>
+      </button>
+      <div v-else class="session-card__info">
+        <p class="session-card__title">{{ planned.program.name }}</p>
+        <p class="session-card__program">All sessions done</p>
       </div>
       <button
         class="session-card__switch"
@@ -518,6 +535,34 @@ onBeforeUnmount(endGps)
   gap: 0.2rem;
   min-width: 0;
   padding: 1rem 1.25rem;
+}
+
+/* The rest of the card opens the session's view (#115): the whole area is the target */
+.session-card__open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  padding: 0 0.75rem 0 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.session-card__open:active {
+  background: #26303a;
+}
+
+.session-card__open:disabled {
+  opacity: 0.6;
+}
+
+.session-card__chevron {
+  flex: none;
+  font-size: 1.6rem;
+  color: #9aa5b1;
 }
 
 /* ⇄ (#148): a full-height strip on the right edge, a big target behind a divider */

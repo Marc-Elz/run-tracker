@@ -38,10 +38,15 @@ const title = computed(() =>
   session.value ? sessionTitle(session.value, fromBlocks(session.value.id, blocks.value)) : '',
 )
 
-/** To the Run screen with this session ready to start */
+/**
+ * To the Run screen with this session ready to start. Opened from the Run screen's card (#115),
+ * it takes this view's place in the history, so Back there doesn't return to this view.
+ */
 function runSession() {
   if (!canRun.value) return
-  void router.push({ name: 'run', query: { session: sessionId.value } })
+  const to = { name: 'run', query: { session: sessionId.value } }
+  if (router.options.history.state.fromRun) void router.replace(to)
+  else void router.push(to)
 }
 
 onMounted(load)
