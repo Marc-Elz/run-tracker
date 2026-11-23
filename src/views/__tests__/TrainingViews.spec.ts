@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { createMemoryHistory, createRouter, createWebHistory, RouterView } from 'vue-router'
 import { routes } from '@/router'
 import { useTrainingStore } from '@/stores/training'
 import { useRunStore } from '@/stores/run'
@@ -10,14 +10,20 @@ import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
 import { createMemoryTrainingRepository } from '@/lib/db/memoryTrainingRepository'
 import type { SessionStep, StepBlock } from '@/lib/training'
 
-// The real routes on an in-memory history: these tests walk the screens the way a tap would
-async function open(path: string) {
-  const router = createRouter({ history: createMemoryHistory(), routes })
+// The real routes on an in-memory history: these tests walk the screens the way a tap would.
+// `web`: the browser's history, as in the app, for tests that need its state (Back, `fromRun`).
+async function open(path: string, { web = false } = {}) {
+  const router = createRouter({ history: web ? createWebHistory() : createMemoryHistory(), routes })
   await router.push(path)
   const wrapper = mount(RouterView, { global: { plugins: [router] }, attachTo: document.body })
   await flushPromises()
   return { wrapper, router }
 }
+
+// A screen left mounted would keep watching the shared settings and reach into the next test;
+// a web history's state would make the next test's Back go "back" instead of up a level
+enableAutoUnmount(afterEach)
+afterEach(() => window.history.replaceState(null, '', '/'))
 
 type Wrapper = Awaited<ReturnType<typeof open>>['wrapper']
 const button = (wrapper: Wrapper, label: string) => {
@@ -344,6 +350,42 @@ describe('running sessions (#40)', () => {
     await click(button(wrapper, 'Run this session'))
     expect(router.currentRoute.value.name).toBe('run')
     expect(router.currentRoute.value.query).toEqual({ session: long })
+  })
+
+  describe('from the Run screen card (#115)', () => {
+    async function openFromCard() {
+      const ids = await program()
+      setFollowedProgram(ids.id)
+      // The app starts on the Run screen; the card opens the session view on top of it
+      const { wrapper, router } = await open('/', { web: true })
+      await click(wrapper.get('.session-card__open'))
+      expect(router.currentRoute.value.name).toBe('session')
+      expect(router.currentRoute.value.params).toEqual({ id: ids.id, sid: ids.easy })
+      expect(wrapper.text()).toContain('Run this session')
+      return { ...ids, wrapper, router }
+    }
+
+    it('comes back to the Run screen with the same session on the card', async () => {
+      const { wrapper, router } = await openFromCard()
+      await click(button(wrapper, '‹ Back'))
+      // router.back() settles on the browser's popstate
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await flushPromises()
+      expect(router.currentRoute.value.name).toBe('run')
+      expect(wrapper.text()).toContain('Next session · Week 1')
+      expect(wrapper.get('.session-card__title').text()).toBe('Easy')
+    })
+
+    it('"Run this session" returns to the Run screen with it ready, in place of the view', async () => {
+      const { easy, wrapper, router } = await openFromCard()
+      await click(button(wrapper, 'Run this session'))
+      expect(router.currentRoute.value.name).toBe('run')
+      expect(router.currentRoute.value.query).toEqual({ session: easy })
+      // Back from here goes to the first Run screen, not to the session view
+      expect(router.options.history.state.back).toBe('/')
+      await click(button(wrapper, 'Start session'))
+      expect(useRunStore().sessionId).toBe(easy)
+    })
   })
 
   it('skips a session from its view, and undoes it (#102)', async () => {
