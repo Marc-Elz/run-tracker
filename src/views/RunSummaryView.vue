@@ -25,6 +25,7 @@ import {
   type Split,
 } from '@/lib/runSummary'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
+import { pauseList, type PauseRow } from '@/lib/runPauses'
 
 const run = useRunStore()
 const route = useRoute()
@@ -36,6 +37,17 @@ const record = ref<RunRecord | null>(null)
 const points = ref<StoredPoint[]>([])
 const summary = ref<RunSummary | null>(null)
 const splits = ref<Split[]>([])
+// Auto-pauses (#154): the list, their total, and the one shown on the map
+const pauses = ref<{ rows: PauseRow[]; totalMs: number }>({ rows: [], totalMs: 0 })
+const selectedPause = ref<number | null>(null)
+const mapBox = ref<HTMLElement | null>(null)
+
+/** Show a pause (tap again to let go); bring the map into view when the list is further down */
+function selectPause(position: number) {
+  selectedPause.value = selectedPause.value === position ? null : position
+  if (selectedPause.value !== null)
+    mapBox.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+}
 
 const exporting = ref(false)
 const exportFailed = ref(false)
@@ -60,6 +72,13 @@ async function loadRun() {
       return
     }
     const stored = await run.loadPoints(id.value)
+    // A run's pauses are extra: if they cannot be read the run still shows, without them
+    const storedPauses = await run.loadPauses(id.value).catch((err: unknown) => {
+      console.warn('[db] could not load pauses', err)
+      return []
+    })
+    pauses.value = pauseList(storedPauses)
+    selectedPause.value = null
     record.value = found
     points.value = stored
     summary.value = buildRunSummary(found, stored)
@@ -199,7 +218,14 @@ onMounted(loadRun)
         </p>
       </div>
 
-      <RouteMap :route="summary" />
+      <div ref="mapBox">
+        <RouteMap
+          :route="summary"
+          :pauses="pauses.rows"
+          :selected="selectedPause"
+          @select-pause="selectPause"
+        />
+      </div>
 
       <section class="stats">
         <div class="stat">
@@ -241,6 +267,26 @@ onMounted(loadRun)
             </span>
             <span class="split__pace">{{ formatPace(split.paceSecPerKm) }} /km</span>
             <span class="split__time">{{ formatDuration(split.durationMs) }}</span>
+          </li>
+        </ol>
+      </section>
+
+      <section v-if="pauses.rows.length > 0" class="splits" aria-label="Auto-pauses">
+        <h2 class="splits__heading">Auto-pauses</h2>
+        <p class="pauses__total">
+          {{ pauses.rows.length }} · {{ formatDuration(pauses.totalMs) }} not counted
+        </p>
+        <ol class="splits__list">
+          <li v-for="(pause, i) in pauses.rows" :key="pause.position">
+            <button
+              class="split pause"
+              :aria-pressed="selectedPause === pause.position"
+              @click="selectPause(pause.position)"
+            >
+              <span class="pause__dot" aria-hidden="true" />
+              <span>{{ i + 1 }} · {{ formatClock(pause.startedAt) }}</span>
+              <span class="split__time">{{ formatDuration(pause.durationMs) }}</span>
+            </button>
           </li>
         </ol>
       </section>
@@ -370,6 +416,39 @@ onMounted(loadRun)
   border-bottom: 1px solid #2a323b;
   font-size: 1.1rem;
   font-variant-numeric: tabular-nums;
+}
+
+.pauses__total {
+  margin: 0 0 0.5rem;
+  color: #9aa5b1;
+}
+
+/* A pause row is a button: tapping it shows the pause on the map */
+.pause {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3rem;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+
+.pause[aria-pressed='true'] {
+  background: #2a323b;
+}
+
+.pause__dot {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #ff7a1a;
 }
 
 .split__time {

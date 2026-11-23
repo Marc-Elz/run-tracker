@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { Map as MapLibreMap } from 'maplibre-gl'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
 import { mapStyleUrl } from '@/lib/mapStyle'
 import { BLANK_STYLE, loadMapLibre } from '@/lib/mapSetup'
 import type { LngLat, RunSummary } from '@/lib/runSummary'
+import type { PauseRow } from '@/lib/runPauses'
 
-const props = defineProps<{ route: Pick<RunSummary, 'lines' | 'start' | 'end' | 'bounds'> }>()
+const props = defineProps<{
+  route: Pick<RunSummary, 'lines' | 'start' | 'end' | 'bounds'>
+  /** Auto-pauses to mark (#154): each with its position and spot, if it has one */
+  pauses?: Pick<PauseRow, 'position' | 'spot'>[]
+  /** The pause shown: its dot is larger and the map centres on it */
+  selected?: number | null
+}>()
+const emit = defineEmits<{ 'select-pause': [position: number] }>()
 
 const el = ref<HTMLDivElement | null>(null)
 const styleUrl = mapStyleUrl()
@@ -43,6 +51,23 @@ function routeData() {
   }
 }
 
+function pauseData() {
+  return {
+    type: 'FeatureCollection' as const,
+    features: (props.pauses ?? []).flatMap((p) =>
+      p.spot
+        ? [
+            {
+              type: 'Feature' as const,
+              properties: { position: p.position, selected: p.position === props.selected },
+              geometry: { type: 'Point' as const, coordinates: p.spot },
+            },
+          ]
+        : [],
+    ),
+  }
+}
+
 function drawRoute() {
   if (!map || !map.isStyleLoaded() || map.getSource('route')) return
   const { line, ends } = routeData()
@@ -54,6 +79,19 @@ function drawRoute() {
     source: 'route',
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#f5c451', 'line-width': 5 },
+  })
+  // Auto-pauses (#154): orange, so they stand out on the amber line; larger when selected
+  map.addSource('route-pauses', { type: 'geojson', data: pauseData() })
+  map.addLayer({
+    id: 'route-pauses',
+    type: 'circle',
+    source: 'route-pauses',
+    paint: {
+      'circle-radius': ['case', ['get', 'selected'], 11, 7],
+      'circle-color': '#ff7a1a',
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': ['case', ['get', 'selected'], 3, 2],
+    },
   })
   map.addLayer({
     id: 'route-ends',
@@ -88,6 +126,12 @@ onMounted(async () => {
 
   instance.on('load', drawRoute)
   instance.on('styledata', drawRoute)
+  instance.on('click', 'route-pauses', (e) => {
+    const position = e.features?.[0]?.properties?.position
+    if (typeof position === 'number') emit('select-pause', position)
+  })
+  instance.on('mouseenter', 'route-pauses', () => (instance.getCanvas().style.cursor = 'pointer'))
+  instance.on('mouseleave', 'route-pauses', () => (instance.getCanvas().style.cursor = ''))
   instance.on('error', () => {
     if (!instance.isStyleLoaded() && !fallbackUsed) {
       // The style itself failed (offline, bad key): keep the route on a plain background
@@ -99,6 +143,18 @@ onMounted(async () => {
     }
   })
 })
+
+// A pause picked here or in the list: redraw the dots and centre the map on it
+watch(
+  () => [props.pauses, props.selected] as const,
+  () => {
+    if (!map) return
+    const source = map.getSource('route-pauses') as GeoJSONSource | undefined
+    source?.setData(pauseData())
+    const spot = props.pauses?.find((p) => p.position === props.selected)?.spot
+    if (spot) map.easeTo({ center: spot, duration: 400 })
+  },
+)
 
 onBeforeUnmount(() => {
   map?.remove()

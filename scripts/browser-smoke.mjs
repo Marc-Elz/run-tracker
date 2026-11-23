@@ -116,6 +116,13 @@ try {
   const mapMessage = await page.locator('.route-map__problem').allInnerTexts()
   console.log(`INFO map message: ${mapMessage.join(' | ') || '(none)'}`)
   check('no horizontal scroll on the summary', !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)))
+  // The auto-pause from "Stand still" is listed with its time and length (#154)
+  const pauseRows = page.locator('[aria-label="Auto-pauses"] button.pause')
+  check('summary lists the auto-pause', (await pauseRows.count()) === 1, await page.locator('[aria-label="Auto-pauses"]').innerText().catch(() => '(none)'))
+  await pauseRows.first().click()
+  check('tapping an auto-pause row selects it', (await pauseRows.first().getAttribute('aria-pressed')) === 'true')
+  await page.waitForTimeout(800) // the map eases to the pause
+  if (process.env.SMOKE_SCREENSHOT) await page.locator('.route-map').screenshot({ path: process.env.SMOKE_SCREENSHOT })
   // Five stats in three columns: each value must still fit its column at 360 px (#65)
   const clipped = await page.evaluate(() =>
     [...document.querySelectorAll('.summary .stat')]

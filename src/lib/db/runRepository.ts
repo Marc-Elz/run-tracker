@@ -1,6 +1,7 @@
 import type { TrackPoint } from '@/lib/geo'
 import type { RouteOverview } from '@/lib/routeOverview'
 import type { RunStep } from '@/lib/stepProgress'
+import type { RunPause } from '@/lib/runPauses'
 
 export type StoredRunStatus = 'running' | 'paused' | 'finished'
 
@@ -39,7 +40,7 @@ export interface RunRepository {
   addPoint(runId: string, segment: number, point: TrackPoint): Promise<void>
   /** Sets or clears (null) the name; the rest of the run is untouched */
   renameRun(id: string, name: string | null): Promise<void>
-  /** Deletes the run, its points and its steps */
+  /** Deletes the run, its points, its steps and its pauses */
   deleteRun(id: string): Promise<void>
   /** Runs that never got to Stop, newest first */
   findUnfinished(): Promise<RunRecord[]>
@@ -50,15 +51,24 @@ export interface RunRepository {
   /** Points of a run in recording order */
   loadPoints(runId: string): Promise<StoredPoint[]>
   /**
-   * Store a finished run with its name, all its points and its steps as one unit, points in the
-   * given order. Returns false and writes nothing when a run with this id already exists. The
-   * session link is kept only when that session exists and has no run yet, as in `createRun`.
+   * Store a finished run with its name, all its points, its steps and its pauses as one unit,
+   * points in the given order. Returns false and writes nothing when a run with this id already
+   * exists. The session link is kept only when that session exists, as in `createRun`.
    */
-  importRun(run: RunRecord, points: StoredPoint[], steps?: RunStep[]): Promise<boolean>
+  importRun(
+    run: RunRecord,
+    points: StoredPoint[],
+    steps?: RunStep[],
+    pauses?: RunPause[],
+  ): Promise<boolean>
   /** Session steps as run (#101): the step that ended and the ones that started, in one write */
   saveStepChange(runId: string, ended: RunStep | null, started: RunStep[]): Promise<void>
   /** The steps of a run in order; empty for a free run */
   loadRunSteps(runId: string): Promise<RunStep[]>
+  /** Stores a pause of a run (#154), or replaces the one at its position (to close it) */
+  savePause(runId: string, pause: RunPause): Promise<void>
+  /** The pauses of a run in order */
+  loadPauses(runId: string): Promise<RunPause[]>
   /** Stored route overviews of finished runs (a cache; see `loadRouteOverviews`) */
   readOverviews(): Promise<RouteOverview[]>
   /** Stores or replaces the overview of a run */
@@ -100,10 +110,13 @@ export function serialized(repo: RunRepository, enqueue: Queue = createQueue()):
     getRun: (id) => enqueue(() => repo.getRun(id)),
     listFinished: () => enqueue(() => repo.listFinished()),
     loadPoints: (runId) => enqueue(() => repo.loadPoints(runId)),
-    importRun: (run, points, steps) => enqueue(() => repo.importRun(run, points, steps)),
+    importRun: (run, points, steps, pauses) =>
+      enqueue(() => repo.importRun(run, points, steps, pauses)),
     saveStepChange: (runId, ended, started) =>
       enqueue(() => repo.saveStepChange(runId, ended, started)),
     loadRunSteps: (runId) => enqueue(() => repo.loadRunSteps(runId)),
+    savePause: (runId, pause) => enqueue(() => repo.savePause(runId, pause)),
+    loadPauses: (runId) => enqueue(() => repo.loadPauses(runId)),
     readOverviews: () => enqueue(() => repo.readOverviews()),
     saveOverview: (overview) => enqueue(() => repo.saveOverview(overview)),
     doneSessionIds: () => enqueue(() => repo.doneSessionIds()),
@@ -129,6 +142,8 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     importRun: fail,
     saveStepChange: fail,
     loadRunSteps: fail,
+    savePause: fail,
+    loadPauses: fail,
     readOverviews: fail,
     saveOverview: fail,
     doneSessionIds: fail,
