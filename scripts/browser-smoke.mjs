@@ -14,6 +14,8 @@ if (!existsSync(new URL('../node_modules', import.meta.url))) {
   process.exit(2)
 }
 
+// The Training screen's program row; the Timer link above it is a .row too (#186)
+const PROGRAM_ROW = 'main.page .row:not(.timer-row)'
 const shots = process.env.SHOTS
 if (shots) mkdirSync(shots, { recursive: true })
 
@@ -307,8 +309,8 @@ try {
   check('removing lands on the program, with the removed session not one Back away', !/\/session\//.test((await page.evaluate(() => history.state?.back)) ?? ''), await page.evaluate(() => history.state?.back))
 
   await page.getByRole('button', { name: '‹ Back' }).click()
-  await page.waitForSelector('main.page .row')
-  check('Training lists the program',(await page.locator('main .row').innerText()).includes('1 session'))
+  await page.waitForSelector(PROGRAM_ROW)
+  check('Training lists the program',(await page.locator(PROGRAM_ROW).innerText()).includes('1 session'))
   if (shots) await page.screenshot({ path: join(shots, 'training.png') })
 
   // Backup: download the file from Settings (checked below after Delete, by restoring it)
@@ -368,8 +370,8 @@ try {
   await page.waitForSelector('main.run')
   check('Run screen points to Training while nothing is followed', (await page.locator('main.run').innerText()).includes('Follow a program in Training'))
   await page.locator('nav a', { hasText: 'Training' }).click()
-  await page.waitForSelector('main.page .row')
-  await page.locator('main .row').click()
+  await page.waitForSelector(PROGRAM_ROW)
+  await page.locator(PROGRAM_ROW).click()
   await page.getByRole('button', { name: 'Follow this program' }).click()
   await page.getByRole('button', { name: '✓ Following' }).waitFor()
   check('the next session is marked on the program', (await page.locator('.week').first().innerText()).includes('NEXT'))
@@ -428,8 +430,8 @@ try {
   await page.getByRole('button', { name: 'Stop' }).click()
   await page.waitForSelector('main.summary .stats')
   await page.locator('nav a', { hasText: 'Training' }).click()
-  await page.waitForSelector('main.page .row')
-  await page.locator('main .row').click()
+  await page.waitForSelector(PROGRAM_ROW)
+  await page.locator(PROGRAM_ROW).click()
   await page.locator('.row--done').first().waitFor()
   check('the finished session is ticked off', (await page.locator('.row--done').count()) === 1)
   await page.locator('nav a', { hasText: 'Run' }).click()
