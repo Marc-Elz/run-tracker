@@ -96,6 +96,18 @@ export function createMemoryRunRepository(): RunRepository {
     async loadRunSteps(runId) {
       return (steps.get(runId) ?? []).map((s) => ({ ...s })).sort((a, b) => a.position - b.position)
     },
+    async loadStepsOfRuns(runIds) {
+      const found = new Map<string, RunStep[]>()
+      for (const id of runIds) {
+        const list = (steps.get(id) ?? []).map((s) => ({ ...s }))
+        if (list.length > 0)
+          found.set(
+            id,
+            list.sort((a, b) => a.position - b.position),
+          )
+      }
+      return found
+    },
     async savePause(runId, pause) {
       if (!runs.has(runId)) throw new Error(`Run ${runId} not found`)
       const list = (pauses.get(runId) ?? []).filter((p) => p.position !== pause.position)

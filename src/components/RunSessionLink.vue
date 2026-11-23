@@ -2,7 +2,14 @@
 import { ref, watch } from 'vue'
 import SessionPicker from '@/components/SessionPicker.vue'
 import { formatDistanceKm, formatDuration } from '@/lib/format'
-import { compareToPlan, plannedTotals, type PlanComparison } from '@/lib/planVsDone'
+import {
+  compareToPlan,
+  judgeRunSteps,
+  plannedTotals,
+  type PlanComparison,
+  type RunStepVerdict,
+} from '@/lib/planVsDone'
+import { expandSteps } from '@/lib/stepProgress'
 import {
   SESSION_TYPE_LABELS,
   sessionTitle,
@@ -34,6 +41,8 @@ const session = ref<ProgramSession | null>(null)
 const sessionSteps = ref<SessionStep[]>([])
 const program = ref<TrainingProgram | null>(null)
 const comparison = ref<PlanComparison[]>([])
+// How the run steps went (#134), for a gentle off-plan hint; the session stays done
+const verdict = ref<RunStepVerdict | null>(null)
 const hasPrograms = ref(false)
 const busy = ref(false)
 const failed = ref(false)
@@ -43,6 +52,7 @@ async function loadSession() {
   sessionSteps.value = []
   program.value = null
   comparison.value = []
+  verdict.value = null
   try {
     if (props.sessionId !== null) {
       const found = await training.getSession(props.sessionId)
@@ -55,6 +65,10 @@ async function loadSession() {
           elapsedMs: props.elapsedMs,
           distanceM: props.distanceM,
         })
+        verdict.value = judgeRunSteps(
+          expandSteps(sessionSteps.value),
+          await run.loadRunSteps(props.runId),
+        )
       }
     } else {
       hasPrograms.value = (await training.listPrograms()).length > 0
@@ -111,7 +125,13 @@ const fmt = (c: PlanComparison, value: number) =>
           <span class="plan__planned">planned {{ fmt(c, c.planned) }}</span>
         </li>
       </ul>
-      <p v-else class="session__hint">This session has no planned total to compare with.</p>
+      <p v-if="verdict?.offPlan" class="off-plan">
+        Off plan: {{ verdict.offSteps }} of {{ verdict.runSteps }} run steps were slower than
+        planned or cut short. Still counts as done.
+      </p>
+      <p v-if="comparison.length === 0" class="session__hint">
+        This session has no planned total to compare with.
+      </p>
       <button class="btn btn--secondary" :disabled="busy" @click="setLink(null)">
         Unlink from session
       </button>
@@ -186,6 +206,12 @@ const fmt = (c: PlanComparison, value: number) =>
 .plan__kind,
 .plan__planned {
   color: #9aa5b1;
+}
+
+.off-plan {
+  margin: -0.25rem 0 1rem;
+  color: #f0b429;
+  font-size: 0.95rem;
 }
 
 .btn {

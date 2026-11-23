@@ -6,8 +6,9 @@ import { useTrainingStore } from '@/stores/training'
 import { useRunStore } from '@/stores/run'
 import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import type { RunRecord } from '@/lib/db/runRepository'
+import { expandSteps, type RunStep } from '@/lib/stepProgress'
 import { formatDistanceKm } from '@/lib/format'
-import { plannedTotals, weekSummary, type PlannedTotals } from '@/lib/planVsDone'
+import { offPlanSessions, plannedTotals, weekSummary, type PlannedTotals } from '@/lib/planVsDone'
 import {
   localDate,
   nextSession,
@@ -45,6 +46,18 @@ const planned = computed<ReadonlyMap<string, PlannedTotals>>(() =>
           .filter((s) => s.type !== 'rest')
           .map((s) => [s.id, plannedTotals(steps.value.get(s.id) ?? [])] as const),
       ),
+)
+// Recorded steps of this program's runs (#134); empty when they could not be read, so no marks
+const runSteps = ref<ReadonlyMap<string, RunStep[]>>(new Map())
+// Done sessions whose runs all went off their run steps (#134): a hint only, still done
+const offPlan = computed(() =>
+  offPlanSessions(
+    new Map([...steps.value].map(([sid, list]) => [sid, expandSteps(list)] as const)),
+    finishedRuns.value.map((r) => ({
+      sessionId: r.sessionId,
+      steps: runSteps.value.get(r.id) ?? [],
+    })),
+  ),
 )
 const next = computed(() => nextSession(sessions.value, done.value, skipped.value))
 const following = computed(() => followedProgramId.value === id.value)
@@ -136,6 +149,13 @@ async function load() {
       console.warn('[db] could not load the steps', err)
       stepsFailed.value = true
     }
+    try {
+      const ids = new Set(sessions.value.map((s) => s.id))
+      const own = finishedRuns.value.filter((r) => r.sessionId !== null && ids.has(r.sessionId))
+      runSteps.value = await run.loadStepsOfRuns(own.map((r) => r.id))
+    } catch (err) {
+      console.warn('[db] could not load the steps of the runs', err)
+    }
   } catch (err) {
     console.warn('[db] could not load program', err)
     state.value = 'error'
@@ -205,6 +225,7 @@ onMounted(load)
               <span v-else class="session__number">{{ i + 1 }}</span>
               <span class="session__type">{{ SESSION_TYPE_LABELS[s.type] }}</span>
               <span class="row__title session__title">{{ rowTitle(s) }}</span>
+              <span v-if="offPlan.has(s.id)" class="off-plan">Off plan</span>
               <span v-if="skipped.has(s.id) && !done.has(s.id)" class="skipped">Skipped</span>
               <span v-else-if="next?.id === s.id" class="next">Next</span>
               <span class="row__chevron" aria-hidden="true">›</span>
@@ -271,6 +292,13 @@ onMounted(load)
 .row--skipped .session__title {
   color: #9aa5b1;
   text-decoration: line-through;
+}
+
+.off-plan {
+  flex-shrink: 0;
+  color: #f0b429;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .skipped {

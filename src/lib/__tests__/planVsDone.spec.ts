@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { compareToPlan, plannedTotals, weekSummary, type PlannedTotals } from '../planVsDone'
+import {
+  compareToPlan,
+  judgeRunSteps,
+  OFF_PLAN_SHARE,
+  OFF_PLAN_TOLERANCE,
+  offPlanSessions,
+  plannedTotals,
+  WALKING_PACE_S_PER_KM,
+  weekSummary,
+  type PlannedTotals,
+} from '../planVsDone'
+import type { RunStep, TimelineStep } from '../stepProgress'
 import type { ProgramSession, SessionStep } from '../training'
 
 const step = (over: Partial<SessionStep>): SessionStep => ({
@@ -134,6 +145,136 @@ describe('weekSummary', () => {
       sessions: 0,
       plannedSeconds: null,
       plannedMetres: null,
+    })
+  })
+})
+
+describe('off plan (#134)', () => {
+  /** A planned step at its position in the written-out session */
+  const planStep = (position: number, over: Partial<TimelineStep> = {}): TimelineStep => ({
+    position,
+    kind: 'run',
+    targetKind: 'duration',
+    targetValue: 180,
+    paceMin: null,
+    paceMax: 465, // 7:45 min/km
+    repetition: null,
+    repetitions: null,
+    ...over,
+  })
+  /** The step as run: `seconds` long over `metres`, starting where the one before ended */
+  const ran = (step: TimelineStep, seconds: number, metres: number, from = 0): RunStep => ({
+    ...step,
+    startedElapsedMs: from * 1000,
+    startedDistanceM: from,
+    endedElapsedMs: (from + seconds) * 1000,
+    endedDistanceM: from + metres,
+  })
+  // Warm-up, 3× (run 3:00, walk 1:00), open cool-down
+  const plan: TimelineStep[] = [
+    planStep(0, { kind: 'warmup', targetKind: 'none', targetValue: null, paceMax: null }),
+    planStep(1),
+    planStep(2, { kind: 'walk', targetValue: 60, paceMax: null }),
+    planStep(3),
+    planStep(4, { kind: 'walk', targetValue: 60, paceMax: null }),
+    planStep(5),
+    planStep(6, { kind: 'cooldown', targetKind: 'none', targetValue: null, paceMax: null }),
+  ]
+  // 3:00 over 400 m is 7:30 min/km: on pace. Over 200 m it is 15:00 min/km: walked.
+  const onPace = (p: number) => ran(plan[p]!, 180, 400)
+  const walked = (p: number) => ran(plan[p]!, 180, 200)
+  const rest = (p: number, seconds = 60, metres = 80) => ran(plan[p]!, seconds, metres)
+
+  it('has its thresholds in named constants', () => {
+    expect(OFF_PLAN_TOLERANCE).toBe(0.2)
+    expect(WALKING_PACE_S_PER_KM).toBe(600)
+    expect(OFF_PLAN_SHARE).toBe(0.5)
+  })
+
+  it('is on plan when the run steps were run, however slow the rest and the walk home', () => {
+    // A slow warm-up, a walked cool-down of 20 minutes: none of it counts
+    const steps = [rest(0, 600, 300), onPace(1), rest(2), onPace(3), rest(4), onPace(5)]
+    steps.push(rest(6, 1200, 1500))
+    expect(judgeRunSteps(plan, steps)).toEqual({ runSteps: 3, offSteps: 0, offPlan: false })
+  })
+
+  it('is off plan when more than half of the run time was walked', () => {
+    const steps = [rest(0), walked(1), rest(2), walked(3), rest(4), onPace(5), rest(6)]
+    expect(judgeRunSteps(plan, steps)).toEqual({ runSteps: 3, offSteps: 2, offPlan: true })
+  })
+
+  it('lets one walked step out of three pass', () => {
+    const steps = [rest(0), walked(1), rest(2), onPace(3), rest(4), onPace(5), rest(6)]
+    expect(judgeRunSteps(plan, steps)?.offPlan).toBe(false)
+  })
+
+  it('allows 20% slower than the slowest pace, and no more', () => {
+    // 7:45 + 20% = 9:18 min/km, 558 s/km: 180 s over 323 m is 557 s/km, over 322 m 559 s/km
+    const at = (metres: number) => [1, 3, 5].map((p) => ran(plan[p]!, 180, metres))
+    expect(judgeRunSteps(plan, at(323))?.offPlan).toBe(false)
+    expect(judgeRunSteps(plan, at(322))?.offPlan).toBe(true)
+  })
+
+  it('judges a run step without a pace target against walking pace', () => {
+    const open = plan.map((s) => ({ ...s, paceMax: null }))
+    // 10:00 min/km is 300 m in 3:00
+    const at = (metres: number) => [1, 3, 5].map((p) => ran(open[p]!, 180, metres))
+    expect(judgeRunSteps(open, at(300))?.offPlan).toBe(false)
+    expect(judgeRunSteps(open, at(290))?.offPlan).toBe(true)
+  })
+
+  it('counts run steps cut short by more than 20%, or never reached, as missed', () => {
+    const short = [rest(0), ran(plan[1]!, 140, 320), rest(2), ran(plan[3]!, 140, 320)]
+    expect(judgeRunSteps(plan, short)).toEqual({ runSteps: 3, offSteps: 3, offPlan: true })
+    const stopped = [rest(0), onPace(1), rest(2)]
+    expect(judgeRunSteps(plan, stopped)).toEqual({ runSteps: 3, offSteps: 2, offPlan: true })
+  })
+
+  it('judges a distance step by its distance and pace, weighted by its time at the slowest pace', () => {
+    const km = planStep(1, { targetKind: 'distance', targetValue: 1000 })
+    const distancePlan = [km, planStep(2, { position: 2 })]
+    // 1 km at 7:30 is on plan, though the 3:00 step after it was walked: 465 s against 180 s
+    const steps = [ran(km, 450, 1000), ran(distancePlan[1]!, 180, 200)]
+    expect(judgeRunSteps(distancePlan, steps)).toEqual({ runSteps: 2, offSteps: 1, offPlan: false })
+    expect(judgeRunSteps(distancePlan, [ran(km, 450, 700)])?.offSteps).toBe(2)
+  })
+
+  it('judges nothing without recorded steps, or without run steps in the plan', () => {
+    expect(judgeRunSteps(plan, [])).toBeNull()
+    const walk = [planStep(0, { kind: 'walk', targetValue: 1800, paceMax: null })]
+    expect(judgeRunSteps(walk, [ran(walk[0]!, 3000, 1000)])).toBeNull()
+  })
+
+  describe('offPlanSessions', () => {
+    const timelines = new Map([
+      ['a', plan],
+      ['b', plan],
+    ])
+    const good = [rest(0), onPace(1), rest(2), onPace(3), rest(4), onPace(5)]
+    const bad = [rest(0), walked(1), rest(2), walked(3), rest(4), walked(5)]
+
+    it('marks sessions whose run went off plan, and no others', () => {
+      const runs = [
+        { sessionId: 'a', steps: bad },
+        { sessionId: 'b', steps: good },
+      ]
+      expect(offPlanSessions(timelines, runs)).toEqual(new Set(['a']))
+    })
+
+    it('marks nothing for an unlinked run or a run without recorded steps', () => {
+      const runs = [
+        { sessionId: null, steps: bad },
+        { sessionId: 'a', steps: [] },
+      ]
+      expect(offPlanSessions(timelines, runs)).toEqual(new Set())
+    })
+
+    it('clears the mark when a redo of the session went to plan', () => {
+      const redo = [
+        { sessionId: 'a', steps: bad },
+        { sessionId: 'a', steps: good },
+      ]
+      expect(offPlanSessions(timelines, redo)).toEqual(new Set())
     })
   })
 })

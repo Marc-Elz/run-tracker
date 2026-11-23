@@ -322,6 +322,7 @@ export const useRunStore = defineStore('run', () => {
     pauses: RunPause[] = [],
   ) => repo.importRun(run, points, steps, pauses)
   const loadRunSteps = (id: string) => repo.loadRunSteps(id)
+  const loadStepsOfRuns = (ids: readonly string[]) => repo.loadStepsOfRuns(ids)
   const loadPauses = (id: string) => repo.loadPauses(id)
   const doneSessionIds = () => repo.doneSessionIds()
   /** Link a saved run to a session, or unlink it with null; resolves with the link as stored */
@@ -491,6 +492,7 @@ export const useRunStore = defineStore('run', () => {
     deleteRun,
     importRun,
     loadRunSteps,
+    loadStepsOfRuns,
     loadPauses,
     runPauses,
     applyStepChange,

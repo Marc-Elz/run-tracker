@@ -8,6 +8,7 @@ import { useRunStore } from '@/stores/run'
 import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import { unavailableTrainingRepository } from '@/lib/db/trainingRepository'
 import { createMemoryTrainingRepository } from '@/lib/db/memoryTrainingRepository'
+import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import type { SessionStep, StepBlock } from '@/lib/training'
 
 // The real routes on an in-memory history: these tests walk the screens the way a tap would.
@@ -452,6 +453,52 @@ describe('running sessions (#40)', () => {
     // Week 1: the easy run took 1 s of its 30 min; week 2: the only session is skipped
     expect(lines[0]).toBe('1 of 1 session · 0 of 30 min')
     expect(lines[1]).toBe('0 of 1 session · 1 skipped')
+  })
+
+  it('marks a done session whose run steps went off plan, keeping it done and the next one next (#134)', async () => {
+    const repo = createMemoryRunRepository()
+    useRunStore().useRepository(repo)
+    const { id, easy, long } = await program({ doneFirst: true })
+    const training = useTrainingStore()
+    const target = (sessionId: string, seconds: number): SessionStep => ({
+      id: `step-${sessionId}`,
+      sessionId,
+      position: 0,
+      kind: 'run',
+      targetKind: 'duration',
+      targetValue: seconds,
+      paceMin: null,
+      paceMax: null,
+      repetitions: null,
+      span: null,
+    })
+    // The easy run stopped its 30 min run step after 1 s; the long run has a plan but no run
+    await training.replaceSteps(easy, [target(easy, 1800)])
+    await training.replaceSteps(long, [target(long, 3600)])
+    const [ran] = await repo.listFinished()
+    await repo.saveStepChange(ran!.id, null, [
+      {
+        position: 0,
+        kind: 'run',
+        targetKind: 'duration',
+        targetValue: 1800,
+        paceMin: null,
+        paceMax: null,
+        repetition: null,
+        repetitions: null,
+        startedElapsedMs: 0,
+        startedDistanceM: 0,
+        endedElapsedMs: 1000,
+        endedDistanceM: 3,
+      },
+    ])
+    const { wrapper } = await open(`/training/${id}`)
+    const rows = wrapper.findAll('.row')
+    expect(rows[0]!.classes()).toContain('row--done')
+    expect(rows[0]!.find('.off-plan').text()).toBe('Off plan')
+    expect(rows[1]!.find('.off-plan').exists()).toBe(false)
+    expect(rows[2]!.find('.off-plan').exists()).toBe(false)
+    expect(rows[2]!.text()).toContain('Next')
   })
 
   it('lists the runs of a session, each opening its summary (#102)', async () => {

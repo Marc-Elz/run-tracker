@@ -368,6 +368,59 @@ describe('RunSummaryView', () => {
       expect(button(again, 'Link to a session')).toBeDefined()
     })
 
+    /** The summary of r1, linked to the session and run with its one 5 s run step as given */
+    async function ranStep(seconds: number, metres: number) {
+      const { easy } = await plan()
+      const { wrapper, repo } = await open()
+      await repo.setRunSession('r1', easy)
+      await repo.saveStepChange('r1', null, [
+        {
+          position: 0,
+          kind: 'run',
+          targetKind: 'duration',
+          targetValue: 5,
+          paceMin: null,
+          paceMax: null,
+          repetition: null,
+          repetitions: null,
+          startedElapsedMs: 0,
+          startedDistanceM: 0,
+          endedElapsedMs: seconds * 1000,
+          endedDistanceM: metres,
+        },
+      ])
+      await wrapper.unmount()
+      const again = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      return again
+    }
+
+    it('marks a run whose run steps were walked or cut short as off plan (#134)', async () => {
+      // 3 s of a 5 s step is cut short by 40%
+      const wrapper = await ranStep(3, 10)
+      expect(wrapper.find('.off-plan').text()).toContain('1 of 1 run steps')
+      expect(wrapper.find('.off-plan').text()).toContain('Still counts as done')
+      expect(button(wrapper, 'Unlink from session')).toBeDefined()
+    })
+
+    it('shows no off-plan mark for run steps run in full at running pace (#134)', async () => {
+      // 5 s over 10 m is 8:20 min/km, faster than walking pace
+      const wrapper = await ranStep(5, 10)
+      expect(wrapper.find('.session__name').exists()).toBe(true)
+      expect(wrapper.find('.off-plan').exists()).toBe(false)
+    })
+
+    it('shows no off-plan mark for a run linked afterwards, without recorded steps (#134)', async () => {
+      await plan()
+      const { wrapper } = await open()
+      await button(wrapper, 'Link to a session')!.trigger('click')
+      await flushPromises()
+      await wrapper.find('.choice').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.plan__row').exists()).toBe(true)
+      expect(wrapper.find('.off-plan').exists()).toBe(false)
+    })
+
     it('says so when the session has no planned total', async () => {
       const { easy } = await plan()
       await useTrainingStore().replaceSteps(easy, [])
