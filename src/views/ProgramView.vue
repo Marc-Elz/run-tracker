@@ -6,6 +6,7 @@ import { useTrainingStore } from '@/stores/training'
 import { useRunStore } from '@/stores/run'
 import { followedProgramId, setFollowedProgram } from '@/lib/settings'
 import type { RunRecord } from '@/lib/db/runRepository'
+import { expandSteps, type RunStep } from '@/lib/stepProgress'
 import { formatDistanceKm } from '@/lib/format'
 import { offPlanSessions, plannedTotals, weekSummary, type PlannedTotals } from '@/lib/planVsDone'
 import {
@@ -46,8 +47,18 @@ const planned = computed<ReadonlyMap<string, PlannedTotals>>(() =>
           .map((s) => [s.id, plannedTotals(steps.value.get(s.id) ?? [])] as const),
       ),
 )
-// Done sessions whose runs were all far from the plan (#134): a hint only, still done
-const offPlan = computed(() => offPlanSessions(planned.value, finishedRuns.value))
+// Recorded steps of this program's runs (#134); empty when they could not be read, so no marks
+const runSteps = ref<ReadonlyMap<string, RunStep[]>>(new Map())
+// Done sessions whose runs all went off their run steps (#134): a hint only, still done
+const offPlan = computed(() =>
+  offPlanSessions(
+    new Map([...steps.value].map(([sid, list]) => [sid, expandSteps(list)] as const)),
+    finishedRuns.value.map((r) => ({
+      sessionId: r.sessionId,
+      steps: runSteps.value.get(r.id) ?? [],
+    })),
+  ),
+)
 const next = computed(() => nextSession(sessions.value, done.value, skipped.value))
 const following = computed(() => followedProgramId.value === id.value)
 
@@ -137,6 +148,13 @@ async function load() {
       // One message instead of every week silently losing its planned amounts (#138)
       console.warn('[db] could not load the steps', err)
       stepsFailed.value = true
+    }
+    try {
+      const ids = new Set(sessions.value.map((s) => s.id))
+      const own = finishedRuns.value.filter((r) => r.sessionId !== null && ids.has(r.sessionId))
+      runSteps.value = await run.loadStepsOfRuns(own.map((r) => r.id))
+    } catch (err) {
+      console.warn('[db] could not load the steps of the runs', err)
     }
   } catch (err) {
     console.warn('[db] could not load program', err)

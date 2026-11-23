@@ -283,6 +283,23 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       ])
       return (result.values ?? []).map(toRunStep)
     },
+    async loadStepsOfRuns(runIds) {
+      const found = new Map<string, RunStep[]>()
+      // In chunks, well under SQLite's limit on bound values
+      for (let i = 0; i < runIds.length; i += 500) {
+        const ids = runIds.slice(i, i + 500)
+        const result = await db.query(
+          `SELECT * FROM run_steps WHERE run_id IN (${ids.map(() => '?').join(', ')})
+           ORDER BY run_id, position`,
+          [...ids],
+        )
+        for (const row of result.values ?? []) {
+          const id = String(row.run_id)
+          found.set(id, [...(found.get(id) ?? []), toRunStep(row)])
+        }
+      }
+      return found
+    },
     async savePause(runId, pause) {
       const { statement, values } = upsertPause(runId, pause)
       await db.run(statement, values)

@@ -107,6 +107,17 @@ describe.each(implementations)('%s run steps', (_name, open) => {
     expect(await repo.loadRunSteps('a')).toEqual(steps)
     expect(await repo.loadRunSteps('b')).toEqual([])
   })
+
+  it('reads the steps of several runs at once, by run, in order (#134)', async () => {
+    const repo = await open()
+    for (const id of ['a', 'b', 'c']) await repo.createRun(run(id))
+    await repo.saveStepChange('a', null, [runStep(1), runStep(0)])
+    await repo.saveStepChange('b', null, [runStep(0)])
+    const found = await repo.loadStepsOfRuns(['a', 'c', 'missing'])
+    expect([...found.keys()]).toEqual(['a'])
+    expect(found.get('a')).toEqual([runStep(0), runStep(1)])
+    expect(await repo.loadStepsOfRuns([])).toEqual(new Map())
+  })
 })
 
 describe.skipIf(!nodeSqlite)('run steps on real SQLite', () => {

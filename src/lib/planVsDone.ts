@@ -1,4 +1,4 @@
-import { expandSteps } from '@/lib/stepProgress'
+import { expandSteps, type RunStep, type TimelineStep } from '@/lib/stepProgress'
 import type { ProgramSession, SessionStep } from '@/lib/training'
 
 /** What a session's steps add up to; a total is null when the steps don't define it (#102) */
@@ -52,38 +52,104 @@ export function compareToPlan(
   return lines
 }
 
-/** How far a run may be from its planned total, either way, before it shows as off plan (#134) */
-export const OFF_PLAN_TOLERANCE = 0.2
-
 /**
- * Whether a run was clearly off its plan: its time or distance is more than
- * {@link OFF_PLAN_TOLERANCE} away from a planned total. Only a hint: it never changes "done".
+ * How far a run step may miss its target before it counts against the plan (#134): more than 20%
+ * short of its time or distance, or more than 20% slower than its slowest allowed pace.
  */
-export function isOffPlan(
-  planned: PlannedTotals,
-  run: { elapsedMs: number; distanceM: number },
-): boolean {
-  return compareToPlan(planned, run).some(
-    (c) => c.planned > 0 && Math.abs(c.done - c.planned) > c.planned * OFF_PLAN_TOLERANCE,
-  )
+export const OFF_PLAN_TOLERANCE = 0.2
+/** A run step without a pace target counts as walked when it is slower than this (10:00 min/km) */
+export const WALKING_PACE_S_PER_KM = 600
+/** The share of the planned run-step time that may go wrong before the whole run is off plan */
+export const OFF_PLAN_SHARE = 0.5
+
+/** How the run steps of one run went against the plan (#134) */
+export interface RunStepVerdict {
+  /** Run steps in the plan */
+  runSteps: number
+  /** Run steps that were too slow, cut short, or never reached */
+  offSteps: number
+  /** More than {@link OFF_PLAN_SHARE} of the planned run-step time went wrong */
+  offPlan: boolean
+}
+
+/** Seconds a run step is planned to take: its time, or its distance at its slowest allowed pace */
+function plannedSeconds(step: TimelineStep, recorded: RunStep | null): number {
+  if (step.targetValue === null || step.targetKind === 'none') {
+    // An open step ends by hand: it weighs what it took, and nothing when it was never reached
+    return recorded?.endedElapsedMs != null
+      ? (recorded.endedElapsedMs - recorded.startedElapsedMs) / 1000
+      : 0
+  }
+  if (step.targetKind === 'duration') return step.targetValue
+  return (step.targetValue / 1000) * (step.paceMax ?? WALKING_PACE_S_PER_KM)
+}
+
+/** Whether a recorded run step went wrong: cut short, or slower than allowed */
+function stepIsOff(step: RunStep): boolean {
+  if (step.endedElapsedMs === null || step.endedDistanceM === null) return true
+  const seconds = (step.endedElapsedMs - step.startedElapsedMs) / 1000
+  const metres = step.endedDistanceM - step.startedDistanceM
+  const short = 1 - OFF_PLAN_TOLERANCE
+  if (step.targetValue !== null) {
+    if (step.targetKind === 'duration' && seconds < step.targetValue * short) return true
+    if (step.targetKind === 'distance' && metres < step.targetValue * short) return true
+  }
+  if (metres <= 0) return seconds > 0
+  const pace = seconds / (metres / 1000)
+  const limit =
+    step.paceMax !== null ? step.paceMax * (1 + OFF_PLAN_TOLERANCE) : WALKING_PACE_S_PER_KM
+  return pace > limit
 }
 
 /**
- * The sessions to mark off plan in a program: those whose finished runs were all off plan. A redo
- * that went to plan clears the mark. A session missing from `planned` (a rest day, or steps that
- * could not be read) gets no mark.
+ * How a run went against its session's run steps (#134). Only run steps count: warm-up, cool-down,
+ * walk and recovery steps, and anything after the last step (the walk home), never do. A step is
+ * judged as it was recorded; planned run steps after the last recorded one were never reached and
+ * count as missed. Null when there is nothing to judge: a run without recorded steps (a free run
+ * linked afterwards) or a session without run steps. Only a hint: it never changes "done".
+ */
+export function judgeRunSteps(
+  planned: readonly TimelineStep[],
+  recorded: readonly RunStep[],
+): RunStepVerdict | null {
+  if (recorded.length === 0) return null
+  const last = Math.max(...recorded.map((s) => s.position))
+  const steps: { step: TimelineStep; recorded: RunStep | null }[] = [
+    ...recorded.filter((s) => s.kind === 'run').map((s) => ({ step: s, recorded: s })),
+    ...planned
+      .filter((s) => s.kind === 'run' && s.position > last)
+      .map((s) => ({ step: s, recorded: null })),
+  ]
+  if (steps.length === 0) return null
+  let total = 0
+  let off = 0
+  let offSteps = 0
+  for (const { step, recorded: done } of steps) {
+    const weight = plannedSeconds(step, done)
+    total += weight
+    if (done === null || stepIsOff(done)) {
+      off += weight
+      offSteps++
+    }
+  }
+  return { runSteps: steps.length, offSteps, offPlan: total > 0 && off > total * OFF_PLAN_SHARE }
+}
+
+/**
+ * The sessions to mark off plan in a program: those whose judged runs were all off plan. A redo
+ * that went to plan clears the mark; a run that could not be judged leaves it as it is.
  */
 export function offPlanSessions(
-  planned: ReadonlyMap<string, PlannedTotals>,
-  runs: readonly { sessionId: string | null; elapsedMs: number; distanceM: number }[],
+  timelines: ReadonlyMap<string, readonly TimelineStep[]>,
+  runs: readonly { sessionId: string | null; steps: readonly RunStep[] }[],
 ): Set<string> {
   const off = new Set<string>()
   const onPlan = new Set<string>()
   for (const r of runs) {
     if (r.sessionId === null) continue
-    const totals = planned.get(r.sessionId)
-    if (!totals) continue
-    if (isOffPlan(totals, r)) off.add(r.sessionId)
+    const verdict = judgeRunSteps(timelines.get(r.sessionId) ?? [], r.steps)
+    if (verdict === null) continue
+    if (verdict.offPlan) off.add(r.sessionId)
     else onPlan.add(r.sessionId)
   }
   for (const id of onPlan) off.delete(id)

@@ -4,11 +4,12 @@ import SessionPicker from '@/components/SessionPicker.vue'
 import { formatDistanceKm, formatDuration } from '@/lib/format'
 import {
   compareToPlan,
-  isOffPlan,
-  OFF_PLAN_TOLERANCE,
+  judgeRunSteps,
   plannedTotals,
   type PlanComparison,
+  type RunStepVerdict,
 } from '@/lib/planVsDone'
+import { expandSteps } from '@/lib/stepProgress'
 import {
   SESSION_TYPE_LABELS,
   sessionTitle,
@@ -40,9 +41,8 @@ const session = ref<ProgramSession | null>(null)
 const sessionSteps = ref<SessionStep[]>([])
 const program = ref<TrainingProgram | null>(null)
 const comparison = ref<PlanComparison[]>([])
-// A gentle hint that the run was far from the plan (#134); the session stays done
-const offPlan = ref(false)
-const tolerancePercent = Math.round(OFF_PLAN_TOLERANCE * 100)
+// How the run steps went (#134), for a gentle off-plan hint; the session stays done
+const verdict = ref<RunStepVerdict | null>(null)
 const hasPrograms = ref(false)
 const busy = ref(false)
 const failed = ref(false)
@@ -52,7 +52,7 @@ async function loadSession() {
   sessionSteps.value = []
   program.value = null
   comparison.value = []
-  offPlan.value = false
+  verdict.value = null
   try {
     if (props.sessionId !== null) {
       const found = await training.getSession(props.sessionId)
@@ -61,9 +61,14 @@ async function loadSession() {
         program.value = await training.getProgram(found.programId)
         sessionSteps.value = await training.loadSteps(found.id)
         const planned = plannedTotals(sessionSteps.value)
-        const done = { elapsedMs: props.elapsedMs, distanceM: props.distanceM }
-        comparison.value = compareToPlan(planned, done)
-        offPlan.value = isOffPlan(planned, done)
+        comparison.value = compareToPlan(planned, {
+          elapsedMs: props.elapsedMs,
+          distanceM: props.distanceM,
+        })
+        verdict.value = judgeRunSteps(
+          expandSteps(sessionSteps.value),
+          await run.loadRunSteps(props.runId),
+        )
       }
     } else {
       hasPrograms.value = (await training.listPrograms()).length > 0
@@ -120,8 +125,9 @@ const fmt = (c: PlanComparison, value: number) =>
           <span class="plan__planned">planned {{ fmt(c, c.planned) }}</span>
         </li>
       </ul>
-      <p v-if="offPlan" class="off-plan">
-        Off plan: more than {{ tolerancePercent }}% from the planned total. Still counts as done.
+      <p v-if="verdict?.offPlan" class="off-plan">
+        Off plan: {{ verdict.offSteps }} of {{ verdict.runSteps }} run steps were slower than
+        planned or cut short. Still counts as done.
       </p>
       <p v-if="comparison.length === 0" class="session__hint">
         This session has no planned total to compare with.

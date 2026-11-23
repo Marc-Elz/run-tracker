@@ -65,6 +65,8 @@ export interface RunRepository {
   saveStepChange(runId: string, ended: RunStep | null, started: RunStep[]): Promise<void>
   /** The steps of a run in order; empty for a free run */
   loadRunSteps(runId: string): Promise<RunStep[]>
+  /** The steps of several runs in one read (#134), by run id; a run without steps is left out */
+  loadStepsOfRuns(runIds: readonly string[]): Promise<Map<string, RunStep[]>>
   /** Stores a pause of a run (#154), or replaces the one at its position (to close it) */
   savePause(runId: string, pause: RunPause): Promise<void>
   /** The pauses of a run in order */
@@ -115,6 +117,7 @@ export function serialized(repo: RunRepository, enqueue: Queue = createQueue()):
     saveStepChange: (runId, ended, started) =>
       enqueue(() => repo.saveStepChange(runId, ended, started)),
     loadRunSteps: (runId) => enqueue(() => repo.loadRunSteps(runId)),
+    loadStepsOfRuns: (runIds) => enqueue(() => repo.loadStepsOfRuns(runIds)),
     savePause: (runId, pause) => enqueue(() => repo.savePause(runId, pause)),
     loadPauses: (runId) => enqueue(() => repo.loadPauses(runId)),
     readOverviews: () => enqueue(() => repo.readOverviews()),
@@ -142,6 +145,7 @@ export function unavailableRunRepository(cause: unknown): RunRepository {
     importRun: fail,
     saveStepChange: fail,
     loadRunSteps: fail,
+    loadStepsOfRuns: fail,
     savePause: fail,
     loadPauses: fail,
     readOverviews: fail,
