@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useBackInterceptor } from '@/composables/useBackButton'
 import { useCountdown } from '@/composables/useCountdown'
+import { ensureNotifications } from '@/lib/runPower'
 import { timerPresets } from '@/lib/settings'
 import { displaySeconds, presetDetail, totalSeconds, type TimerPreset } from '@/lib/timer'
 import { formatMinSec } from '@/lib/training'
@@ -11,6 +12,15 @@ import { formatMinSec } from '@/lib/training'
 const router = useRouter()
 const countdown = useCountdown()
 const { status, state, phase, next, preset } = countdown
+
+/**
+ * Ask for the notification permission first (once; the run screen does the same), so the timer
+ * service's notification shows. The timer also runs without it, only the notification is hidden.
+ */
+async function begin(p: TimerPreset) {
+  await ensureNotifications()
+  countdown.start(p)
+}
 
 const rounds = computed(() => preset.value?.rounds ?? 1)
 const active = computed(() => status.value === 'running' || status.value === 'paused')
@@ -95,7 +105,7 @@ useBackInterceptor(ref(true), () => {
     <h1>Timer</h1>
     <ul class="list">
       <li v-for="p in timerPresets" :key="p.id" class="preset">
-        <button class="row preset__start" @click="countdown.start(p)">
+        <button class="row preset__start" @click="begin(p)">
           <span class="row__main">
             <span class="row__title">{{ p.name }}</span>
             <span class="row__detail">{{ presetLine(p) }}</span>
@@ -138,7 +148,7 @@ useBackInterceptor(ref(true), () => {
         <button class="cbtn cbtn--danger" @click="countdown.stop()">Stop</button>
       </template>
       <template v-else>
-        <button class="cbtn cbtn--primary cbtn--wide" @click="preset && countdown.start(preset)">
+        <button class="cbtn cbtn--primary cbtn--wide" @click="preset && begin(preset)">
           Again
         </button>
         <button class="cbtn cbtn--secondary cbtn--wide" @click="countdown.stop()">

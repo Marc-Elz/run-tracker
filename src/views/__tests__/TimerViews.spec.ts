@@ -6,6 +6,12 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 const speak = vi.hoisted(() => vi.fn<(t: string) => Promise<void>>(async () => {}))
 vi.mock('@/lib/speech', () => ({ speak, isSpeaking: () => false }))
 vi.mock('@/lib/haptics', () => ({ vibrateStepChange: async () => {} }))
+const notifications = vi.hoisted(() => vi.fn<() => Promise<boolean>>(async () => true))
+vi.mock('@/lib/runPower', () => ({
+  ensureNotifications: notifications,
+  keepWebViewAlive: async () => {},
+  timerService: async () => {},
+}))
 
 import { routes } from '@/router'
 import { useTrainingStore } from '@/stores/training'
@@ -54,6 +60,7 @@ describe('exercise timer screens', () => {
     vi.stubGlobal('localStorage', memoryStorage())
     setTimerPresets([])
     speak.mockClear()
+    notifications.mockClear()
   })
 
   it('has a Timer entry on the Training tab, also when programs fail to load', async () => {
@@ -76,6 +83,11 @@ describe('exercise timer screens', () => {
     expect(wrapper.get('.countdown__time').text()).toBe('2:00')
     expect(wrapper.get('.countdown__phase').text()).toBe('2 minutes')
     expect(speak).toHaveBeenCalledWith('Go')
+    // Asked first, so the timer service's notification can show
+    expect(notifications).toHaveBeenCalledOnce()
+    expect(notifications.mock.invocationCallOrder[0]!).toBeLessThan(
+      speak.mock.invocationCallOrder[0]!,
+    )
     wrapper.unmount()
   })
 
