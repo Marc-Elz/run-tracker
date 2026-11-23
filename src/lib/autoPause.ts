@@ -123,6 +123,18 @@ function moveSpeed(fixes: readonly Fix[], config: AutoPauseConfig): number | nul
   return Math.max(doppler, fromPositions ?? 0)
 }
 
+/**
+ * A recent fix whose GPS speed reading says running: a still phone alone does not stop the run
+ * then (a phone on a mount or in a pushchair). The reading, not positions, as it hardly drifts.
+ * Without that guard the still phone would also veto every resume, and the rest of the run's
+ * fixes would be held back.
+ */
+function gpsSaysMoving(state: AutoPauseState, at: number, config: AutoPauseConfig): boolean {
+  const last = state.fixes[state.fixes.length - 1]
+  if (!last || at - last.at > config.gapS * 1000) return false
+  return (last.point.speed ?? 0) >= config.resumeSpeedMps
+}
+
 /** The motion level when it is recent enough to count, else null (no sensor, or it went quiet) */
 function freshMotion(state: AutoPauseState, at: number, config: AutoPauseConfig): number | null {
   if (!state.motion || at - state.motion.at > config.motionStaleS * 1000) return null
@@ -138,7 +150,8 @@ const usable = (p: TrackPoint) => p.accuracy === undefined || p.accuracy <= MAX_
 
 /**
  * Feed one input (a fix or a motion level); returns the next state and `stop`, `resume` or null.
- * Stop: standing (GPS) or a still phone, for `stopHoldS`. Resume: moving (GPS), away from where
+ * Stop: standing (GPS), or a still phone while the GPS speed reading is not at running pace, for
+ * `stopHoldS`. Resume: moving (GPS), away from where
  * the run stopped, and the phone not still, for `resumeHoldS`.
  */
 export function nextAutoPause(
@@ -207,8 +220,9 @@ function whileRunning(
 ): { state: AutoPauseState; event: AutoPauseEvent | null } {
   const at = input.at
   const motion = freshMotion(state, at, config)
-  const stillSince =
-    motion !== null && motion < config.stillMotion ? (state.stillSince ?? at) : null
+  // The still hold only counts while the GPS speed reading is not at running pace
+  const still = motion !== null && motion < config.stillMotion && !gpsSaysMoving(state, at, config)
+  const stillSince = still ? (state.stillSince ?? at) : null
   let { slowSince, armed } = state
   if (input.kind === 'fix') {
     const speed = stopSpeed(state.fixes, config)
