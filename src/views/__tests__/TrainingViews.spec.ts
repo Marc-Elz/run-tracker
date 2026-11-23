@@ -54,8 +54,8 @@ describe('training screens', () => {
     const id = await training.createProgram(half)
     await training.saveSession(id, { week: 1, type: 'easy', title: 'Easy', notes: null })
     const { wrapper } = await open('/training')
-    expect(wrapper.find('.row').text()).toContain('Half marathon')
-    expect(wrapper.find('.row').text()).toContain('Sub 2:00 · 3 weeks · 1 session')
+    expect(wrapper.find('.list .row').text()).toContain('Half marathon')
+    expect(wrapper.find('.list .row').text()).toContain('Sub 2:00 · 3 weeks · 1 session')
   })
 
   it('says so when the programs cannot be loaded', async () => {
