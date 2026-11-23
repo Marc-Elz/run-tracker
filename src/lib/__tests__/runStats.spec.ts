@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackPoint } from '../geo'
-import { MAX_ACCURACY_M, paceSecPerKm, step, summarizeTrack, windowPaceSecPerKm } from '../runStats'
+import {
+  acceptedPoints,
+  MAX_ACCURACY_M,
+  paceSecPerKm,
+  step,
+  summarizeTrack,
+  windowPaceSecPerKm,
+} from '../runStats'
 
 // Due north along a meridian: 0.0001 degrees of latitude is ~11.1 m
 const M_PER_UNIT = 11.1195
@@ -100,6 +107,52 @@ describe('summarizeTrack', () => {
     const { distanceM, movingMs } = summarizeTrack([first, second])
     expect(distanceM).toBeCloseTo(10 * M_PER_UNIT, 0)
     expect(movingMs).toBe(40_000)
+  })
+})
+
+describe('a bad first fix (#178)', () => {
+  // As on the device: the first fix 176 m off with 20 m accuracy, the real ones 0.3-1 s later
+  const bad = at(0, 16, 20)
+  const standing = [at(0.3, 0), at(1.3, 0.1), at(2.3, 0), at(3.3, 0.1)]
+
+  it('is dropped once 3 fixes agree without it, and the segment starts at the oldest of them', () => {
+    expect(acceptedPoints([bad, ...standing])).toEqual([standing[0]])
+  })
+
+  it('stays the anchor while fewer than 3 agree', () => {
+    expect(acceptedPoints([bad, ...standing.slice(0, 2)])).toEqual([bad])
+  })
+
+  it('costs no distance once the run moves on', () => {
+    const running = [at(7.3, 1), at(11.3, 2), at(15.3, 3)]
+    const { distanceM, movingMs } = summarizeTrack([[bad, ...standing, ...running]])
+    expect(distanceM).toBeCloseTo(3 * M_PER_UNIT, 0)
+    expect(movingMs).toBe(15_000) // 7 s from the last standing fix, then 2 x 4 s
+  })
+
+  it('counts the distance between the agreeing fixes', () => {
+    // Already running at 11 m per 4 s when the real fixes come in
+    const moving = [at(1, 0), at(5, 1), at(9, 2)]
+    expect(acceptedPoints([bad, ...moving])).toEqual(moving)
+    expect(summarizeTrack([[bad, ...moving]]).distanceM).toBeCloseTo(2 * M_PER_UNIT, 0)
+  })
+
+  it('needs the rejected fixes to agree with each other', () => {
+    // Jumping between two far-apart spots: nothing to trust over the first fix
+    const jumping = [at(1, 16), at(2, -16), at(3, 16), at(4, -16)]
+    expect(acceptedPoints([at(0, 0), ...jumping])).toEqual([at(0, 0)])
+  })
+
+  it('ignores inaccurate fixes between the agreeing ones', () => {
+    const noisy = [standing[0]!, at(0.8, 40, 60), standing[1]!, standing[2]!]
+    expect(acceptedPoints([bad, ...noisy])).toEqual([standing[0]])
+  })
+
+  it('does not apply mid-run: a jump after the second accepted fix is still dropped', () => {
+    const start = steady(3) // 0, 1, 2 units
+    const jump = [at(9, 30), at(10, 30), at(11, 30)]
+    const used = acceptedPoints([...start, ...jump, at(12, 3)])
+    expect(used).toEqual([...start, at(12, 3)])
   })
 })
 
