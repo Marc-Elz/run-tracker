@@ -15,6 +15,7 @@ import {
   runTitle,
 } from '@/lib/format'
 import { useBackInterceptor } from '@/composables/useBackButton'
+import { useLeaveScreen } from '@/composables/useLeaveScreen'
 import { buildGpx, gpxFileName } from '@/lib/gpx'
 import { shareGpx } from '@/lib/shareRun'
 import {
@@ -90,12 +91,6 @@ async function loadRun() {
   }
 }
 
-function goBack() {
-  // From History go back to it; right after Stop there is nothing useful behind, so the Run tab
-  if (window.history.state?.back) router.back()
-  else void router.replace({ name: 'run' })
-}
-
 async function startRename() {
   if (!record.value) return
   draft.value = record.value.name ?? ''
@@ -125,7 +120,9 @@ async function onSaveName() {
   }
 }
 
-// Android back closes the editor or the dialog first, then leaves the screen
+// ‹ and Android back go back to History or the routes map; right after Stop there is nothing
+// useful behind, so to the Run tab. Android back closes the editor or the dialog first.
+const goBack = useLeaveScreen(() => ({ name: 'run' }))
 useBackInterceptor(editing, cancelRename)
 useBackInterceptor(confirming, () => {
   if (!deleting.value) confirming.value = false

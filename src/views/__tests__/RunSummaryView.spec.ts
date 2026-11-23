@@ -217,6 +217,20 @@ describe('RunSummaryView', () => {
     expect((await repo.getRun('r1'))?.name).toBeNull()
   })
 
+  it('goes back in history, or to the Run tab right after Stop', async () => {
+    window.history.replaceState({ back: '/history' }, '')
+    const fromHistory = (await open()).wrapper
+    await button(fromHistory, '‹ Back')!.trigger('click')
+    expect(nav.back).toHaveBeenCalled()
+    expect(nav.replace).not.toHaveBeenCalled()
+
+    window.history.replaceState({}, '')
+    const afterStop = (await open()).wrapper
+    await button(afterStop, '‹ Back')!.trigger('click')
+    expect(nav.replace).toHaveBeenCalledWith({ name: 'run' })
+    expect(nav.back).toHaveBeenCalledOnce()
+  })
+
   it('says so when the run does not exist', async () => {
     const { wrapper } = await open(false)
     expect(wrapper.text()).toContain('Run not found')
