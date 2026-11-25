@@ -31,6 +31,7 @@ const finished = (
   movingMs: 60_000,
   distanceM,
   sessionId: null,
+  recordingLostAt: null,
 })
 
 const mountView = async () => {

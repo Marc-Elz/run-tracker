@@ -12,6 +12,8 @@ const props = defineProps<{
   pauses?: Pick<PauseRow, 'position' | 'spot'>[]
   /** The pause shown: its dot is larger and the map centres on it */
   selected?: number | null
+  /** Where recording stopped because the app was killed (#81), null when nothing was lost */
+  lostSpot?: LngLat | null
 }>()
 const emit = defineEmits<{ 'select-pause': [position: number] }>()
 
@@ -68,6 +70,21 @@ function pauseData() {
   }
 }
 
+function lostData() {
+  return {
+    type: 'FeatureCollection' as const,
+    features: props.lostSpot
+      ? [
+          {
+            type: 'Feature' as const,
+            properties: {},
+            geometry: { type: 'Point' as const, coordinates: props.lostSpot },
+          },
+        ]
+      : [],
+  }
+}
+
 function drawRoute() {
   if (!map || !map.isStyleLoaded() || map.getSource('route')) return
   const { line, ends } = routeData()
@@ -91,6 +108,20 @@ function drawRoute() {
       'circle-color': '#ff7a1a',
       'circle-stroke-color': '#ffffff',
       'circle-stroke-width': ['case', ['get', 'selected'], 3, 2],
+    },
+  })
+  // Recording lost (#81): a dark ring in the warning colours, larger than the end dot so it still
+  // shows when recording never came back and both sit on the last fix
+  map.addSource('route-lost', { type: 'geojson', data: lostData() })
+  map.addLayer({
+    id: 'route-lost',
+    type: 'circle',
+    source: 'route-lost',
+    paint: {
+      'circle-radius': 12,
+      'circle-color': '#2a2f36',
+      'circle-stroke-color': '#ffe2b8',
+      'circle-stroke-width': 3,
     },
   })
   map.addLayer({

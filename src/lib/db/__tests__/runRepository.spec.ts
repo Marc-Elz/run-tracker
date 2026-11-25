@@ -18,6 +18,7 @@ const runRecord = (
   movingMs: 0,
   distanceM: 0,
   sessionId: null,
+  recordingLostAt: null,
 })
 
 describe('memory run repository', () => {

@@ -24,6 +24,11 @@ export interface RunRecord {
   distanceM: number
   /** The training session the run was started from (#40), null for a free run */
   sessionId: string | null
+  /**
+   * Phone clock, ms: the last stored fix of a run the app was killed in while it was recording
+   * (#81), so the summary can say recording stopped early. Null when nothing was lost.
+   */
+  recordingLostAt: number | null
 }
 
 export interface StoredPoint extends TrackPoint {

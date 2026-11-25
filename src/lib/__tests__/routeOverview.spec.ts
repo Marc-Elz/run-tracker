@@ -20,6 +20,7 @@ const run = (
   movingMs: 0,
   distanceM: 0,
   sessionId: null,
+  recordingLostAt: null,
 })
 
 // A straight run north: a fix every ~11 m, ten seconds apart (a believable pace)

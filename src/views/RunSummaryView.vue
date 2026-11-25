@@ -27,6 +27,7 @@ import {
 } from '@/lib/runSummary'
 import type { RunRecord, StoredPoint } from '@/lib/db/runRepository'
 import { pauseList, type PauseRow } from '@/lib/runPauses'
+import { recordingGap } from '@/lib/lostRecording'
 
 const run = useRunStore()
 const route = useRoute()
@@ -63,6 +64,13 @@ const renameFailed = ref(false)
 const nameInput = ref<HTMLInputElement | null>(null)
 
 const id = computed(() => String(route.params.id))
+
+// Recording stopped early because the app was killed (#81): when, until when, and where
+const gap = computed(() =>
+  record.value
+    ? recordingGap(record.value.recordingLostAt, toSegments(points.value, record.value.segment))
+    : null,
+)
 
 async function loadRun() {
   load.value = { state: 'loading' }
@@ -215,11 +223,22 @@ onMounted(loadRun)
         </p>
       </div>
 
+      <p v-if="gap" class="notice" role="note">
+        <template v-if="gap.to === null">
+          Recording stopped at {{ formatClock(gap.from) }}: the app was closed.
+        </template>
+        <template v-else>
+          No recording from {{ formatClock(gap.from) }} to {{ formatClock(gap.to) }}: the app was
+          closed.
+        </template>
+      </p>
+
       <div ref="mapBox">
         <RouteMap
           :route="summary"
           :pauses="pauses.rows"
           :selected="selectedPause"
+          :lost-spot="gap?.spot ?? null"
           @select-pause="selectPause"
         />
       </div>

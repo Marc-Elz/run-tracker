@@ -25,6 +25,7 @@ export function toRunRecord(row: Row): RunRecord {
     distanceM: Number(row.distance_m),
     sessionId:
       row.session_id === null || row.session_id === undefined ? null : String(row.session_id),
+    recordingLostAt: optional(row.recording_lost_at) ?? null,
   }
 }
 
@@ -130,8 +131,9 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
       const now = Date.now()
       await db.run(
         `INSERT INTO runs (id, status, started_at, finished_at, elapsed_ms, segment,
-          segment_started_at, moving_ms, distance_m, created_at, updated_at, session_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SESSION_LINK})`,
+          segment_started_at, moving_ms, distance_m, created_at, updated_at, recording_lost_at,
+          session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SESSION_LINK})`,
         [
           run.id,
           run.status,
@@ -144,6 +146,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
           run.distanceM,
           now,
           now,
+          run.recordingLostAt,
           run.sessionId,
         ],
       )
@@ -154,7 +157,8 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
     async updateRun(run) {
       await db.run(
         `UPDATE runs SET status = ?, finished_at = ?, elapsed_ms = ?, segment = ?,
-          segment_started_at = ?, moving_ms = ?, distance_m = ?, updated_at = ?
+          segment_started_at = ?, moving_ms = ?, distance_m = ?, recording_lost_at = ?,
+          updated_at = ?
          WHERE id = ?`,
         [
           run.status,
@@ -164,6 +168,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
           run.segmentStartedAt,
           run.movingMs,
           run.distanceM,
+          run.recordingLostAt,
           Date.now(),
           run.id,
         ],
@@ -226,8 +231,9 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
         [
           {
             statement: `INSERT INTO runs (id, name, status, started_at, finished_at, elapsed_ms,
-              segment, segment_started_at, moving_ms, distance_m, created_at, updated_at, session_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SESSION_LINK})`,
+              segment, segment_started_at, moving_ms, distance_m, created_at, updated_at,
+              recording_lost_at, session_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SESSION_LINK})`,
             values: [
               run.id,
               run.name,
@@ -241,6 +247,7 @@ export function createSqliteRunRepository(db: SqlConnection): RunRepository {
               run.distanceM,
               now,
               now,
+              run.recordingLostAt,
               run.sessionId,
             ],
           },

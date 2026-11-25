@@ -5,6 +5,7 @@ import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
 import type { RunRecord } from '@/lib/db/runRepository'
 import { useRunStore } from '@/stores/run'
 import { useTrainingStore } from '@/stores/training'
+import { formatClock } from '@/lib/format'
 import type { SessionStep } from '@/lib/training'
 import RunSummaryView from '../RunSummaryView.vue'
 
@@ -25,10 +26,10 @@ vi.mock('@/lib/shareRun', () => share)
 
 // MapLibre needs WebGL, which jsdom does not have; the map has its own checks in the browser
 const RouteMap = {
-  props: ['route', 'pauses', 'selected'],
+  props: ['route', 'pauses', 'selected', 'lostSpot'],
   emits: ['select-pause'],
   template: `<div>
-    <div class="map-stub" :data-pauses="(pauses ?? []).length" :data-selected="selected">{{ route.lines.length }}</div>
+    <div class="map-stub" :data-pauses="(pauses ?? []).length" :data-selected="selected" :data-lost="lostSpot ? lostSpot.join(',') : ''">{{ route.lines.length }}</div>
     <button class="dot-stub" @click="$emit('select-pause', 1)">dot</button>
   </div>`,
 }
@@ -45,6 +46,7 @@ const record: RunRecord = {
   movingMs: 3000,
   distanceM: 33,
   sessionId: null,
+  recordingLostAt: null,
 }
 
 const button = (wrapper: ReturnType<typeof mount>, label: string) =>
@@ -154,6 +156,34 @@ describe('RunSummaryView', () => {
     it('has no auto-pause section for a run without any', async () => {
       const { wrapper } = await open()
       expect(wrapper.find('[aria-label="Auto-pauses"]').exists()).toBe(false)
+    })
+  })
+
+  describe('recording lost (#81)', () => {
+    it('says when recording stopped and marks the spot on the map', async () => {
+      const { repo, wrapper: plain } = await open()
+      expect(plain.find('[role="note"]').exists()).toBe(false)
+      expect(plain.find('.map-stub').attributes('data-lost')).toBe('')
+      plain.unmount()
+
+      await repo.updateRun({ ...record, recordingLostAt: 6000 })
+      const wrapper = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      expect(wrapper.find('[role="note"]').text()).toBe(
+        `Recording stopped at ${formatClock(6000)}: the app was closed.`,
+      )
+      expect(wrapper.find('.map-stub').attributes('data-lost')).toBe(`4,${52 + 3 * 0.0001}`)
+    })
+
+    it('gives the gap when the run was resumed after it', async () => {
+      const { repo } = await open()
+      await repo.addPoint('r1', 1, { lat: 52.001, lon: 4, timestamp: 600_000, accuracy: 5 })
+      await repo.updateRun({ ...record, segment: 1, recordingLostAt: 6000 })
+      const wrapper = mount(RunSummaryView, { global: { stubs: { RouteMap } } })
+      await flushPromises()
+      expect(wrapper.find('[role="note"]').text()).toBe(
+        `No recording from ${formatClock(6000)} to ${formatClock(600_000)}: the app was closed.`,
+      )
     })
   })
 
