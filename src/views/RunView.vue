@@ -13,7 +13,8 @@ import { usePaceCoach } from '@/composables/usePaceCoach'
 import { useAutoPause } from '@/composables/useAutoPause'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import SessionPicker from '@/components/SessionPicker.vue'
-import { autoPause, cueConfig, slowestRunPace, stepCoaching } from '@/lib/settings'
+import { autoPause, cueConfig, slowestRunPace, slowestWalk, stepCoaching } from '@/lib/settings'
+import { effectiveWalkFloor, type WalkSuggestion } from '@/lib/walkPace'
 import { GpsError, openAppSettings, startGps, usesSimulatedGps, type GpsFailure } from '@/lib/gps'
 import { simulatedStandStill, watchSimulatedMotion } from '@/lib/simulateGps'
 import {
@@ -39,6 +40,7 @@ const route = useRoute()
 const {
   status,
   pauseKind,
+  runId,
   sessionId,
   hasFix,
   recovered,
@@ -102,9 +104,33 @@ useStepCues(
   stepTimeline,
   computed(() => stepCoaching.value !== 'off'),
 )
+// The walk pace suggestion (#153), loaded once per session run, so a walk saved mid-run does not
+// move the floor. A typed pace or a switch in Settings still applies at once.
+const walkSuggestion = ref<WalkSuggestion | null>(null)
+let walkSuggestionRun: string | null = null
+watch(
+  [runId, sessionId, () => stepCoaching.value === 'pace' && slowestWalk.value.on],
+  async ([id, session, wanted]) => {
+    if (id !== walkSuggestionRun) walkSuggestion.value = null
+    if (id === null || session === null || !wanted || id === walkSuggestionRun) return
+    walkSuggestionRun = id
+    try {
+      const found = await run.loadWalkSuggestion()
+      if (runId.value === id) walkSuggestion.value = found
+    } catch (err) {
+      console.warn('[db] could not load recent walks', err)
+    }
+  },
+  { immediate: true },
+)
 usePaceCoach(
   computed(() => stepCoaching.value === 'pace'),
   slowestRunPace,
+  {
+    floor: computed(() => effectiveWalkFloor(slowestWalk.value, walkSuggestion.value).floor),
+    sessionType: computed(() => linked.value?.session.type ?? null),
+    breaks: computed(() => slowestWalk.value.breaks),
+  },
 )
 const isDev = import.meta.env.DEV
 const simulate = ref(isDev)

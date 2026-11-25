@@ -37,6 +37,11 @@ export function formatRunDate(ms: number): string {
   })
 }
 
+/** Epoch ms -> "2 Nov" in the phone's time zone. */
+export function formatDayMonth(ms: number): string {
+  return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+
 /** Longest name a run can be given */
 export const MAX_RUN_NAME_LENGTH = 60
 

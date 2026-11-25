@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
@@ -11,10 +11,13 @@ import {
   autoPause,
   setAutoPause,
   setSlowestRunPace,
+  setSlowestWalk,
   setStepCoaching,
   slowestRunPace,
+  slowestWalk,
   stepCoaching,
 } from '@/lib/settings'
+import type { RunStep } from '@/lib/stepProgress'
 import SettingsView from '../SettingsView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -211,6 +214,117 @@ describe('SettingsView', () => {
     expect(off!.attributes('aria-pressed')).toBe('true')
     await on!.trigger('click')
     expect(autoPause.value).toBe(true)
+  })
+
+  describe('slowest walk (#153)', () => {
+    const DAY = 86_400_000
+    /** A finished run `daysAgo` with one 10-minute walk step at 10:00 /km */
+    async function addWalk(id: string, daysAgo: number) {
+      const startedAt = Date.now() - daysAgo * DAY
+      const walk: RunStep = {
+        position: 0,
+        kind: 'walk',
+        targetKind: 'duration',
+        targetValue: 600,
+        paceMin: null,
+        paceMax: null,
+        repetition: null,
+        repetitions: null,
+        startedElapsedMs: 0,
+        startedDistanceM: 0,
+        endedElapsedMs: 600_000,
+        endedDistanceM: 1000,
+      }
+      await useRunStore().importRun(
+        {
+          id,
+          name: null,
+          status: 'finished',
+          startedAt,
+          finishedAt: startedAt + 600_000,
+          elapsedMs: 600_000,
+          segment: 0,
+          segmentStartedAt: null,
+          movingMs: 600_000,
+          distanceM: 1000,
+          sessionId: 's1',
+        },
+        [],
+        [walk],
+      )
+    }
+    const field = (wrapper: ReturnType<typeof mount>) =>
+      wrapper.get<HTMLInputElement>('input[aria-label="Slowest walk pace"]')
+
+    beforeEach(() => {
+      setStepCoaching('pace')
+      setSlowestWalk({ on: true, typed: null, breaks: false })
+    })
+
+    afterEach(() => {
+      setStepCoaching('steps')
+      setSlowestWalk({ on: false, typed: null, breaks: false })
+    })
+
+    it('shows only with Steps + pace, and Off hides the pace', async () => {
+      setStepCoaching('steps')
+      const wrapper = await open(null)
+      expect(wrapper.find('[aria-label="Slowest walk pace"]').exists()).toBe(false)
+      setStepCoaching('pace')
+      await flushPromises()
+      const group = wrapper.get('[role="group"][aria-label="Slowest walk"]')
+      expect(group.findAll('button').map((b) => b.text())).toEqual(['Off', 'On'])
+      await group.findAll('button')[0]!.trigger('click')
+      expect(slowestWalk.value.on).toBe(false)
+      expect(wrapper.find('input[aria-label="Slowest walk pace"]').exists()).toBe(false)
+    })
+
+    it('says what is missing when there is no suggestion yet', async () => {
+      const wrapper = await open(null)
+      expect(wrapper.text()).toContain(
+        'No suggestion yet: needs 2 walks with 10 min of walk steps (so far 0 walks, 0 min). Type a pace to start.',
+      )
+    })
+
+    it('shows the suggestion as the placeholder and what it is based on', async () => {
+      await addWalk('a', 1)
+      await addWalk('b', 2)
+      const wrapper = await open(null)
+      expect(field(wrapper).attributes('placeholder')).toBe('10:30')
+      expect(wrapper.text()).toMatch(/Suggested 10:30, from 2 walks since \d{1,2} \w{3}/)
+      expect(button(wrapper, 'Use')).toBeUndefined() // nothing typed: it is already the floor
+    })
+
+    it('saves a typed pace, offers a different suggestion with Use, and clears', async () => {
+      await addWalk('a', 1)
+      await addWalk('b', 2)
+      const wrapper = await open(null)
+      await field(wrapper).setValue('11:00')
+      expect(slowestWalk.value.typed).toBe(660)
+      await button(wrapper, 'Use')!.trigger('click')
+      expect(slowestWalk.value.typed).toBe(630)
+      expect(field(wrapper).element.value).toBe('10:30')
+      expect(button(wrapper, 'Use')).toBeUndefined()
+      await button(wrapper, 'Clear')!.trigger('click')
+      expect(slowestWalk.value.typed).toBeNull()
+      expect(field(wrapper).element.value).toBe('')
+    })
+
+    it('does not save an invalid or out-of-range pace', async () => {
+      setSlowestWalk({ on: true, typed: 630, breaks: false })
+      const wrapper = await open(null)
+      for (const text of ['abc', '5:30', '21:00']) {
+        await field(wrapper).setValue(text)
+        expect(slowestWalk.value.typed).toBe(630)
+        expect(wrapper.text()).toContain('Enter a pace from 6:00 to 20:00 per km')
+      }
+    })
+
+    it('switches the run/walk breaks on', async () => {
+      const wrapper = await open(null)
+      await wrapper.get('input[type="checkbox"]').setValue(true)
+      expect(slowestWalk.value.breaks).toBe(true)
+    })
   })
 
   describe('backup', () => {
