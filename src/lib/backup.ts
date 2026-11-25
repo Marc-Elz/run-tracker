@@ -28,6 +28,8 @@ import {
  * run; files made before them have none, which reads as an empty list. A run's `pauses` (#154)
  * are its auto-pauses, written only when it has some; missing reads as none. A program's `skipped`
  * (#102) lists its skipped session ids; files made before it have none, which reads as no skips.
+ * A run's `recordingLostAt` (#81) marks where recording stopped early; files made before it have
+ * none, which reads as null, and older apps ignore it.
  * Version 1 is the same without `programs`, and is
  * still read. The sync to the
  * home server (#24) builds on this format, so a change that old files cannot satisfy needs a new
@@ -150,9 +152,11 @@ function toPoint(raw: unknown): StoredPoint | null {
 function toRun(raw: unknown): RunRecord | null {
   if (!isObject(raw)) return null
   const { id, name, startedAt, finishedAt, elapsedMs, segment, movingMs, distanceM } = raw
-  const { sessionId } = raw
+  const { sessionId, recordingLostAt } = raw
   if (typeof id !== 'string' || id === '') return null
   if (sessionId !== undefined && sessionId !== null && !isId(sessionId)) return null
+  if (recordingLostAt !== undefined && recordingLostAt !== null && !isNumber(recordingLostAt))
+    return null
   if (name !== null && typeof name !== 'string') return null
   if (!isNumber(startedAt) || !isNumber(finishedAt)) return null
   if (!isCount(segment)) return null
@@ -170,6 +174,7 @@ function toRun(raw: unknown): RunRecord | null {
     movingMs,
     distanceM,
     sessionId: isId(sessionId) ? sessionId : null,
+    recordingLostAt: isNumber(recordingLostAt) ? recordingLostAt : null,
   }
 }
 

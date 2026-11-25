@@ -15,6 +15,7 @@ import {
   type RunPause,
 } from '@/lib/runPauses'
 import { createMemoryRunRepository } from '@/lib/db/memoryRunRepository'
+import { lostRecordingAt } from '@/lib/lostRecording'
 
 export type RunStatus = 'idle' | 'running' | 'paused' | 'finished'
 /** Why a run is paused: the Pause button, or auto-pause (#154) waiting for the runner to move */
@@ -55,6 +56,8 @@ export const useRunStore = defineStore('run', () => {
   const runSteps = ref<RunStep[]>([])
   // Brought back after the app was killed mid-run; cleared on resume
   const recovered = ref(false)
+  // When recording stopped early because the app was killed (#81); kept through a resume
+  const recordingLostAt = ref<number | null>(null)
   // A write to the database failed: the run goes on, but may not survive the app closing
   const saveError = ref(false)
   // Raw fixes per running segment (start/resume to pause), inaccurate ones included
@@ -113,6 +116,7 @@ export const useRunStore = defineStore('run', () => {
       movingMs: movingMs.value,
       distanceM: distanceM.value,
       sessionId: sessionId.value,
+      recordingLostAt: recordingLostAt.value,
     }
   }
 
@@ -348,6 +352,7 @@ export const useRunStore = defineStore('run', () => {
     startedAt.value = null
     finishedAt.value = null
     recovered.value = false
+    recordingLostAt.value = null
     saveError.value = false
     segments.value = []
     segmentAccepted.value = []
@@ -365,8 +370,7 @@ export const useRunStore = defineStore('run', () => {
   }
 
   /** A pause left open when the app was killed ends where the run moved on (`killedPauseEnd`) */
-  async function closeKilledPauses(id: string, segments: TrackPoint[][]) {
-    const stored = await repo.loadPauses(id)
+  async function closeKilledPauses(id: string, segments: TrackPoint[][], stored: RunPause[]) {
     const closed: RunPause[] = []
     for (const p of stored) {
       if (p.endedAt !== null) {
@@ -382,7 +386,8 @@ export const useRunStore = defineStore('run', () => {
 
   /**
    * Bring back a run the app was killed in, paused, with totals recomputed from its raw points.
-   * Older unfinished runs (repeated crashes) are saved as finished.
+   * Older unfinished runs (repeated crashes) are saved as finished. Both are marked with where
+   * recording stopped when they were killed while recording (#81).
    */
   async function recover() {
     if (status.value !== 'idle') return
@@ -398,10 +403,14 @@ export const useRunStore = defineStore('run', () => {
         distanceM: totals.distanceM,
       })
       if (open) await repo.saveStepChange(run.id, open, [])
-      await closeKilledPauses(run.id, restored)
+      const stored = await repo.loadPauses(run.id)
+      // Read before the open pause is closed: an open auto-pause means it was still recording
+      const lost = lostRecordingAt(run, stored, restored) ?? run.recordingLostAt
+      await closeKilledPauses(run.id, restored, stored)
       await repo.updateRun({
         ...run,
         ...totals,
+        recordingLostAt: lost,
         status: 'finished',
         elapsedMs: elapsed,
         segmentStartedAt: null,
@@ -413,7 +422,10 @@ export const useRunStore = defineStore('run', () => {
     const restored = toSegments(await repo.loadPoints(latest.id), latest.segment)
     const totals = summarizeTrack(restored)
     const steps = await repo.loadRunSteps(latest.id)
-    runPauses.value = await closeKilledPauses(latest.id, restored)
+    const stored = await repo.loadPauses(latest.id)
+    // A second recovery of the same run finds it paused: then the earlier loss is kept
+    recordingLostAt.value = lostRecordingAt(latest, stored, restored) ?? latest.recordingLostAt
+    runPauses.value = await closeKilledPauses(latest.id, restored, stored)
     runId.value = latest.id
     sessionId.value = latest.sessionId
     runSteps.value = steps

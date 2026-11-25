@@ -187,6 +187,10 @@ CREATE INDEX runs_session ON runs (session_id);
   PRIMARY KEY (run_id, position)
 );
 `,
+  // Where recording stopped early (#81): the last stored fix of a run the app was killed in while
+  // it was recording, NULL when nothing was lost. Existing runs stay NULL.
+  `ALTER TABLE runs ADD COLUMN recording_lost_at INTEGER;
+`,
 ]
 
 export async function schemaVersion(db: SqlDb): Promise<number> {

@@ -192,6 +192,7 @@ describe('RunView', () => {
       movingMs: 0,
       distanceM: 0,
       sessionId: null,
+      recordingLostAt: null,
     })
     await repo.addPoint('r1', 0, { lat: 52, lon: 4, timestamp: 1000, accuracy: 5 })
     const run = useRunStore()

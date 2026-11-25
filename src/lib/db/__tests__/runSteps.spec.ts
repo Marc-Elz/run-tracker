@@ -19,6 +19,7 @@ const run = (id: string, over: Partial<RunRecord> = {}): RunRecord => ({
   movingMs: 0,
   distanceM: 0,
   sessionId: null,
+  recordingLostAt: null,
   ...over,
 })
 
@@ -150,8 +151,12 @@ describe.skipIf(!nodeSqlite)('run steps on real SQLite', () => {
       notes: null,
     })
     const runs = createSqliteRunRepository(db)
-    // The run steps methods are not used before the migration: v5 had no such table
-    await runs.createRun(run('r', { sessionId: 's' }))
+    // Written with the v5 columns: today's repository writes columns added later (#81). The run
+    // steps methods are not used before the migration: v5 had no such table
+    await db.run(
+      `INSERT INTO runs (id, status, started_at, elapsed_ms, segment, moving_ms, distance_m,
+        created_at, updated_at, session_id) VALUES ('r', 'running', 1, 0, 0, 0, 0, 1, 1, 's')`,
+    )
     await runs.addPoint('r', 0, { lat: 52, lon: 4, timestamp: 2 })
     const programs = await programSnapshot(training)
 

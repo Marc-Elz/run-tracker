@@ -163,6 +163,7 @@ describe('run store persistence', () => {
         movingMs: 1,
         distanceM: 1,
         sessionId: 's1',
+        recordingLostAt: null,
       },
       [],
     )
@@ -524,5 +525,114 @@ describe('run store persistence', () => {
     expect(run.runSteps).toEqual([])
     await settle()
     expect(await repo.loadRunSteps(id)).toEqual([])
+  })
+
+  describe('recording lost marker (#81)', () => {
+    /** Started at 0, last fix at 60 s, then the app is killed */
+    function killedRunning() {
+      vi.setSystemTime(0)
+      const run = store()
+      run.start(0)
+      run.addPoint(at(1_000, 0))
+      run.addPoint(at(60_000, 0.002))
+      return run.runId!
+    }
+
+    it('marks a run killed while running at its last stored fix, kept through Stop', async () => {
+      const id = killedRunning()
+      await settle()
+      const again = relaunch()
+      vi.setSystemTime(900_000)
+      await again.recover()
+      await settle()
+      expect((await repo.findUnfinished())[0]?.recordingLostAt).toBe(60_000)
+      expect(await again.finish(900_000)).toBe(id)
+      expect((await repo.getRun(id))?.recordingLostAt).toBe(60_000)
+    })
+
+    it('keeps the marker when the recovered run is resumed, and through a second recovery', async () => {
+      const id = killedRunning()
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      await settle()
+      // Killed again while still paused after the first recovery: nothing new was lost
+      const third = relaunch()
+      await third.recover()
+      third.resume(600_000)
+      third.addPoint(at(601_000, 0.003))
+      await third.finish(700_000)
+      expect((await repo.getRun(id))?.recordingLostAt).toBe(60_000)
+    })
+
+    it('a later kill while recording replaces the marker', async () => {
+      const id = killedRunning()
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      again.resume(600_000)
+      again.addPoint(at(601_000, 0.003))
+      await settle()
+      const third = relaunch()
+      await third.recover()
+      await third.finish(700_000)
+      expect((await repo.getRun(id))?.recordingLostAt).toBe(601_000)
+    })
+
+    it('leaves a run killed during a manual pause unmarked', async () => {
+      vi.setSystemTime(0)
+      const run = store()
+      run.start(0)
+      run.addPoint(at(1_000, 0))
+      run.pause(5_000)
+      const id = run.runId!
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      await again.finish(50_000)
+      expect((await repo.getRun(id))?.recordingLostAt).toBeNull()
+    })
+
+    it('marks a run killed while auto-paused where the pause began', async () => {
+      vi.setSystemTime(0)
+      const run = store()
+      run.start(0)
+      run.addPoint(at(1_000, 0))
+      run.addPoint(at(10_000, 0.0003))
+      run.autoPause(14_000)
+      const id = run.runId!
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      await again.finish(50_000)
+      expect((await repo.getRun(id))?.recordingLostAt).toBe(14_000)
+    })
+
+    it('marks an older unfinished run that recovery finishes', async () => {
+      const oldId = killedRunning()
+      await settle()
+      // A second run started and killed later; the first is now the older one
+      setActivePinia(createPinia())
+      const second = store()
+      second.start(100_000)
+      second.addPoint(at(101_000, 0))
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      await settle()
+      expect((await repo.getRun(oldId))?.recordingLostAt).toBe(60_000)
+    })
+
+    it('a new run after a marked one starts unmarked', async () => {
+      killedRunning()
+      await settle()
+      const again = relaunch()
+      await again.recover()
+      await again.finish(100_000)
+      again.start(200_000)
+      const id = again.runId!
+      await settle()
+      expect((await repo.getRun(id))?.recordingLostAt).toBeNull()
+    })
   })
 })

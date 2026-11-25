@@ -51,6 +51,7 @@ const finished = (id: string, startedAt: number): RunRecord => ({
   movingMs: 10,
   distanceM: 5,
   sessionId: null,
+  recordingLostAt: null,
 })
 const point = (timestamp: number) => ({ segment: 0, timestamp, lat: 1, lon: 2 })
 

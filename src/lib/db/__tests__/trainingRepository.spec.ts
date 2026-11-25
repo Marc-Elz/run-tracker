@@ -62,6 +62,7 @@ const oldRun = (id: string): RunRecord => ({
   movingMs: 1,
   distanceM: 10,
   sessionId: null,
+  recordingLostAt: null,
 })
 
 /** Writes `oldRun(id)` and one point with the columns every schema version has */
@@ -361,8 +362,10 @@ describe.skipIf(!nodeSqlite)('training tables on real SQLite', () => {
     await before.createProgram(program('p'))
     await before.saveSession(session('s', 'p'))
     await before.replaceSteps('s', [step('x', 's')])
+    // Written with the v7 columns: today's repository writes columns added later (#81)
+    await insertOldRun(db, 'r')
+    await db.run(`UPDATE runs SET session_id = 's' WHERE id = 'r'`)
     const runs = createSqliteRunRepository(db)
-    await runs.createRun({ ...oldRun('r'), sessionId: 's' })
     const snapshot = await programSnapshot(before)
 
     expect(await migrate(db)).toBe(MIGRATIONS.length)

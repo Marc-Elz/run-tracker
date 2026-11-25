@@ -17,6 +17,7 @@ const run = (id: string, over: Partial<RunRecord> = {}): RunRecord => ({
   movingMs: 55_000,
   distanceM: 150.5,
   sessionId: null,
+  recordingLostAt: null,
   ...over,
 })
 const point = (over: Partial<StoredPoint> = {}): StoredPoint => ({
@@ -99,6 +100,27 @@ describe('buildBackup and parseBackup', () => {
         { run: old, points: [] },
         { run: { ...old, id: 'c', sessionId: 7 }, points: [] },
       ],
+    })
+    const parsed = parseBackup(text)
+    expect(parsed.runs.map((r) => r.run)).toEqual([run('b')])
+    expect(parsed.rejected).toBe(1)
+  })
+
+  it('keeps where recording stopped early, and reads a run without it as unmarked (#81)', () => {
+    const marked = { run: run('a', { recordingLostAt: 1_500 }), points: [], steps: [], pauses: [] }
+    expect(parseBackup(buildBackup([marked], [], 0)).runs).toEqual([marked])
+
+    // Files made before #81 have no recordingLostAt at all; a non-number rejects the run
+    const { recordingLostAt: _, ...old } = run('b')
+    const text = JSON.stringify({
+      format: 'run-tracker-backup',
+      version: 2,
+      exportedAt: 0,
+      runs: [
+        { run: old, points: [] },
+        { run: { ...old, id: 'c', recordingLostAt: 'soon' }, points: [] },
+      ],
+      programs: [],
     })
     const parsed = parseBackup(text)
     expect(parsed.runs.map((r) => r.run)).toEqual([run('b')])
