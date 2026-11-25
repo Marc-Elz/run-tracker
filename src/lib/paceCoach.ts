@@ -35,6 +35,11 @@ export const PACE_COACH_CONFIG = {
    * in and out of range, and when it did the cue lagged the running by up to 25 s
    */
   backOnPaceS: 6,
+  /**
+   * Walk steps are judged by the GPS speed reading (#153) when the window holds at least this
+   * many readings per second of it; fewer (readings missing or a GPS gap) falls back to distance
+   */
+  minReadingsPerS: 0.5,
 }
 export type PaceCoachConfig = typeof PACE_COACH_CONFIG
 
@@ -43,9 +48,12 @@ export const PACE_PHRASES = {
   faster: 'Faster',
   slower: 'Slower',
   onPace: 'Back on pace',
+  /** Walk steps get their own lines, so a "Faster" there never reads as "run" (#153) */
+  walkFaster: 'Walk faster',
+  walkSlower: 'Walk slower',
 } as const
 export type PacePhrase = keyof typeof PACE_PHRASES
-type Correction = Exclude<PacePhrase, 'onPace'>
+type Correction = 'faster' | 'slower'
 
 /** Default for "Slowest run pace": slower than this on a run step without a pace is walking */
 export const DEFAULT_SLOWEST_RUN_PACE = 540
@@ -61,6 +69,13 @@ export interface PaceTarget {
 interface Sample {
   elapsedMs: number
   distanceM: number
+  /** GPS speed reading (m/s) of a fix that arrived at this moment, when it has one */
+  speedMps?: number
+}
+
+/** The open step's totals, plus the speed reading of a fix new since the last call */
+export interface PaceInput extends StepTotals {
+  speedMps?: number
 }
 
 export interface PaceCoachState {
@@ -80,7 +95,13 @@ export interface PaceCoachState {
 export interface PaceCue {
   key: PacePhrase
   text: string
+  /** The judged pace (s/km) and where it came from, for the log */
+  pace: number
+  source: SpeedSource
 }
+
+/** `gps`: the GPS speed reading, `distance`: distance over time */
+export type SpeedSource = 'gps' | 'distance'
 
 export function initPaceCoachState(position: number): PaceCoachState {
   return {
@@ -99,7 +120,8 @@ export function initPaceCoachState(position: number): PaceCoachState {
  * slowdown before the stop and call "Faster" at once. Timers between corrections are kept.
  */
 export function restartWindow(state: PaceCoachState, totals: StepTotals): PaceCoachState {
-  return { ...state, samples: [totals], off: null, onPaceSinceMs: null }
+  const start = { elapsedMs: totals.elapsedMs, distanceM: totals.distanceM }
+  return { ...state, samples: [start], off: null, onPaceSinceMs: null }
 }
 
 /**
@@ -141,8 +163,16 @@ function arrival(samples: readonly Sample[], i: number): number {
 export function addSample(samples: readonly Sample[], next: Sample, windowS: number): Sample[] {
   const last = samples[samples.length - 1]
   if (last && next.elapsedMs <= last.elapsedMs) {
-    // Same moment (a fix between timer ticks): keep the newest distance
-    return [...samples.slice(0, -1), { elapsedMs: last.elapsedMs, distanceM: next.distanceM }]
+    // Same moment (a fix between timer ticks): keep the newest distance and speed reading
+    const speedMps = next.speedMps ?? last.speedMps
+    return [
+      ...samples.slice(0, -1),
+      {
+        elapsedMs: last.elapsedMs,
+        distanceM: next.distanceM,
+        ...(speedMps !== undefined && { speedMps }),
+      },
+    ]
   }
   if (last) {
     // Measured from when the last distance came in, not from the last tick: a fix just after a
@@ -191,6 +221,28 @@ export function fixSpeed(samples: readonly Sample[], seconds: number): number | 
   return (b.distanceM - a.distanceM) / ((b.elapsedMs - a.elapsedMs) / 1000)
 }
 
+/**
+ * The mean GPS speed reading (m/s) over the last `seconds` (#153), or null until the samples
+ * cover all of it or with fewer readings than `minPerS` per second. Unlike distance, which grows
+ * in jumps of 5 m or more, the reading does not swing at walking speed: there 15 s holds only 3
+ * or 4 jumps, and one more or less moves the pace by about 4 min/km.
+ */
+export function gpsSpeed(
+  samples: readonly Sample[],
+  seconds: number,
+  minPerS: number,
+): number | null {
+  const last = samples[samples.length - 1]
+  if (!last) return null
+  const cutoff = last.elapsedMs - seconds * 1000
+  if (samples[0]!.elapsedMs > cutoff) return null
+  const readings = samples
+    .filter((s) => s.elapsedMs > cutoff && s.speedMps !== undefined)
+    .map((s) => s.speedMps!)
+  if (readings.length === 0 || readings.length < seconds * minPerS) return null
+  return readings.reduce((sum, v) => sum + v, 0) / readings.length
+}
+
 /** Within the warning lead of the step's end: the step warning is due, so stay quiet */
 function nearStepEnd(step: RunStep, totals: StepTotals): boolean {
   if (step.targetValue === null) return false
@@ -203,7 +255,18 @@ function nearStepEnd(step: RunStep, totals: StepTotals): boolean {
   return false
 }
 
-const cue = (key: PacePhrase): PaceCue => ({ key, text: PACE_PHRASES[key] })
+const cue = (key: PacePhrase, pace: number, source: SpeedSource): PaceCue => ({
+  key,
+  text: PACE_PHRASES[key],
+  pace,
+  source,
+})
+
+/** The line for a correction: walk steps say "Walk faster" / "Walk slower" (#153) */
+function correctionPhrase(step: Pick<RunStep, 'kind'>, key: Correction): PacePhrase {
+  if (step.kind !== 'walk') return key
+  return key === 'faster' ? 'walkFaster' : 'walkSlower'
+}
 
 /**
  * Feed the latest totals of the open step; returns the next state, and the line to say now or
@@ -212,7 +275,7 @@ const cue = (key: PacePhrase): PaceCue => ({ key, text: PACE_PHRASES[key] })
 export function nextPaceCue(
   prev: PaceCoachState | null,
   step: RunStep,
-  totals: StepTotals,
+  totals: PaceInput,
   floors: PaceFloors,
   speaking: boolean,
   config: PaceCoachConfig = PACE_COACH_CONFIG,
@@ -236,12 +299,24 @@ export function nextPaceCue(
 
   const target = paceTarget(step, floors)
   if (!target) return none
-  const speed = fixSpeed(state.samples, config.windowS)
-  const recent = windowSpeed(state.samples, config.recentS)
+  // Walk steps go by the GPS speed reading where there is enough of it (#153); run steps, and
+  // walks without readings, by distance over time
+  const perS = config.minReadingsPerS
+  const gps =
+    step.kind === 'walk'
+      ? {
+          speed: gpsSpeed(state.samples, config.windowS, perS),
+          recent: gpsSpeed(state.samples, config.recentS, perS),
+        }
+      : null
+  const source: SpeedSource = gps?.speed != null && gps.recent != null ? 'gps' : 'distance'
+  const speed = source === 'gps' ? gps!.speed : fixSpeed(state.samples, config.windowS)
+  const recent = source === 'gps' ? gps!.recent : windowSpeed(state.samples, config.recentS)
   if (speed === null || recent === null) {
     return { state: { ...state, off: null, onPaceSinceMs: null }, cue: null }
   }
-  // Standing at a crossing (or just stopped there): no corrections, and the wait starts over
+  // Standing at a crossing, or slowing down for one (under 1 m/s, 16:40 /km, is not walking
+  // pace any more): no corrections, and the wait starts over
   if (speed < MIN_MOVING_SPEED_MPS || recent < config.stoppedMps) {
     return { state: { ...state, off: null, onPaceSinceMs: null }, cue: null }
   }
@@ -262,7 +337,7 @@ export function nextPaceCue(
     if (last && now - last.atMs < wait * 1000) return { state: next, cue: null }
     return {
       state: { ...next, lastCorrection: { key, atMs: now }, owesOnPace: true },
-      cue: cue(key),
+      cue: cue(correctionPhrase(step, key), pace, source),
     }
   }
 
@@ -272,5 +347,8 @@ export function nextPaceCue(
   const onPaceSinceMs = state.onPaceSinceMs ?? now
   const next = { ...state, off: null, onPaceSinceMs }
   if (now - onPaceSinceMs < config.backOnPaceS * 1000 || quiet) return { state: next, cue: null }
-  return { state: { ...next, owesOnPace: false, onPaceSinceMs: null }, cue: cue('onPace') }
+  return {
+    state: { ...next, owesOnPace: false, onPaceSinceMs: null },
+    cue: cue('onPace', pace, source),
+  }
 }

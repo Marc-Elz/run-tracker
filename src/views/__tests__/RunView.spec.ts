@@ -683,22 +683,22 @@ describe('RunView', () => {
         setSlowestWalk({ on: false, typed: null, breaks: false })
       })
 
-      it('says "Faster" in a walk session once a walk slows below the suggested floor', async () => {
+      it('says "Walk faster" in a walk session once a walk slows below the suggested floor', async () => {
         await addWalks()
         await runSession([timed('walk', 600)], 'walk')
         // Fast walks saved mid-run would make the floor 7:10; it stays at 10:30 for this run
         await addWalks(400)
         await walkOn(40, 570) // brisk 9:30, under the 10:30 floor
-        expect(speech.speak).not.toHaveBeenCalledWith('Faster')
+        expect(speech.speak).not.toHaveBeenCalledWith('Walk faster')
         await walkOn(40, 720) // 12:00
-        expect(speech.speak).toHaveBeenCalledWith('Faster')
+        expect(speech.speak).toHaveBeenCalledWith('Walk faster')
       })
 
       it('leaves the walk breaks of a run/walk session alone unless asked', async () => {
         await addWalks()
         await runSession([timed('walk', 600)], 'runwalk')
         await walkOn(60, 720)
-        expect(speech.speak).not.toHaveBeenCalledWith('Faster')
+        expect(speech.speak).not.toHaveBeenCalledWith('Walk faster')
       })
     })
 

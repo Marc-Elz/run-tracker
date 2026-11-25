@@ -154,9 +154,9 @@ describe('usePaceCoach', () => {
       await go(run, 50, 720)
     }
 
-    it('says "Faster" on a walk step slower than the walk floor in a walk session', async () => {
+    it('says "Walk faster" on a walk step slower than the walk floor in a walk session', async () => {
       await stroll('walk')
-      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Faster')
+      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Walk faster')
     })
 
     it('coaches run/walk breaks only with "Also during run/walk breaks" on', async () => {
@@ -164,7 +164,7 @@ describe('usePaceCoach', () => {
       expect(speech.speak).not.toHaveBeenCalled()
       breaks.value = true
       await stroll('runwalk')
-      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Faster')
+      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Walk faster')
     })
 
     it('never uses the floor in other sessions', async () => {
@@ -181,7 +181,7 @@ describe('usePaceCoach', () => {
       run.runSteps = [{ ...walkStep, paceMin: 540, paceMax: 600 }]
       await nextTick()
       await go(run, 50, 480)
-      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Slower')
+      expect(speech.speak).toHaveBeenCalledExactlyOnceWith('Walk slower')
     })
   })
 })

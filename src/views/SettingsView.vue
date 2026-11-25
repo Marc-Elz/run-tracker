@@ -196,7 +196,7 @@ const COACHING_OPTIONS: { value: StepCoaching; label: string }[] = [
 ]
 const coachingHint = computed(() =>
   stepCoaching.value === 'pace'
-    ? 'Spoken steps and a vibration, plus "Faster" or "Slower" when you stay off a step\'s target pace. A run or walk step without a pace only hears "Faster" when slower than the pace above.'
+    ? 'Spoken steps and a vibration, plus "Faster" or "Slower" when you stay off a step\'s target pace ("Walk faster" or "Walk slower" on a walk step). A step without a pace only hears it when slower than its slowest pace.'
     : 'Spoken steps, warnings and a vibration in a training session.',
 )
 
